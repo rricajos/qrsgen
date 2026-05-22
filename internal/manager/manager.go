@@ -387,7 +387,7 @@ func (m *Manager) emitLifecycleWebhook(name string, ev wameow.LifecycleEvent, ji
 		m.logger.Warn("events webhook POST failed", "err", err, "url", url, "event", string(ev))
 		return
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode >= 400 {
 		m.logger.Warn("events webhook returned non-2xx", "status", res.StatusCode, "url", url)
 		return
@@ -549,7 +549,7 @@ func (m *Manager) emitCustomWebhook(name string, ev wameow.LifecycleEvent, extra
 		m.logger.Warn("custom webhook POST failed", "err", err, "event", string(ev))
 		return
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode >= 400 {
 		m.logger.Warn("custom webhook non-2xx", "status", res.StatusCode, "event", string(ev))
 		return

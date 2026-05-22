@@ -173,7 +173,7 @@ func TestResolveSender(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			msg := mkMsg(tc.chat, tc.alt, false, "", tc.mode)
-			var r *fakeResolver = tc.r // satisfies wameow.WAResolver when not nil
+			r := tc.r // satisfies wameow.WAResolver when not nil
 			var got resolvedSender
 			if r == nil {
 				got = resolveSender(msg, nil)

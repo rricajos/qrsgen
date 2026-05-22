@@ -61,7 +61,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 	if err != nil {
 		return nil, fmt.Errorf("do: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -190,7 +190,7 @@ func (c *Client) PostMessageWithAttachment(ctx context.Context, req PostMessageA
 	if err != nil {
 		return nil, fmt.Errorf("do: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -282,7 +282,7 @@ func (c *Client) DownloadBlob(ctx context.Context, url string) ([]byte, string, 
 	if err != nil {
 		return nil, "", fmt.Errorf("do: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode >= 400 {
 		return nil, "", fmt.Errorf("download blob: HTTP %d", res.StatusCode)
 	}

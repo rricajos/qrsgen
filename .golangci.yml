@@ -1,12 +1,13 @@
-# golangci-lint config (formato v1 — compatible con la action latest)
+# golangci-lint v2 config
 # https://golangci-lint.run/usage/configuration/
+
+version: "2"
 
 run:
   timeout: 5m
-  go: '1.24'
 
 linters:
-  disable-all: true
+  default: none
   enable:
     # Errores reales
     - errcheck       # errors no manejados
@@ -21,11 +22,9 @@ linters:
     - bodyclose      # http response body close
     - errorlint      # error wrapping
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
-  max-issues-per-linter: 0
-  max-same-issues: 0
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck

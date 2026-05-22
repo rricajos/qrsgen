@@ -5,7 +5,9 @@ version: "2"
 
 run:
   timeout: 5m
-  go: '1.25'
+  # Mantener en 1.24 mientras golangci-lint upstream no se compile con 1.25.
+  # El binario real se compila con go.mod (1.25). Esto solo afecta al lint.
+  go: '1.24'
 
 linters:
   default: none

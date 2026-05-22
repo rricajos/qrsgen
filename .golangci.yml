@@ -1,16 +1,12 @@
-# golangci-lint config — moderado, no agresivo
+# golangci-lint config (formato v1 — compatible con la action latest)
 # https://golangci-lint.run/usage/configuration/
-
-version: "2"
 
 run:
   timeout: 5m
-  # Mantener en 1.24 mientras golangci-lint upstream no se compile con 1.25.
-  # El binario real se compila con go.mod (1.25). Esto solo afecta al lint.
   go: '1.24'
 
 linters:
-  default: none
+  disable-all: true
   enable:
     # Errores reales
     - errcheck       # errors no manejados
@@ -25,13 +21,11 @@ linters:
     - bodyclose      # http response body close
     - errorlint      # error wrapping
 
-  exclusions:
-    rules:
-      - path: _test\.go
-        linters:
-          - gosec
-          - errcheck
-
 issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
   max-issues-per-linter: 0
   max-same-issues: 0

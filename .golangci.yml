@@ -1,0 +1,35 @@
+# golangci-lint config — moderado, no agresivo
+# https://golangci-lint.run/usage/configuration/
+
+version: "2"
+
+run:
+  timeout: 5m
+  go: '1.25'
+
+linters:
+  default: none
+  enable:
+    # Errores reales
+    - errcheck       # errors no manejados
+    - govet          # bugs comunes
+    - ineffassign    # asignaciones sin efecto
+    - staticcheck    # análisis estático completo
+    - unused         # variables/funcs sin uso
+
+    # Calidad
+    - gosec          # vulnerabilidades de seguridad
+    - misspell       # typos en comentarios
+    - bodyclose      # http response body close
+    - errorlint      # error wrapping
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -13,6 +13,18 @@ Pregunta frecuente. Respuesta: el WebSocket TCP se inicia **desde qrsgen hacia M
 
 → No requiere DNS, ni puerto abierto desde internet, ni IP pública. Solo egress permitido a 443 hacia rangos Meta.
 
+## Vista 10.000m
+
+```mermaid
+flowchart LR
+    User[Tu sistema downstream<br/>n8n, CRM, app custom] -->|HTTP REST<br/>+ Bearer auth| qrsgen
+    qrsgen -->|WebSocket TLS<br/>outbound 443| Meta[(Meta servers)]
+    Meta -.->|incoming msgs<br/>via same WS| qrsgen
+    qrsgen -->|webhook lifecycle| User
+    qrsgen -->|POST incoming msgs| User
+    qrsgen <--> Postgres[(Postgres<br/>sessions + state)]
+```
+
 ## Capas del binario
 
 ```

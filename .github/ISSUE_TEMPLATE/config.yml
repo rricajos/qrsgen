@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Security vulnerability
+    url: https://github.com/rricajos/qrsgen/blob/main/SECURITY.md
+    about: NO abras un issue público. Sigue SECURITY.md.
+  - name: 💬 Discussions
+    url: https://github.com/rricajos/qrsgen/discussions
+    about: Preguntas, ideas, casos de uso. No-bugs.

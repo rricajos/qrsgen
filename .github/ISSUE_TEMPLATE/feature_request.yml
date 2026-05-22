@@ -1,0 +1,45 @@
+name: Feature request
+description: Propón una nueva funcionalidad
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema que resuelve
+      description: ¿Qué dolor real quitas? ¿Qué workaround usas hoy?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solución propuesta
+      description: Diseño técnico tentativo. APIs, env vars, comportamientos.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+      description: ¿Por qué la propuesta y no X o Y?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Tamaño estimado
+      options:
+        - Pequeño (<1 día)
+        - Mediano (1-5 días)
+        - Grande (1+ semana)
+        - No tengo idea
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willingness
+    attributes:
+      label: Disposición a contribuir
+      options:
+        - label: Estoy dispuesto/a a abrir el PR yo mismo/a

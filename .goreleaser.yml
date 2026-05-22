@@ -1,0 +1,130 @@
+# GoReleaser config
+# https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: qrsgen
+    main: ./cmd/server
+    binary: qrsgen
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -trimpath
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - DISCLAIMER.md
+      - NOTICE.md
+      - docs/**/*
+
+dockers:
+  - id: amd64
+    image_templates:
+      - "ghcr.io/rricajos/qrsgen:{{ .Version }}-amd64"
+      - "ghcr.io/rricajos/qrsgen:latest-amd64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.source=https://github.com/rricajos/qrsgen"
+      - "--label=org.opencontainers.image.title=qrsgen"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.licenses=MIT"
+    goarch: amd64
+  - id: arm64
+    image_templates:
+      - "ghcr.io/rricajos/qrsgen:{{ .Version }}-arm64"
+      - "ghcr.io/rricajos/qrsgen:latest-arm64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.source=https://github.com/rricajos/qrsgen"
+      - "--label=org.opencontainers.image.title=qrsgen"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.licenses=MIT"
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/rricajos/qrsgen:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/rricajos/qrsgen:{{ .Version }}-amd64"
+      - "ghcr.io/rricajos/qrsgen:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/rricajos/qrsgen:latest"
+    image_templates:
+      - "ghcr.io/rricajos/qrsgen:latest-amd64"
+      - "ghcr.io/rricajos/qrsgen:latest-arm64"
+
+sboms:
+  - artifacts: archive
+
+docker_signs:
+  - cmd: cosign
+    args:
+      - "sign"
+      - "--yes"
+      - "${artifact}@${digest}"
+    artifacts: manifests
+    output: true
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - "sign-blob"
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+    artifacts: checksum
+    output: true
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: 'Bug fixes'
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Others
+      order: 999

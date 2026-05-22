@@ -1,5 +1,10 @@
 # qrsgen
 
+[![CI](https://github.com/rricajos/qrsgen/actions/workflows/test.yml/badge.svg)](https://github.com/rricajos/qrsgen/actions/workflows/test.yml)
+[![CodeQL](https://github.com/rricajos/qrsgen/actions/workflows/codeql.yml/badge.svg)](https://github.com/rricajos/qrsgen/actions/workflows/codeql.yml)
+[![Go Report](https://goreportcard.com/badge/github.com/rricajos/qrsgen)](https://goreportcard.com/report/github.com/rricajos/qrsgen)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 WhatsApp ↔ HTTP API bridge en Go. Mantiene una sesión WhatsApp Web (vía [whatsmeow](https://github.com/tulir/whatsmeow)) por instancia y la expone como una API HTTP estándar.
 
 > ⚠️ **Aviso legal importante**: este proyecto **no está afiliado** con WhatsApp / Meta. Usa una API no oficial obtenida por ingeniería inversa. Lee [DISCLAIMER.md](DISCLAIMER.md) antes de desplegar — explica el riesgo de baneo del número, ToS, GDPR, y la limitación de responsabilidad.

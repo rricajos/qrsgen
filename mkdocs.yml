@@ -1,0 +1,58 @@
+site_name: qrsgen
+site_description: WhatsApp ↔ HTTP API bridge en Go
+site_url: https://rricajos.github.io/qrsgen
+repo_url: https://github.com/rricajos/qrsgen
+repo_name: rricajos/qrsgen
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      toggle: { icon: material/brightness-7, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      toggle: { icon: material/brightness-4, name: Light mode }
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - API: api.md
+  - Deployment: deployment.md
+  - Security: security.md
+  - Operations: operations.md
+  - n8n example: n8n-example.md
+  - Legal:
+      - Disclaimer: ../DISCLAIMER.md
+      - License: ../LICENSE
+      - Notice: ../NOTICE.md

@@ -1,0 +1,79 @@
+name: Bug report
+description: Reporta un bug en qrsgen
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por reportar. Cuanta más info, más rápido lo arreglamos.
+
+        > **Antes de continuar**: si es una vulnerabilidad de seguridad,
+        > NO la reportes aquí. Sigue [SECURITY.md](../../blob/main/SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: Versión de qrsgen
+      description: "Output de `qrsgen --version` o tag de la imagen Docker"
+      placeholder: "v0.21.0 / ghcr.io/rricajos/qrsgen:latest"
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Versión de Go (si build local)
+      placeholder: "go1.25.0 linux/amd64"
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: ¿Qué ha pasado?
+      description: Descripción del bug + comportamiento esperado.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Pasos para reproducir
+      description: "Lo más concretos posible. Ej: `curl ... → response: ...`"
+      placeholder: |
+        1. POST /api/instances con body { "name": "X" }
+        2. ...
+        3. Observado: ... · Esperado: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs relevantes
+      description: |
+        Output JSON estructurado de qrsgen (`docker service logs qrsgen_qrsgen --tail 50`).
+        Quita info sensible (números de teléfono, JIDs, tokens) antes de pegarlos.
+      render: shell
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker Swarm
+        - Kubernetes
+        - Docker Compose
+        - Binario standalone
+        - Otro
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: He buscado en issues abiertos y cerrados antes de reportar
+          required: true
+        - label: He leído [DISCLAIMER.md](../../blob/main/DISCLAIMER.md) y entiendo que este no es un bug si está relacionado con limitaciones inherentes de la API no oficial de WhatsApp
+          required: true

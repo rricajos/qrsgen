@@ -1,0 +1,1175 @@
+{
+  "name": "QRSGEN_QRV2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qrsgen-qrv2",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1800,
+        0
+      ],
+      "webhookId": "qrsgen-qrv2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body.content }}",
+              "rightValue": "/qrv2 ",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.body.event }}",
+              "rightValue": "message_created",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-cmd",
+      "name": "is /qrv2?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1580,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "instance",
+              "value": "={{ $json.body.content.replace('/qrv2 ', '').trim().toUpperCase() }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "source_conversation_id",
+              "value": "={{ $json.body.conversation.id }}",
+              "type": "number"
+            },
+            {
+              "id": "a3",
+              "name": "webhook_url",
+              "value": "=http://bridge_bridge:3100/api/instances/{{ $json.body.content.replace('/qrv2 ', '').trim().toUpperCase() }}/webhook",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-set-ctx",
+      "name": "extract context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1360,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://bridge_bridge:3100/api/instances",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.instance }}\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "node-create-instance",
+      "name": "POST qrsgen create instance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1140,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/inboxes",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-list-inboxes",
+      "name": "list inboxes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -920,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const instance = $('extract context').item.json.instance;\nconst payload = $input.first().json.payload || [];\nconst match = payload.find(ix => ix.name === instance);\nreturn [{ json: { existing_inbox_id: match ? match.id : null } }];"
+      },
+      "id": "node-find-inbox",
+      "name": "find inbox match",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cib",
+              "leftValue": "={{ $json.existing_inbox_id || 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-inbox",
+      "name": "inbox exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -480,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ai1",
+              "name": "inbox_id",
+              "value": "={{ $json.existing_inbox_id }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-iid-existing",
+      "name": "use existing inbox id",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -260,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/inboxes",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $('extract context').item.json.instance }}\",\n  \"channel\": {\n    \"type\": \"api\",\n    \"webhook_url\": \"{{ $('extract context').item.json.webhook_url }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "node-create-inbox",
+      "name": "create inbox",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -260,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ai2",
+              "name": "inbox_id",
+              "value": "={{ $json.id }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-iid-new",
+      "name": "extract new inbox id",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -40,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "node-merge-iid",
+      "name": "merge inbox id",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        180,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/inboxes/{{ $json.inbox_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": {\n    \"webhook_url\": \"{{ $('extract context').item.json.webhook_url }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "node-patch-inbox-webhook",
+      "name": "PATCH inbox webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        290,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "=QR - {{ $('extract context').item.json.instance }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-search-contact",
+      "name": "search QR contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cc1",
+              "leftValue": "={{ $json.payload.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-contact",
+      "name": "contact exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        620,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ac1",
+              "name": "contact_id",
+              "value": "={{ $json.payload[0].id }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-cid-existing",
+      "name": "use existing contact",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        840,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"inbox_id\": {{ $('merge inbox id').item.json.inbox_id }},\n  \"name\": \"QR - {{ $('extract context').item.json.instance }}\",\n  \"identifier\": \"qrsgen-qr-{{ $('extract context').item.json.instance }}\"\n}",
+        "options": {}
+      },
+      "id": "node-create-contact",
+      "name": "create QR contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        840,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ac2",
+              "name": "contact_id",
+              "value": "={{ $json.payload.contact.id }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-cid-new",
+      "name": "extract new contact id",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1060,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "node-merge-cid",
+      "name": "merge contact id",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1280,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/{{ $json.contact_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"avatar_url\": \"http://bridge_bridge:3100/static/omnia.png\"\n}",
+        "options": {}
+      },
+      "id": "node-put-avatar",
+      "name": "PUT avatar = omnia logo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/{{ $('merge contact id').item.json.contact_id }}/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-list-convs",
+      "name": "list contact convs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1720,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const inbox_id = $('merge inbox id').item.json.inbox_id;\nconst body = $input.first().json;\nconst payload = body.payload || body.data?.payload || body || [];\nconst arr = Array.isArray(payload) ? payload : (payload.payload || []);\nconst match = arr.find(c => c.inbox_id === inbox_id && c.status !== 'resolved');\nreturn [{ json: { existing_conv_id: match ? match.id : null } }];"
+      },
+      "id": "node-find-conv",
+      "name": "find conv match",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ccv1",
+              "leftValue": "={{ $json.existing_conv_id || 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-conv",
+      "name": "conv exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "av1",
+              "name": "conv_id",
+              "value": "={{ $json.existing_conv_id }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-conv-existing",
+      "name": "use existing conv",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2380,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"source_id\": \"qrsgen-{{ $('extract context').item.json.instance }}\",\n  \"inbox_id\": {{ $('merge inbox id').item.json.inbox_id }},\n  \"contact_id\": {{ $('merge contact id').item.json.contact_id }},\n  \"status\": \"open\"\n}",
+        "options": {}
+      },
+      "id": "node-create-conv",
+      "name": "create conv",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2380,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "av2",
+              "name": "conv_id",
+              "value": "={{ $json.id }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-conv-new",
+      "name": "extract new conv id",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2600,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "node-merge-conv",
+      "name": "merge conv id",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2820,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "seconds"
+      },
+      "id": "node-wait",
+      "name": "wait QR",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3040,
+        -100
+      ],
+      "webhookId": "qrsgen-qrv2-wait"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://bridge_bridge:3100/api/instances/{{ $('extract context').item.json.instance }}/qr",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "node-get-qr",
+      "name": "GET qrsgen qr",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3260,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/conversations/{{ $('merge conv id').item.json.conv_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=QR para {{ $('extract context').item.json.instance }} \u2014 escanea desde tu m\u00f3vil."
+            },
+            {
+              "name": "message_type",
+              "value": "incoming"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "attachments[]",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-post-qr-msg",
+      "name": "POST QR as incoming msg",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3480,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/conversations/{{ $('extract context').item.json.source_conversation_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "api_access_token",
+              "value": "dmUhraPzzZKZnJrB15ouknNM"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"QR para *{{ $('extract context').item.json.instance }}* listo. Abre el contacto \u00abQR - {{ $('extract context').item.json.instance }}\u00bb (id {{ $('merge contact id').item.json.contact_id }}) y escanea la imagen desde WhatsApp \u2192 Dispositivos vinculados.\",\n  \"message_type\": \"outgoing\",\n  \"private\": true\n}",
+        "options": {}
+      },
+      "id": "node-post-note",
+      "name": "post note in source conv",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3700,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"instance\": \"{{ $('extract context').item.json.instance }}\",\n  \"inbox_id\": {{ $('merge inbox id').item.json.inbox_id }},\n  \"contact_id\": {{ $('merge contact id').item.json.contact_id }},\n  \"conv_id\": {{ $('merge conv id').item.json.conv_id }}\n}",
+        "options": {}
+      },
+      "id": "node-respond-ok",
+      "name": "respond ok",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3920,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"ignored\": true\n}",
+        "options": {}
+      },
+      "id": "node-respond-ignored",
+      "name": "respond ignored",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -1360,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "is /qrv2?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is /qrv2?": {
+      "main": [
+        [
+          {
+            "node": "extract context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "respond ignored",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract context": {
+      "main": [
+        [
+          {
+            "node": "POST qrsgen create instance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST qrsgen create instance": {
+      "main": [
+        [
+          {
+            "node": "list inboxes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "list inboxes": {
+      "main": [
+        [
+          {
+            "node": "find inbox match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "find inbox match": {
+      "main": [
+        [
+          {
+            "node": "inbox exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "inbox exists?": {
+      "main": [
+        [
+          {
+            "node": "use existing inbox id",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "create inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "use existing inbox id": {
+      "main": [
+        [
+          {
+            "node": "merge inbox id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create inbox": {
+      "main": [
+        [
+          {
+            "node": "extract new inbox id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract new inbox id": {
+      "main": [
+        [
+          {
+            "node": "merge inbox id",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "merge inbox id": {
+      "main": [
+        [
+          {
+            "node": "PATCH inbox webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search QR contact": {
+      "main": [
+        [
+          {
+            "node": "contact exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "contact exists?": {
+      "main": [
+        [
+          {
+            "node": "use existing contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "create QR contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "use existing contact": {
+      "main": [
+        [
+          {
+            "node": "merge contact id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create QR contact": {
+      "main": [
+        [
+          {
+            "node": "extract new contact id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract new contact id": {
+      "main": [
+        [
+          {
+            "node": "merge contact id",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "merge contact id": {
+      "main": [
+        [
+          {
+            "node": "PUT avatar = omnia logo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PUT avatar = omnia logo": {
+      "main": [
+        [
+          {
+            "node": "list contact convs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "list contact convs": {
+      "main": [
+        [
+          {
+            "node": "find conv match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "find conv match": {
+      "main": [
+        [
+          {
+            "node": "conv exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "conv exists?": {
+      "main": [
+        [
+          {
+            "node": "use existing conv",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "create conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "use existing conv": {
+      "main": [
+        [
+          {
+            "node": "merge conv id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create conv": {
+      "main": [
+        [
+          {
+            "node": "extract new conv id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract new conv id": {
+      "main": [
+        [
+          {
+            "node": "merge conv id",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "merge conv id": {
+      "main": [
+        [
+          {
+            "node": "wait QR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "wait QR": {
+      "main": [
+        [
+          {
+            "node": "GET qrsgen qr",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET qrsgen qr": {
+      "main": [
+        [
+          {
+            "node": "POST QR as incoming msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST QR as incoming msg": {
+      "main": [
+        [
+          {
+            "node": "post note in source conv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "post note in source conv": {
+      "main": [
+        [
+          {
+            "node": "respond ok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PATCH inbox webhook": {
+      "main": [
+        [
+          {
+            "node": "search QR contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": true,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

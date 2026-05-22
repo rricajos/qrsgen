@@ -1,0 +1,27 @@
+# Build artefacts
+qrsgen
+*.test
+*.out
+vendor/
+dist/
+
+# Local config / secrets
+.env
+.env.local
+.env.*.local
+*.api_token
+*_cred_id
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+/coverage.html
+/coverage.out

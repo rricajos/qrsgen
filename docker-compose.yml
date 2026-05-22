@@ -1,0 +1,88 @@
+# qrsgen — WhatsApp bridge paral downstream
+# Stack portable. Solo expuesto por overlay LAN (otros containers acceden vía
+# alias `qrsgen` o `bridge_bridge`). Cualquier integración externa pasa por
+# webhooks de n8n — n8n hace el bridge LAN/WAN.
+#
+# Despliegue (Portainer Stacks o CLI):
+#   docker stack deploy -c docker-compose.yml --resolve-image=changed qrsgen
+#
+# Variables de entorno requeridas:
+#   POSTGRES_HOST              host del Postgres (ej: postgres)
+#   POSTGRES_PASSWORD          ...
+#   DOWNSTREAM_BASE_URL          ej: https://chat.example.com
+#   DOWNSTREAM_API_TOKEN         token con permisos full
+#
+# Variables opcionales (con defaults razonables):
+#   QRSGEN_VERSION             tag de imagen (default: 0.19.1)
+#   POSTGRES_PORT              5432
+#   POSTGRES_DB                bridge
+#   POSTGRES_USER              postgres
+#   DOWNSTREAM_ACCOUNT_ID        1
+#   DOWNSTREAM_INBOX_ID          inbox fallback (0 = none)
+#   INSTANCE_NAME              instancia default al boot (DEVOPS)
+#   DEDUP_ENABLED              true
+#   DEDUP_WINDOW_MS            10000
+#   LOG_LEVEL                  info
+#   OVERLAY_NETWORK            red docker (default: conexianet)
+#
+# Para portar a otro VPS: copias compose + ajustas env vars + deploy.
+
+version: '3.9'
+
+services:
+  qrsgen:
+    image: qrsgen:${QRSGEN_VERSION:-0.19.1}
+    environment:
+      PORT: "3100"
+      INSTANCE_NAME: "${INSTANCE_NAME:-DEVOPS}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+
+      # Postgres
+      POSTGRES_HOST: "${POSTGRES_HOST:-postgres}"
+      POSTGRES_PORT: "${POSTGRES_PORT:-5432}"
+      POSTGRES_DB: "${POSTGRES_DB:-bridge}"
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+
+      # Downstream (sistema al que qrsgen postea incoming msgs)
+      DOWNSTREAM_BASE_URL: "${DOWNSTREAM_BASE_URL}"
+      DOWNSTREAM_API_TOKEN: "${DOWNSTREAM_API_TOKEN}"
+      DOWNSTREAM_ACCOUNT_ID: "${DOWNSTREAM_ACCOUNT_ID:-1}"
+      DOWNSTREAM_INBOX_ID: "${DOWNSTREAM_INBOX_ID:-0}"
+
+      # Dedup
+      DEDUP_ENABLED: "${DEDUP_ENABLED:-true}"
+      DEDUP_WINDOW_MS: "${DEDUP_WINDOW_MS:-10000}"
+
+      # API auth — si vacío, todos los endpoints son públicos en LAN.
+      # Si seteado, exige `Authorization: Bearer <token>` excepto /webhook.
+      QRSGEN_API_TOKEN: "${QRSGEN_API_TOKEN:-}"
+
+      NODE_ENV: "production"
+
+    networks:
+      conexianet:
+        aliases:
+          - qrsgen
+          - bridge_bridge   # retro-compat con workflows n8n que apuntan al alias viejo
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 0
+      update_config:
+        parallelism: 1
+        order: start-first
+        delay: 5s
+        monitor: 5s
+        failure_action: pause
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+
+networks:
+  conexianet:
+    external: true
+    name: ${OVERLAY_NETWORK:-conexianet}

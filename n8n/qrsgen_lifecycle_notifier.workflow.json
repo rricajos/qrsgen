@@ -1,0 +1,206 @@
+{
+  "name": "QRSGEN_LIFECYCLE_NOTIFIER",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qrsgen-events",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1400, 0],
+      "webhookId": "qrsgen-events"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "instance", "value": "={{ $json.body.instance }}", "type": "string" },
+            { "id": "a2", "name": "event",    "value": "={{ $json.body.event }}",    "type": "string" },
+            { "id": "a3", "name": "jid",      "value": "={{ $json.body.jid || '' }}",     "type": "string" },
+            { "id": "a4", "name": "occurred_at", "value": "={{ $json.body.occurred_at }}", "type": "string" },
+            {
+              "id": "a5",
+              "name": "msg_emoji",
+              "value": "={{ ({connected:'✅', disconnected:'⚠️', logged_out:'🚨', paired:'🔗'}[$json.body.event] || '•') }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "msg_text",
+              "value": "={{ ({connected:'Instancia reconectada y operativa.', disconnected:'Instancia desconectada (sostenido >2 min). whatsmeow está reintentando auto-reconnect.', logged_out:'Sesión INVALIDADA en servidor WhatsApp. Re-escaneo necesario: ejecuta /qrv2 ' + $json.body.instance, paired:'Device emparejado.'}[$json.body.event] || 'Evento: ' + $json.body.event) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-extract",
+      "name": "extract event",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-1180, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"received\": \"{{ $json.event }}\"\n}",
+        "options": {}
+      },
+      "id": "node-respond",
+      "name": "respond ok",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-960, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "q", "value": "=qrsgen / {{ $json.instance }}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "api_access_token", "value": "dmUhraPzzZKZnJrB15ouknNM" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-search-ops",
+      "name": "search ops contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-960, -100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "id": "c-has",
+              "leftValue": "={{ $json.payload.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-ops",
+      "name": "ops contact exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-740, -100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "cid", "name": "contact_id", "value": "={{ $json.payload[0].id }}", "type": "number" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-cid",
+      "name": "extract contact id",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-520, -200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/{{ $('extract contact id').item.json.contact_id }}/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "api_access_token", "value": "dmUhraPzzZKZnJrB15ouknNM" }]
+        },
+        "options": {}
+      },
+      "id": "node-list-convs",
+      "name": "list ops convs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-300, -200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst payload = body.payload || (body.data && body.data.payload) || [];\nconst arr = Array.isArray(payload) ? payload : (payload.payload || []);\nif (arr.length === 0) {\n  return [{ json: { conv_id: null } }];\n}\n// pick the most recent (highest id assumed most recent)\nconst sorted = arr.slice().sort((a,b) => (b.id||0) - (a.id||0));\nreturn [{ json: { conv_id: sorted[0].id } }];"
+      },
+      "id": "node-pick-conv",
+      "name": "pick ops conv",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-80, -200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/conversations/{{ $json.conv_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "api_access_token", "value": "dmUhraPzzZKZnJrB15ouknNM" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $('extract event').item.json.msg_emoji }} *{{ $('extract event').item.json.event }}* — {{ $('extract event').item.json.msg_text }}\\n\\n_at {{ $('extract event').item.json.occurred_at }}_\",\n  \"message_type\": \"outgoing\",\n  \"private\": true\n}",
+        "options": {}
+      },
+      "id": "node-post-ops-msg",
+      "name": "post ops msg",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [140, -200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": false,\n  \"reason\": \"ops contact not found for instance {{ $('extract event').item.json.instance }} — ¿se creó ya via /qrv2 + pairing?\"\n}",
+        "options": {}
+      },
+      "id": "node-respond-no-contact",
+      "name": "respond ops contact missing",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-520, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "extract event", "type": "main", "index": 0 }]] },
+    "extract event": {
+      "main": [[
+        { "node": "search ops contact", "type": "main", "index": 0 },
+        { "node": "respond ok", "type": "main", "index": 0 }
+      ]]
+    },
+    "search ops contact": { "main": [[{ "node": "ops contact exists?", "type": "main", "index": 0 }]] },
+    "ops contact exists?": {
+      "main": [
+        [{ "node": "extract contact id", "type": "main", "index": 0 }],
+        [{ "node": "respond ops contact missing", "type": "main", "index": 0 }]
+      ]
+    },
+    "extract contact id": { "main": [[{ "node": "list ops convs", "type": "main", "index": 0 }]] },
+    "list ops convs": { "main": [[{ "node": "pick ops conv", "type": "main", "index": 0 }]] },
+    "pick ops conv": { "main": [[{ "node": "post ops msg", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}

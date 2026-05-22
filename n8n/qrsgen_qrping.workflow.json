@@ -1,0 +1,352 @@
+{
+  "name": "QRSGEN_QRPING",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qrsgen-qrping",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1800, 0],
+      "webhookId": "qrsgen-qrping"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            { "id": "c1", "leftValue": "={{ $json.body.content }}", "rightValue": "/qrping", "operator": { "type": "string", "operation": "startsWith" } },
+            { "id": "c2", "leftValue": "={{ $json.body.event }}", "rightValue": "message_created", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-cmd",
+      "name": "is /qrping?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-1580, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "instance",
+              "value": "={{ $json.body.content.replace('/qrping', '').trim().toUpperCase() }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "source_conversation_id",
+              "value": "={{ $json.body.conversation.id }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-extract",
+      "name": "extract context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-1360, -100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"received\": \"/qrping\"\n}",
+        "options": {}
+      },
+      "id": "node-respond-ok",
+      "name": "respond ok",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-1360, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ignored\": true }",
+        "options": {}
+      },
+      "id": "node-respond-ignored",
+      "name": "respond ignored",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-1360, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "id": "c-all",
+              "leftValue": "={{ $json.instance }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "empty", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-all",
+      "name": "is ALL (no name)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-1140, -100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://bridge_bridge:3100/api/instances",
+        "options": {}
+      },
+      "id": "node-list-all",
+      "name": "GET qrsgen /instances",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-920, -200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const instances = $input.first().json;\nconst arr = Array.isArray(instances) ? instances : [];\nreturn arr.map(i => ({ json: { instance: i.name } }));"
+      },
+      "id": "node-explode",
+      "name": "explode names",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-700, -200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "single", "name": "instance", "value": "={{ $('extract context').item.json.instance }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-single",
+      "name": "single instance",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-920, 0]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "node-merge",
+      "name": "merge to one stream",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [-480, -100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "q", "value": "=qrsgen-qr-{{ $json.instance }}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "api_access_token", "value": "dmUhraPzzZKZnJrB15ouknNM" }]
+        },
+        "options": {}
+      },
+      "id": "node-search",
+      "name": "search ops contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-260, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst payload = body.payload || [];\nconst contact = payload[0] || null;\nconst instance = $json.instance || $('merge to one stream').item.json.instance;\nreturn [{ json: { instance, contact_id: contact ? contact.id : null, current_name: contact ? contact.name : null } }];"
+      },
+      "id": "node-extract-id",
+      "name": "extract contact id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-40, -100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "id": "c-exists",
+              "leftValue": "={{ $json.contact_id || 0 }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-found",
+      "name": "contact found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [180, -100]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/{{ $json.contact_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "api_access_token", "value": "dmUhraPzzZKZnJrB15ouknNM" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"qrsgen / {{ $json.instance }}\",\n  \"avatar_url\": \"http://bridge_bridge:3100/static/omnia.png\",\n  \"additional_attributes\": {\n    \"company_name\": \"Conexia Telecom\",\n    \"country\": \"España\",\n    \"country_code\": \"ES\",\n    \"city\": \"Barcelona\",\n    \"description\": \"Asistente Omnia · panel de estado del canal {{ $json.instance }} · sistema interno\"\n  }\n}",
+        "options": {}
+      },
+      "id": "node-put",
+      "name": "PUT ops contact metadata",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, -200]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { instance: $('extract contact id').item.json.instance, contact_id: $('extract contact id').item.json.contact_id, status: 'updated' } }];"
+      },
+      "id": "node-mark-ok",
+      "name": "mark updated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, -200]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { instance: $('extract contact id').item.json.instance, status: 'not_found' } }];"
+      },
+      "id": "node-mark-missing",
+      "name": "mark missing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 0]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "node-collect",
+      "name": "collect results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [840, -100]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemFields",
+        "destinationFieldName": "items",
+        "options": {}
+      },
+      "id": "node-aggregate",
+      "name": "aggregate",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1060, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $json.items || [];\nconst updated = items.filter(i => i.status === 'updated');\nconst missing = items.filter(i => i.status === 'not_found');\nconst lines = [];\nif (updated.length > 0) {\n  lines.push('✅ *Metadata sincronizada* en ' + updated.length + ' contacto(s):');\n  updated.forEach(i => lines.push('  • qrsgen / ' + i.instance));\n}\nif (missing.length > 0) {\n  lines.push('\\n⚠️ *Sin contacto ops* (no existe «qrsgen / X»):');\n  missing.forEach(i => lines.push('  • ' + i.instance + ' — ejecuta /qrv2 ' + i.instance + ' primero'));\n}\nif (updated.length === 0 && missing.length === 0) {\n  lines.push('(sin resultados)');\n}\nlines.push('\\n_Campos sincronizados: nombre, avatar Omnia, empresa Conexia Telecom, país España, descripción._');\nreturn [{ json: { summary: lines.join('\\n') } }];"
+      },
+      "id": "node-summary",
+      "name": "build summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1280, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/conversations/{{ $('extract context').item.json.source_conversation_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "api_access_token", "value": "dmUhraPzzZKZnJrB15ouknNM" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $json.summary.replace(/\\n/g, '\\\\n').replace(/\\\"/g, '\\\\\\\"') }}\",\n  \"message_type\": \"outgoing\",\n  \"private\": true\n}",
+        "options": {}
+      },
+      "id": "node-post-summary",
+      "name": "post summary in source conv",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1500, -100]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "is /qrping?", "type": "main", "index": 0 }]] },
+    "is /qrping?": {
+      "main": [
+        [{ "node": "extract context", "type": "main", "index": 0 }],
+        [{ "node": "respond ignored", "type": "main", "index": 0 }]
+      ]
+    },
+    "extract context": {
+      "main": [[
+        { "node": "is ALL (no name)?", "type": "main", "index": 0 },
+        { "node": "respond ok", "type": "main", "index": 0 }
+      ]]
+    },
+    "is ALL (no name)?": {
+      "main": [
+        [{ "node": "GET qrsgen /instances", "type": "main", "index": 0 }],
+        [{ "node": "single instance", "type": "main", "index": 0 }]
+      ]
+    },
+    "GET qrsgen /instances": { "main": [[{ "node": "explode names", "type": "main", "index": 0 }]] },
+    "explode names": { "main": [[{ "node": "merge to one stream", "type": "main", "index": 0 }]] },
+    "single instance": { "main": [[{ "node": "merge to one stream", "type": "main", "index": 1 }]] },
+    "merge to one stream": { "main": [[{ "node": "search ops contact", "type": "main", "index": 0 }]] },
+    "search ops contact": { "main": [[{ "node": "extract contact id", "type": "main", "index": 0 }]] },
+    "extract contact id": { "main": [[{ "node": "contact found?", "type": "main", "index": 0 }]] },
+    "contact found?": {
+      "main": [
+        [{ "node": "PUT ops contact metadata", "type": "main", "index": 0 }],
+        [{ "node": "mark missing", "type": "main", "index": 0 }]
+      ]
+    },
+    "PUT ops contact metadata": { "main": [[{ "node": "mark updated", "type": "main", "index": 0 }]] },
+    "mark updated": { "main": [[{ "node": "collect results", "type": "main", "index": 0 }]] },
+    "mark missing": { "main": [[{ "node": "collect results", "type": "main", "index": 1 }]] },
+    "collect results": { "main": [[{ "node": "aggregate", "type": "main", "index": 0 }]] },
+    "aggregate": { "main": [[{ "node": "build summary", "type": "main", "index": 0 }]] },
+    "build summary": { "main": [[{ "node": "post summary in source conv", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}

@@ -46,7 +46,10 @@ dockers:
     image_templates:
       - "ghcr.io/rricajos/qrsgen:{{ .Version }}-amd64"
       - "ghcr.io/rricajos/qrsgen:latest-amd64"
+    dockerfile: Dockerfile.release
     use: buildx
+    extra_files:
+      - assets
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.source=https://github.com/rricajos/qrsgen"
@@ -58,7 +61,10 @@ dockers:
     image_templates:
       - "ghcr.io/rricajos/qrsgen:{{ .Version }}-arm64"
       - "ghcr.io/rricajos/qrsgen:latest-arm64"
+    dockerfile: Dockerfile.release
     use: buildx
+    extra_files:
+      - assets
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.source=https://github.com/rricajos/qrsgen"

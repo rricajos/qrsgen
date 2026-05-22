@@ -1,0 +1,11 @@
+# Dockerfile usado por GoReleaser tras compilar el binario.
+# Empaqueta el binario prebuilt + assets sobre distroless.
+# Para desarrollo / build manual, ver Dockerfile (multi-stage desde fuente).
+
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY qrsgen /app/qrsgen
+COPY assets /app/assets
+EXPOSE 3100
+USER nonroot:nonroot
+ENTRYPOINT ["/app/qrsgen"]

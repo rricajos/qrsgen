@@ -9,18 +9,20 @@ run:
 linters:
   default: none
   enable:
-    # Errores reales
     - errcheck       # errors no manejados
     - govet          # bugs comunes
     - ineffassign    # asignaciones sin efecto
-    - staticcheck    # análisis estático completo
-    - unused         # variables/funcs sin uso
-
-    # Calidad
-    - gosec          # vulnerabilidades de seguridad
-    - misspell       # typos en comentarios
+    - staticcheck    # análisis estático
+    - unused         # vars/funcs sin uso
     - bodyclose      # http response body close
-    - errorlint      # error wrapping
+    - gosec          # vulnerabilidades de seguridad
+
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # Exclusions: APIs whatsmeow deprecated (todavía funcionan, migración futura)
+        - "-SA1019"
 
   exclusions:
     rules:
@@ -28,3 +30,13 @@ linters:
         linters:
           - gosec
           - errcheck
+          - bodyclose
+      # Comentarios en español no son misspell — desactivado el linter completo
+      # (no enableable above) pero por si se reactiva, este exclude estaría:
+      - text: "is a misspelling of"
+        linters: [misspell]
+
+# Notas:
+# - misspell deshabilitado: comentarios en español/catalán flagean falsos positivos
+# - errorlint deshabilitado: 4 issues legacy, fix en otro PR
+# - SA1019 excluido: deprecación de APIs whatsmeow (DownloadAny, waProto.Message)

@@ -41,7 +41,9 @@ func TestNormalizeContent(t *testing.T) {
 }
 
 func TestHashContentDeterministic(t *testing.T) {
-	if hashContent("hola") != hashContent("hola") {
+	h1 := hashContent("hola")
+	h2 := hashContent("hola")
+	if h1 != h2 {
 		t.Error("hashContent must be deterministic for same input")
 	}
 	if hashContent("hola") == hashContent("HOLA") {

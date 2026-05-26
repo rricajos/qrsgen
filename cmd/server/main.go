@@ -192,7 +192,7 @@ func main() {
 		api.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 			return func(c echo.Context) error {
 				p := c.Request().URL.Path
-				if p == "/api/health" || strings.HasSuffix(p, "/webhook") {
+				if p == "/api/health" || p == "/api/public/stats" || strings.HasSuffix(p, "/webhook") {
 					return next(c)
 				}
 				if c.Request().Header.Get("Authorization") != expected {
@@ -216,6 +216,48 @@ func main() {
 			"version":   "0.2.0",
 			"ts":        time.Now().Format(time.RFC3339),
 		})
+	})
+
+	// GET /api/public/stats — opt-in vía PUBLIC_STATS_ENABLED.
+	// Endpoint sin auth pensado para landing pages estáticas que muestren
+	// telemetría en vivo. CORS configurable vía PUBLIC_STATS_ALLOW_ORIGIN.
+	api.GET("/public/stats", func(c echo.Context) error {
+		if cfg.PublicStatsAllowOrigin != "" {
+			c.Response().Header().Set(echo.HeaderAccessControlAllowOrigin, cfg.PublicStatsAllowOrigin)
+			c.Response().Header().Set(echo.HeaderAccessControlAllowMethods, http.MethodGet)
+		}
+		if !cfg.PublicStatsEnabled {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "public stats disabled"})
+		}
+		var connected, total int
+		for _, i := range mgr.List() {
+			total++
+			if i.State == "ready" || i.State == "connected" {
+				connected++
+			}
+		}
+		totals, err := usageTracker.AllTimeTotals(c.Request().Context())
+		if err != nil {
+			logger.Warn("public stats: totals query failed", "err", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "totals unavailable"})
+		}
+		return c.JSON(http.StatusOK, map[string]any{
+			"instances_connected": connected,
+			"instances_total":     total,
+			"messages_in_total":   totals.MessagesIn,
+			"messages_out_total":  totals.MessagesOut,
+			"version":             "0.23.0",
+			"last_updated":        time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+	// CORS preflight para el endpoint público.
+	api.OPTIONS("/public/stats", func(c echo.Context) error {
+		if cfg.PublicStatsAllowOrigin != "" {
+			c.Response().Header().Set(echo.HeaderAccessControlAllowOrigin, cfg.PublicStatsAllowOrigin)
+			c.Response().Header().Set(echo.HeaderAccessControlAllowMethods, http.MethodGet)
+			c.Response().Header().Set(echo.HeaderAccessControlMaxAge, "300")
+		}
+		return c.NoContent(http.StatusNoContent)
 	})
 
 	// POST /api/instances {name, events_webhook_url?, inbox_id?, owner_tag?} → crea/inicia instancia

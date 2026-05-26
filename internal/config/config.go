@@ -41,6 +41,17 @@ type Config struct {
 	// (backward-compat). Si configurado, el downstream debe mandar
 	// `X-Qrsgen-Signature: sha256=<hex>` calculado como HMAC(secret, body).
 	WebhookHMACSecret string `env:"WEBHOOK_HMAC_SECRET"`
+
+	// PublicStatsEnabled habilita el endpoint /api/public/stats (sin auth)
+	// que devuelve contadores agregados (instances connected/total, messages
+	// in/out totales). Pensado para landing pages estáticas que muestren
+	// telemetría en vivo. Default false — opt-in explícito.
+	PublicStatsEnabled bool `env:"PUBLIC_STATS_ENABLED" envDefault:"false"`
+
+	// PublicStatsAllowOrigin restringe el header CORS Access-Control-Allow-Origin
+	// del endpoint público. Default vacío → sin CORS (otros origins no pueden
+	// fetch via JS). Ejemplo: "https://rricajos.github.io".
+	PublicStatsAllowOrigin string `env:"PUBLIC_STATS_ALLOW_ORIGIN"`
 }
 
 func Load() (Config, error) {

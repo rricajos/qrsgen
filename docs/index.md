@@ -36,15 +36,15 @@ Tu webhook endpoint
 
 ## Por dónde empezar
 
-- **[Arquitectura](architecture.md)** — entender los flujos internos, las
+- **[Arquitectura](architecture/)** — entender los flujos internos, las
   tablas Postgres, cómo se compone el binario.
-- **[API](api.md)** — endpoints, payloads, lifecycle webhooks, recetas
+- **[API](api/)** — endpoints, payloads, lifecycle webhooks, recetas
   curl. **Lee primero el quickstart** si vas a integrar.
-- **[Deployment](deployment.md)** — stack swarm, variables de entorno,
+- **[Deployment](deployment/)** — stack swarm, variables de entorno,
   portabilidad multi-VPS.
-- **[Security](security.md)** — siete capas explicadas (Bearer auth,
+- **[Security](security/)** — siete capas explicadas (Bearer auth,
   HMAC, firewall iptables, TLS, container hardening, audit, backups).
-- **[Operations](operations.md)** — runbook: diagnóstico rápido,
+- **[Operations](operations/)** — runbook: diagnóstico rápido,
   procedimientos comunes, troubleshooting, alerting Prometheus.
 - **[n8n example](n8n-example.md)** — receta concreta de integración con
   un orquestador externo (extrapolable a Zapier, Make, Temporal, etc.).
@@ -54,6 +54,30 @@ Tu webhook endpoint
 Producción con 4+ instancias activas. Tag estable más reciente en
 [releases](https://github.com/rricajos/qrsgen/releases). Cada release
 documentada en [CHANGELOG](https://github.com/rricajos/qrsgen/blob/main/CHANGELOG.md).
+
+<div class="qrsgen-stats" id="qrsgen-stats" data-endpoint="https://telemetry.qrsgen.ricajos.dev/api/public/stats" hidden>
+  <div class="stat-card">
+    <div class="stat-value" id="stat-connected">—</div>
+    <div class="stat-label">QRs conectados</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="stat-total">—</div>
+    <div class="stat-label">Instalaciones totales</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="stat-in">—</div>
+    <div class="stat-label">Mensajes recibidos</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="stat-out">—</div>
+    <div class="stat-label">Mensajes enviados</div>
+  </div>
+</div>
+
+<p class="telemetry-controls" id="telemetry-controls" hidden>
+  <span id="telemetry-status" class="telemetry-status">Telemetría en vivo (actualiza cada 10 s)</span>
+  <button id="telemetry-toggle" class="md-button md-button--primary" type="button">Activar</button>
+</p>
 
 ## Licencia y avisos legales
 

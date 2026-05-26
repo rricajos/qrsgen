@@ -233,6 +233,27 @@ type MonthlySummaryRow struct {
 	ActiveInstances  int    `json:"active_instances"`
 }
 
+// Totals aggregates messages_in / messages_out across all instances and all
+// days. Used by the public stats endpoint for the landing page card.
+type Totals struct {
+	MessagesIn  int64 `json:"messages_in_total"`
+	MessagesOut int64 `json:"messages_out_total"`
+}
+
+// AllTimeTotals returns the cumulative totals across every row in
+// bridge_usage_daily. Cheap query (single aggregation, no GROUP BY).
+func (t *Tracker) AllTimeTotals(ctx context.Context) (Totals, error) {
+	var out Totals
+	if err := t.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(messages_in), 0)::bigint,
+		       COALESCE(SUM(messages_out), 0)::bigint
+		FROM bridge_usage_daily
+	`).Scan(&out.MessagesIn, &out.MessagesOut); err != nil {
+		return Totals{}, fmt.Errorf("all-time totals: %w", err)
+	}
+	return out, nil
+}
+
 // MonthlySummary returns one row per (owner_tag, month) covering days
 // between fromMonth and toMonth (YYYY-MM, inclusive). Days outside the range
 // are not aggregated; partial months on the boundary are included.

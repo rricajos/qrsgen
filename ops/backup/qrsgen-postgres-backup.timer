@@ -1,0 +1,11 @@
+[Unit]
+Description=qrsgen Postgres backup daily at 03:00
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=qrsgen-postgres-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=qrsgen Postgres backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/qrsgen-stack/postgres-backup.sh
+StandardOutput=journal
+StandardError=journal
+# Drop privileges? No — needs docker socket. Run as root.
+User=root
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

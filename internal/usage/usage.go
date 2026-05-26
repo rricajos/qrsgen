@@ -220,6 +220,58 @@ func (t *Tracker) QueryAll(ctx context.Context, from, to string) ([]DailyRow, er
 	return t.query(ctx, nil, from, to)
 }
 
+// MonthlySummaryRow aggregates usage across instances grouping by owner_tag
+// and calendar month (UTC). The integrator typically maps owner_tag to its
+// tenant identifier and uses this view for monthly billing.
+type MonthlySummaryRow struct {
+	OwnerTag         string `json:"owner_tag"` // "" for instances without a tag set
+	Month            string `json:"month"`     // YYYY-MM
+	MessagesIn       int64  `json:"messages_in"`
+	MessagesOut      int64  `json:"messages_out"`
+	SpamguardBlocks  int64  `json:"spamguard_blocks"`
+	LifecycleEvents  int64  `json:"lifecycle_events"`
+	ActiveInstances  int    `json:"active_instances"`
+}
+
+// MonthlySummary returns one row per (owner_tag, month) covering days
+// between fromMonth and toMonth (YYYY-MM, inclusive). Days outside the range
+// are not aggregated; partial months on the boundary are included.
+func (t *Tracker) MonthlySummary(ctx context.Context, fromMonth, toMonth string) ([]MonthlySummaryRow, error) {
+	rows, err := t.pool.Query(ctx, `
+		SELECT
+			COALESCE(NULLIF(i.owner_tag, ''), '') AS owner_tag,
+			to_char(u.day, 'YYYY-MM')             AS month,
+			SUM(u.messages_in)::bigint            AS messages_in,
+			SUM(u.messages_out)::bigint           AS messages_out,
+			SUM(u.spamguard_blocks)::bigint       AS spamguard_blocks,
+			SUM(u.lifecycle_events)::bigint       AS lifecycle_events,
+			COUNT(DISTINCT u.instance)::int       AS active_instances
+		FROM bridge_usage_daily u
+		LEFT JOIN bridge_instance i ON i.name = u.instance
+		WHERE u.day >= ($1 || '-01')::date
+		  AND u.day < (($2 || '-01')::date + INTERVAL '1 month')
+		GROUP BY 1, 2
+		ORDER BY 2 DESC, 1 ASC
+	`, fromMonth, toMonth)
+	if err != nil {
+		return nil, fmt.Errorf("monthly summary: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]MonthlySummaryRow, 0)
+	for rows.Next() {
+		var r MonthlySummaryRow
+		if err := rows.Scan(&r.OwnerTag, &r.Month, &r.MessagesIn, &r.MessagesOut, &r.SpamguardBlocks, &r.LifecycleEvents, &r.ActiveInstances); err != nil {
+			return nil, fmt.Errorf("scan monthly: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (t *Tracker) query(ctx context.Context, instance *string, from, to string) ([]DailyRow, error) {
 	var rows pgx.Rows
 	var err error

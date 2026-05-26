@@ -1,0 +1,195 @@
+// Package tenant gestiona configuración per-tenant (mapping owner_tag →
+// downstream config). Permite que un solo proceso qrsgen sirva varios
+// clientes distintos, cada uno con su propio downstream URL/token/account.
+//
+// Diseño:
+//   - Tabla bridge_tenant con (owner_tag PK, downstream_base_url,
+//     downstream_api_token, downstream_account_id, downstream_inbox_id).
+//   - Resolver mantiene un cache in-memory invalidado en cada Set/Delete.
+//   - Si una instancia tiene owner_tag pero no existe tenant para ese tag,
+//     o no tiene owner_tag, se usa el fallback global (env DOWNSTREAM_*).
+package tenant
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Config describe la configuración downstream de un tenant concreto.
+type Config struct {
+	OwnerTag             string `json:"owner_tag"`
+	DownstreamBaseURL    string `json:"downstream_base_url"`
+	DownstreamAPIToken   string `json:"-"` // nunca se serializa
+	DownstreamAccountID  int    `json:"downstream_account_id"`
+	DownstreamInboxID    int    `json:"downstream_inbox_id,omitempty"`
+}
+
+// ErrNotFound se devuelve cuando un owner_tag no existe en bridge_tenant.
+var ErrNotFound = errors.New("tenant: not found")
+
+// Resolver mantiene un cache in-memory de configs y proporciona lookup
+// rápido. Safe for concurrent use.
+type Resolver struct {
+	pool *pgxpool.Pool
+
+	mu    sync.RWMutex
+	cache map[string]*Config
+}
+
+// EnsureSchema crea la tabla bridge_tenant.
+func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS bridge_tenant (
+			owner_tag             TEXT PRIMARY KEY,
+			downstream_base_url   TEXT NOT NULL,
+			downstream_api_token  TEXT NOT NULL,
+			downstream_account_id INT  NOT NULL DEFAULT 1,
+			downstream_inbox_id   INT  NOT NULL DEFAULT 0,
+			created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("tenant schema: %w", err)
+	}
+	return nil
+}
+
+// New returns a Resolver with empty cache. Call Warmup to preload.
+func New(pool *pgxpool.Pool) *Resolver {
+	return &Resolver{
+		pool:  pool,
+		cache: map[string]*Config{},
+	}
+}
+
+// Warmup carga todos los tenants existentes al cache. Llamar al boot.
+func (r *Resolver) Warmup(ctx context.Context) error {
+	rows, err := r.pool.Query(ctx, `
+		SELECT owner_tag, downstream_base_url, downstream_api_token,
+		       downstream_account_id, downstream_inbox_id
+		FROM bridge_tenant
+	`)
+	if err != nil {
+		return fmt.Errorf("warmup: %w", err)
+	}
+	defer rows.Close()
+	loaded := map[string]*Config{}
+	for rows.Next() {
+		var c Config
+		if err := rows.Scan(&c.OwnerTag, &c.DownstreamBaseURL, &c.DownstreamAPIToken,
+			&c.DownstreamAccountID, &c.DownstreamInboxID); err != nil {
+			return fmt.Errorf("scan: %w", err)
+		}
+		loaded[c.OwnerTag] = &c
+	}
+	r.mu.Lock()
+	r.cache = loaded
+	r.mu.Unlock()
+	return rows.Err()
+}
+
+// Get devuelve la config del tenant. Si está en cache, lectura O(1). Si
+// no, hace lookup y cachea. Devuelve ErrNotFound si no existe.
+func (r *Resolver) Get(ctx context.Context, ownerTag string) (*Config, error) {
+	if ownerTag == "" {
+		return nil, ErrNotFound
+	}
+	r.mu.RLock()
+	c, ok := r.cache[ownerTag]
+	r.mu.RUnlock()
+	if ok {
+		return c, nil
+	}
+	// Cache miss — lookup DB.
+	var loaded Config
+	err := r.pool.QueryRow(ctx, `
+		SELECT owner_tag, downstream_base_url, downstream_api_token,
+		       downstream_account_id, downstream_inbox_id
+		FROM bridge_tenant WHERE owner_tag=$1
+	`, ownerTag).Scan(&loaded.OwnerTag, &loaded.DownstreamBaseURL,
+		&loaded.DownstreamAPIToken, &loaded.DownstreamAccountID, &loaded.DownstreamInboxID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get tenant %q: %w", ownerTag, err)
+	}
+	r.mu.Lock()
+	r.cache[ownerTag] = &loaded
+	r.mu.Unlock()
+	return &loaded, nil
+}
+
+// Set upsert el tenant. Invalida el cache.
+func (r *Resolver) Set(ctx context.Context, c Config) error {
+	if c.OwnerTag == "" {
+		return errors.New("tenant: owner_tag required")
+	}
+	if c.DownstreamBaseURL == "" || c.DownstreamAPIToken == "" {
+		return errors.New("tenant: downstream_base_url + downstream_api_token required")
+	}
+	if c.DownstreamAccountID == 0 {
+		c.DownstreamAccountID = 1
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO bridge_tenant (owner_tag, downstream_base_url, downstream_api_token, downstream_account_id, downstream_inbox_id)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (owner_tag) DO UPDATE SET
+			downstream_base_url   = EXCLUDED.downstream_base_url,
+			downstream_api_token  = EXCLUDED.downstream_api_token,
+			downstream_account_id = EXCLUDED.downstream_account_id,
+			downstream_inbox_id   = EXCLUDED.downstream_inbox_id,
+			updated_at            = NOW()
+	`, c.OwnerTag, c.DownstreamBaseURL, c.DownstreamAPIToken, c.DownstreamAccountID, c.DownstreamInboxID)
+	if err != nil {
+		return fmt.Errorf("upsert tenant: %w", err)
+	}
+	r.mu.Lock()
+	cp := c
+	r.cache[c.OwnerTag] = &cp
+	r.mu.Unlock()
+	return nil
+}
+
+// Delete remueve el tenant. Invalida el cache.
+func (r *Resolver) Delete(ctx context.Context, ownerTag string) error {
+	res, err := r.pool.Exec(ctx, `DELETE FROM bridge_tenant WHERE owner_tag=$1`, ownerTag)
+	if err != nil {
+		return fmt.Errorf("delete tenant: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	r.mu.Lock()
+	delete(r.cache, ownerTag)
+	r.mu.Unlock()
+	return nil
+}
+
+// List devuelve todos los tenants. Sin tokens (no se serializan).
+func (r *Resolver) List(ctx context.Context) ([]Config, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT owner_tag, downstream_base_url, downstream_account_id, downstream_inbox_id
+		FROM bridge_tenant ORDER BY owner_tag
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list: %w", err)
+	}
+	defer rows.Close()
+	var out []Config
+	for rows.Next() {
+		var c Config
+		if err := rows.Scan(&c.OwnerTag, &c.DownstreamBaseURL,
+			&c.DownstreamAccountID, &c.DownstreamInboxID); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}

@@ -25,11 +25,12 @@ import (
 	"github.com/rricajos/qrsgen/internal/audit"
 	"github.com/rricajos/qrsgen/internal/banwatch"
 	"github.com/rricajos/qrsgen/internal/bridge"
-	"github.com/rricajos/qrsgen/internal/downstream"
 	"github.com/rricajos/qrsgen/internal/config"
+	"github.com/rricajos/qrsgen/internal/downstream"
 	"github.com/rricajos/qrsgen/internal/lib"
 	"github.com/rricajos/qrsgen/internal/manager"
 	"github.com/rricajos/qrsgen/internal/outbox"
+	"github.com/rricajos/qrsgen/internal/tenant"
 	"github.com/rricajos/qrsgen/internal/usage"
 	"github.com/rricajos/qrsgen/internal/wameow"
 	"github.com/labstack/echo/v4"
@@ -94,22 +95,41 @@ func main() {
 	cw := downstream.New(cfg.DownstreamBaseURL, cfg.DownstreamAPIToken, cfg.DownstreamAccountID)
 	dedup := bridge.NewDeduper(pool, cfg.InstanceName, cfg.DedupWindowMs, cfg.DedupEnabled)
 
+	// Multi-tenant downstream routing: cada instancia puede tener un
+	// `owner_tag` que apunta a una config downstream propia (bridge_tenant).
+	// Si no hay tenant para ese owner_tag (o no hay owner_tag), cae al global
+	// (cw) configurado vía env DOWNSTREAM_*.
+	if err := tenant.EnsureSchema(ctx, pool); err != nil {
+		logger.Error("tenant schema", "err", err)
+		os.Exit(1)
+	}
+	tenants := tenant.New(pool)
+	if err := tenants.Warmup(ctx); err != nil {
+		logger.Warn("tenant warmup (continuando con cache vacío)", "err", err)
+	}
+	dsRegistry := downstream.NewRegistry(pool, tenants, cw)
+
 	// Declaración temprana de mgr para que resolveInbox pueda capturarlo en closure.
 	var mgr *manager.Manager
 
-	// resolveInbox: multi-tenant. Busca bridge_instance.inbox_id por nombre.
-	// Si no está configurado, cae al DOWNSTREAM_INBOX_ID del env (compat single-tenant).
+	// resolveInbox: multi-tenant. Prioridad:
+	//   1. bridge_tenant.downstream_inbox_id (vía owner_tag de la instancia)
+	//   2. bridge_instance.inbox_id (override per-instancia)
+	//   3. env DOWNSTREAM_INBOX_ID (default global, compat single-tenant)
 	resolveInbox := func(instance string) int {
+		lookupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if id := dsRegistry.InboxIDFor(lookupCtx, instance); id > 0 {
+			return id
+		}
 		if mgr != nil {
-			lookupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
 			if id := mgr.InboxIDFor(lookupCtx, instance); id > 0 {
 				return id
 			}
 		}
 		return cfg.DownstreamInboxID
 	}
-	incoming := bridge.NewIncomingDynamic(cw, dedup, logger, resolveInbox)
+	incoming := bridge.NewIncomingDynamic(dsRegistry, dedup, logger, resolveInbox)
 
 	onMsg := func(ctx context.Context, instance string, msg *events.Message, r wameow.WAResolver) {
 		incoming.Handle(ctx, instance, msg, r)
@@ -146,7 +166,7 @@ func main() {
 	defer mgr.Shutdown()
 
 	sgTracker := bridge.NewSpamguardTracker()
-	outgoing := bridge.NewOutgoing(senderAdapter{mgr: mgr}, cw, dedup, spamguardAdapter{mgr: mgr}, sgTracker, logger)
+	outgoing := bridge.NewOutgoing(senderAdapter{mgr: mgr}, dsRegistry, dedup, spamguardAdapter{mgr: mgr}, sgTracker, logger)
 	outgoing.SetUsage(usageTracker)
 	incoming.SetUsage(usageTracker)
 	mgr.SetUsage(usageTracker)
@@ -543,6 +563,84 @@ func main() {
 			"to":   to,
 			"rows": rows,
 		})
+	})
+
+	// Multi-tenant downstream routing
+	// ───────────────────────────────────────────────────────────────────────
+	// `bridge_tenant` mapea owner_tag → config downstream (URL/token/account/inbox).
+	// El campo `downstream_api_token` JAMÁS se devuelve en GET — solo se escribe.
+
+	// GET /api/tenants — lista todos (sin tokens).
+	api.GET("/tenants", func(c echo.Context) error {
+		list, err := tenants.List(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		if list == nil {
+			list = []tenant.Config{}
+		}
+		return c.JSON(http.StatusOK, list)
+	})
+
+	// GET /api/tenants/:owner_tag — sin token.
+	api.GET("/tenants/:owner_tag", func(c echo.Context) error {
+		cfg, err := tenants.Get(c.Request().Context(), c.Param("owner_tag"))
+		if err != nil {
+			if errors.Is(err, tenant.ErrNotFound) {
+				return c.JSON(http.StatusNotFound, map[string]string{"error": "tenant not found"})
+			}
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		// Defensa en profundidad: no serializamos el token aunque el struct ya
+		// lo marca como `json:"-"`.
+		out := *cfg
+		out.DownstreamAPIToken = ""
+		return c.JSON(http.StatusOK, out)
+	})
+
+	// PUT /api/tenants/:owner_tag — upsert.
+	api.PUT("/tenants/:owner_tag", func(c echo.Context) error {
+		ownerTag := c.Param("owner_tag")
+		var req struct {
+			DownstreamBaseURL   string `json:"downstream_base_url"`
+			DownstreamAPIToken  string `json:"downstream_api_token"`
+			DownstreamAccountID int    `json:"downstream_account_id"`
+			DownstreamInboxID   int    `json:"downstream_inbox_id"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad json"})
+		}
+		cfg := tenant.Config{
+			OwnerTag:            ownerTag,
+			DownstreamBaseURL:   req.DownstreamBaseURL,
+			DownstreamAPIToken:  req.DownstreamAPIToken,
+			DownstreamAccountID: req.DownstreamAccountID,
+			DownstreamInboxID:   req.DownstreamInboxID,
+		}
+		if err := tenants.Set(c.Request().Context(), cfg); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		dsRegistry.InvalidateTenant(ownerTag)
+		auditLog.Record(c.Request().Context(), "api", "tenant.upsert", "", ownerTag, map[string]any{
+			"downstream_base_url":   req.DownstreamBaseURL,
+			"downstream_account_id": req.DownstreamAccountID,
+			"downstream_inbox_id":   req.DownstreamInboxID,
+		})
+		return c.JSON(http.StatusOK, map[string]string{"message": "tenant saved", "owner_tag": ownerTag})
+	})
+
+	// DELETE /api/tenants/:owner_tag — instancias con ese owner_tag caen al fallback global.
+	api.DELETE("/tenants/:owner_tag", func(c echo.Context) error {
+		ownerTag := c.Param("owner_tag")
+		if err := tenants.Delete(c.Request().Context(), ownerTag); err != nil {
+			if errors.Is(err, tenant.ErrNotFound) {
+				return c.JSON(http.StatusNotFound, map[string]string{"error": "tenant not found"})
+			}
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		dsRegistry.InvalidateTenant(ownerTag)
+		auditLog.Record(c.Request().Context(), "api", "tenant.delete", "", ownerTag, nil)
+		return c.JSON(http.StatusOK, map[string]string{"message": "tenant deleted", "owner_tag": ownerTag})
 	})
 
 	// POST /api/instances/bulk — crea/reusa varias. Idempotente, errores parciales NO abortan.

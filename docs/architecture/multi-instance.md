@@ -48,14 +48,49 @@ tenant-globex  → whatsapp-support
 El reporte `GET /api/usage/summary` agrupa naturalmente por
 `(owner_tag, mes)`, listo para facturar.
 
-## Multi-downstream NO soportado (aún)
+## Multi-downstream
 
-`DOWNSTREAM_BASE_URL` y `DOWNSTREAM_API_TOKEN` son **globales por
-proceso**. Para servir varios downstreams desde un solo qrsgen habría que
-enrutar por `owner_tag` y mantener un mapa de clientes HTTP. Pendiente.
+Desde v0.24.0 un solo proceso qrsgen puede servir **varios downstreams
+distintos**, enrutados por `owner_tag`. La tabla `bridge_tenant` mantiene
+la config downstream per-tenant:
 
-Workaround actual: un proceso qrsgen por downstream, todos apuntando al
-mismo Postgres (los nombres de instancia separan los namespaces).
+```
+owner_tag             | downstream_base_url       | downstream_account_id | downstream_inbox_id
+──────────────────────┼───────────────────────────┼───────────────────────┼─────────────────────
+tenant-acme           | https://acme.chatwoot.io  | 7                     | 12
+tenant-globex         | https://globex.example    | 1                     | 3
+```
+
+Flujo de resolución por mensaje:
+
+```
+1. bridge.Outgoing / bridge.Incoming → Router.For(ctx, instance)
+2. Registry consulta bridge_instance.owner_tag (cache TTL 30s).
+3. Si hay owner_tag → busca bridge_tenant → devuelve *Client del tenant.
+4. Si no hay owner_tag ni tenant → devuelve fallback global (env DOWNSTREAM_*).
+```
+
+`DOWNSTREAM_BASE_URL` y `DOWNSTREAM_API_TOKEN` siguen actuando como
+**fallback global** para instancias sin `owner_tag` o cuyo `owner_tag` no
+está mapeado todavía.
+
+### Endpoints
+
+| Método | Path | Body | Descripción |
+|--------|------|------|-------------|
+| `GET`    | `/api/tenants`              | —      | Lista tenants (sin tokens). |
+| `GET`    | `/api/tenants/:owner_tag`   | —      | Detalle (sin token). |
+| `PUT`    | `/api/tenants/:owner_tag`   | JSON   | Upsert (`downstream_base_url`, `downstream_api_token`, `downstream_account_id`, `downstream_inbox_id`). |
+| `DELETE` | `/api/tenants/:owner_tag`   | —      | Borra el mapeo (instancias caen al fallback global). |
+
+El token jamás se devuelve en GET — solo se escribe. Los cambios
+invalidan el cache `*Client` per-tenant inmediatamente.
+
+### Cuándo NO usar multi-downstream
+
+Si todos tus clientes comparten el mismo Chatwoot/downstream, no uses
+`bridge_tenant`: mantén `DOWNSTREAM_*` en env y deja `owner_tag` vacío en
+las instancias. Más simple y menos config para mantener.
 
 ## Glosario
 
@@ -89,5 +124,10 @@ aislamiento real (DB separada, proceso separado, secrets separados).
 qrsgen no lo soporta nativamente — workaround: un proceso por cliente.
 
 **Multi-downstream**: capacidad de servir varios destinos downstream
-distintos desde un solo proceso qrsgen. NO soportado actualmente —
-`DOWNSTREAM_BASE_URL` y `DOWNSTREAM_API_TOKEN` son globales.
+distintos desde un solo proceso qrsgen. Soportado desde v0.24.0 vía
+`bridge_tenant` (mapping `owner_tag` → downstream config).
+
+**Fallback global**: la config downstream del env (`DOWNSTREAM_*`) se
+usa cuando una instancia no tiene `owner_tag`, o cuando su `owner_tag`
+no está mapeado en `bridge_tenant` todavía. Hace que el sistema sea
+backward-compatible con deploys single-tenant.

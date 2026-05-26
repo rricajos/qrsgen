@@ -19,8 +19,13 @@ type InboxResolver func(instance string) int
 
 // Incoming sincroniza un mensaje observado en WhatsApp (incoming o fromMe outgoing)
 // a downstream.
+//
+// El `ds` es un Router (interfaz) — puede ser un *downstream.Client directo
+// (single-downstream) o un *downstream.Registry (multi-downstream con
+// routing por owner_tag). El código de los handlers usa `ds.For(ctx, instance)`
+// uniformemente.
 type Incoming struct {
-	ds      *downstream.Client
+	ds      downstream.Router
 	dedup   *Deduper
 	logger  *slog.Logger
 	resolve InboxResolver
@@ -28,7 +33,7 @@ type Incoming struct {
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
-func NewIncomingDynamic(ds *downstream.Client, dedup *Deduper, logger *slog.Logger, resolve InboxResolver) *Incoming {
+func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logger, resolve InboxResolver) *Incoming {
 	return &Incoming{ds: ds, dedup: dedup, logger: logger, resolve: resolve}
 }
 
@@ -183,17 +188,20 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 	}
 
 	inboxID := i.resolve(instance)
-	if err := i.sync(ctx, inboxID, rs, content, fromMe, contactName, msg.Info.ID, media, r, msg.Message); err != nil {
+	if err := i.sync(ctx, instance, inboxID, rs, content, fromMe, contactName, msg.Info.ID, media, r, msg.Message); err != nil {
 		i.logger.Error("sync to downstream failed", "err", err, "instance", instance, "primaryJID", rs.primaryJID)
 	}
 }
 
-func (i *Incoming) sync(ctx context.Context, inboxID int, rs resolvedSender, content string, fromMe bool, contactName, waID string, media *mediaInfo, r wameow.WAResolver, rawMsg *waE2E.Message) error {
+func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs resolvedSender, content string, fromMe bool, contactName, waID string, media *mediaInfo, r wameow.WAResolver, rawMsg *waE2E.Message) error {
+	// Resolvemos el client downstream apropiado para esta instancia
+	// (multi-tenant si está configurado, fallback global si no).
+	ds := i.ds.For(ctx, instance)
 	// La búsqueda usa el JID primario como identifier (LID o PN). Es lo único
 	// estable a lo largo del tiempo para un usuario en su modo nativo.
 	identifier := rs.primaryJID
 
-	contact, err := findContactByIdentifier(ctx, i.ds, identifier, rs.phone)
+	contact, err := findContactByIdentifier(ctx, ds, identifier, rs.phone)
 	if err != nil {
 		return fmt.Errorf("find contact: %w", err)
 	}
@@ -207,18 +215,18 @@ func (i *Incoming) sync(ctx context.Context, inboxID int, rs resolvedSender, con
 		if rs.phone != "" {
 			req.PhoneNumber = "+" + rs.phone
 		}
-		contact, err = i.ds.CreateContact(ctx, req)
+		contact, err = ds.CreateContact(ctx, req)
 		if err != nil {
 			return fmt.Errorf("create contact: %w", err)
 		}
 	}
 
-	conv, err := i.ds.FindOpenConversation(ctx, contact.ID, inboxID)
+	conv, err := ds.FindOpenConversation(ctx, contact.ID, inboxID)
 	if err != nil {
 		return fmt.Errorf("find conversation: %w", err)
 	}
 	if conv == nil {
-		conv, err = i.ds.CreateConversation(ctx, downstream.CreateConversationReq{
+		conv, err = ds.CreateConversation(ctx, downstream.CreateConversationReq{
 			SourceID:  identifier,
 			InboxID:   inboxID,
 			ContactID: contact.ID,
@@ -246,7 +254,7 @@ func (i *Incoming) sync(ctx context.Context, inboxID int, rs resolvedSender, con
 			} else {
 				fallback += fmt.Sprintf("\n\n[adjunto %s no se pudo descargar: %s]", media.kind, media.mimetype)
 			}
-			_, err := i.ds.PostMessage(ctx, downstream.PostMessageReq{
+			_, err := ds.PostMessage(ctx, downstream.PostMessageReq{
 				ConversationID: conv.ID,
 				Content:        fallback,
 				MessageType:    msgType,
@@ -254,7 +262,7 @@ func (i *Incoming) sync(ctx context.Context, inboxID int, rs resolvedSender, con
 			})
 			return err
 		}
-		_, err = i.ds.PostMessageWithAttachment(ctx, downstream.PostMessageAttachmentReq{
+		_, err = ds.PostMessageWithAttachment(ctx, downstream.PostMessageAttachmentReq{
 			ConversationID: conv.ID,
 			Content:        content,
 			MessageType:    msgType,
@@ -266,7 +274,7 @@ func (i *Incoming) sync(ctx context.Context, inboxID int, rs resolvedSender, con
 		return err
 	}
 
-	_, err = i.ds.PostMessage(ctx, downstream.PostMessageReq{
+	_, err = ds.PostMessage(ctx, downstream.PostMessageReq{
 		ConversationID: conv.ID,
 		Content:        content,
 		MessageType:    msgType,

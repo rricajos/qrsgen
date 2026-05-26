@@ -78,7 +78,7 @@ type BanwatchRecorder interface {
 
 type Outgoing struct {
 	sender   Sender
-	ds       *downstream.Client
+	ds       downstream.Router
 	dedup    *Deduper
 	sg       SpamguardProvider
 	tracker  *SpamguardTracker
@@ -87,7 +87,7 @@ type Outgoing struct {
 	banwatch BanwatchRecorder
 }
 
-func NewOutgoing(sender Sender, ds *downstream.Client, dedup *Deduper, sg SpamguardProvider, tracker *SpamguardTracker, logger *slog.Logger) *Outgoing {
+func NewOutgoing(sender Sender, ds downstream.Router, dedup *Deduper, sg SpamguardProvider, tracker *SpamguardTracker, logger *slog.Logger) *Outgoing {
 	return &Outgoing{sender: sender, ds: ds, dedup: dedup, sg: sg, tracker: tracker, logger: logger}
 }
 
@@ -204,8 +204,10 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 	// Si trae adjuntos: por cada uno, descarga blob + envía media.
 	// El content (si existe) se manda como caption del PRIMER adjunto (semántica
 	// de WhatsApp: una caption por mensaje). Si hay varios adjuntos, los siguientes
-	// van sin caption.
+	// van sin caption. Resolvemos el client downstream según el owner_tag de la
+	// instancia (multi-tenant) o caemos al global. Lazy — solo si vamos a usarlo.
 	if len(p.Attachments) > 0 {
+		ds := o.ds.For(ctx, instance)
 		caption := p.Content
 		var firstWAID string
 		for i, att := range p.Attachments {
@@ -213,7 +215,7 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 				o.logger.Warn("attachment without data_url, skipping", "att_id", att.ID)
 				continue
 			}
-			data, ct, err := o.ds.DownloadBlob(ctx, att.DataURL)
+			data, ct, err := ds.DownloadBlob(ctx, att.DataURL)
 			if err != nil {
 				o.logger.Error("download downstream blob failed", "err", err, "att_id", att.ID, "data_url", att.DataURL)
 				continue
@@ -248,7 +250,7 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 			}
 		}
 		if firstWAID != "" && p.ID > 0 && p.Conversation != nil {
-			if err := o.ds.UpdateMessageSourceID(ctx, p.Conversation.ID, p.ID, "WAID:"+firstWAID); err != nil {
+			if err := ds.UpdateMessageSourceID(ctx, p.Conversation.ID, p.ID, "WAID:"+firstWAID); err != nil {
 				o.logger.Warn("patch source_id failed (media)", "err", err, "msg_id", p.ID)
 			}
 		}
@@ -273,7 +275,8 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 	o.logger.Info("sent outgoing to whatsapp", "instance", instance, "remoteJid", remoteJid, "waID", waID)
 
 	if p.ID > 0 && p.Conversation != nil {
-		if err := o.ds.UpdateMessageSourceID(ctx, p.Conversation.ID, p.ID, "WAID:"+waID); err != nil {
+		ds := o.ds.For(ctx, instance)
+		if err := ds.UpdateMessageSourceID(ctx, p.Conversation.ID, p.ID, "WAID:"+waID); err != nil {
 			o.logger.Warn("patch downstream message source_id failed (mensaje enviado, pero echo no se dedupará)",
 				"err", err, "msg_id", p.ID, "conv_id", p.Conversation.ID)
 		}

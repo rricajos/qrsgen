@@ -57,3 +57,54 @@ restore incluido. Off-site backup configurable con un `ExecStartPost=`.
 Conexión, desconexión, ban risk, outbox expirations... cada uno se
 emite como webhook HTTP a la URL que configures por instancia. Catálogo
 completo en [Lifecycle webhooks](../api/lifecycle-webhooks.md).
+
+## Glosario
+
+**Outbox**: cola persistida en Postgres donde van los mensajes outgoing
+cuando la instancia está temporalmente desconectada. Se reentregan al
+volver, con TTL de 5 minutos.
+
+**TTL** (Time To Live): tiempo máximo que un mensaje puede esperar en
+la outbox antes de expirar.
+
+**BanWatcher**: módulo interno que analiza el ritmo de envíos para
+detectar patrones que WhatsApp suele penalizar.
+
+**Velocity**: mensajes outgoing por unidad de tiempo. Una de las tres
+señales del BanWatcher.
+
+**Diversity**: número de JIDs únicos contactados por ventana de
+tiempo. Otra señal del BanWatcher.
+
+**Delivery ratio**: fracción de envíos exitosos sobre intentos
+totales. Tercera señal del BanWatcher.
+
+**Audit log**: tabla `bridge_audit_log` con triggers DB que rechazan
+UPDATE/DELETE — registro inmutable de operaciones.
+
+**Tamper-evident**: propiedad donde cualquier modificación al log es
+detectable o imposible. qrsgen lo garantiza a nivel DB.
+
+**Usage tracking**: contadores diarios de mensajes y eventos por
+instancia, persistidos en Postgres para reporting/facturación.
+
+**owner_tag**: string libre para mapear instancias a tenants
+(clientes). qrsgen lo expone en agregados de billing pero no lo
+interpreta.
+
+**Multi-tenant ligero**: arquitectura donde un solo proceso sirve a
+varios clientes identificándolos solo por etiqueta.
+
+**HMAC** (Hash-based Message Authentication Code): firma criptográfica
+que demuestra que un mensaje viene de quien dice y no ha sido
+modificado.
+
+**Distroless**: imagen Docker mínima sin shell ni package manager.
+Reduce la superficie de ataque ante RCE.
+
+**Read-only rootfs**: filesystem del container marcado como solo
+lectura. Cualquier intento de escribir falla — buena señal de
+compromiso si ocurre.
+
+**Lifecycle event**: notificación HTTP que qrsgen POSTea cuando ocurre
+algo relevante en una instancia (conexión, QR, ban risk, etc.).

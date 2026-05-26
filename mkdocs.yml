@@ -109,7 +109,10 @@ nav:
       - Troubleshooting: operations/troubleshooting.md
       - Alerting Prometheus: operations/alerting.md
       - Logs útiles: operations/logs.md
-  - n8n example: n8n-example.md
+  - Integrations:
+      - integrations/index.md
+      - n8n: integrations/n8n.md
+      - Python: integrations/python.md
   - Legal:
       - Disclaimer: legal/disclaimer.md
       - License: legal/license.md

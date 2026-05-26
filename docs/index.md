@@ -46,8 +46,8 @@ Tu webhook endpoint
   HMAC, firewall iptables, TLS, container hardening, audit, backups).
 - **[Operations](operations/)** — runbook: diagnóstico rápido,
   procedimientos comunes, troubleshooting, alerting Prometheus.
-- **[n8n example](n8n-example.md)** — receta concreta de integración con
-  un orquestador externo (extrapolable a Zapier, Make, Temporal, etc.).
+- **[Integrations](integrations/)** — recetas concretas (n8n, Python,
+  etc.) para conectar qrsgen a tu orquestador o aplicación.
 
 ## Estado del proyecto
 

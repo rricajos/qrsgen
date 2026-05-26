@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -113,6 +114,17 @@ func (o *Outgoing) incUsageSpamguard(instance string) {
 	if o.usage != nil {
 		o.usage.IncSpamguardBlock(instance)
 	}
+}
+
+// HandleForRaw deserializa un payload JSON ya almacenado (típico caso: el
+// outbox lo persistió en disco como JSONB) y llama a HandleFor. Mantiene
+// la firma estable de cara al outbox sin acoplarlo al struct de bridge.
+func (o *Outgoing) HandleForRaw(ctx context.Context, instance string, raw json.RawMessage) error {
+	var p WebhookPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return fmt.Errorf("unmarshal outbox payload: %w", err)
+	}
+	return o.HandleFor(ctx, instance, p)
 }
 
 // HandleFor procesa el webhook con conocimiento de la instancia destino.

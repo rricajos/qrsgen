@@ -7,6 +7,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ import (
 	"github.com/rricajos/qrsgen/internal/config"
 	"github.com/rricajos/qrsgen/internal/lib"
 	"github.com/rricajos/qrsgen/internal/manager"
+	"github.com/rricajos/qrsgen/internal/outbox"
 	"github.com/rricajos/qrsgen/internal/usage"
 	"github.com/rricajos/qrsgen/internal/wameow"
 	"github.com/labstack/echo/v4"
@@ -148,6 +150,13 @@ func main() {
 	banWatcher := banwatch.New(banwatch.DefaultConfig(), spamguardAdapter{mgr: mgr}, logger)
 	banWatcher.Start(ctx, 30*time.Second)
 	outgoing.SetBanwatch(banWatcher)
+
+	if err := outbox.EnsureSchema(ctx, pool); err != nil {
+		logger.Error("ensure outbox schema", "err", err)
+		os.Exit(1)
+	}
+	outboxQueue := outbox.New(outbox.DefaultConfig(), pool, outgoing, mgr, spamguardAdapter{mgr: mgr}, auditLog, logger)
+	outboxQueue.Start(ctx)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -366,6 +375,16 @@ func main() {
 		return c.JSON(http.StatusOK, map[string]any{"entries": entries})
 	})
 
+	// GET /api/instances/:name/outbox
+	// Stats del buffer de outgoing para esa instancia: pending/sent/expired/failed.
+	api.GET("/instances/:name/outbox", func(c echo.Context) error {
+		s, err := outboxQueue.Stats(c.Request().Context(), c.Param("name"))
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, s)
+	})
+
 	// GET /api/instances/:name/ban-risk
 	// Snapshot del detector de ban-risk para una instancia (velocity/diversity/
 	// delivery_ratio + score + alerts activas). Útil para que el integrador
@@ -514,15 +533,54 @@ func main() {
 	})
 
 	api.POST("/instances/:name/webhook", func(c echo.Context) error {
+		instance := c.Param("name")
+
+		// Leemos el body crudo: necesitamos persistirlo intacto si la instancia
+		// no está conectada (el outbox lo replay-eará tal cual cuando vuelva).
+		raw, err := io.ReadAll(c.Request().Body)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "read body"})
+		}
 		var payload bridge.WebhookPayload
-		if err := c.Bind(&payload); err != nil {
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad json"})
 		}
-		if err := outgoing.HandleFor(c.Request().Context(), c.Param("name"), payload); err != nil {
+
+		// Si la instancia está disconnected (restart en curso, sesión perdida,
+		// reconectando), encolamos en outbox y devolvemos 202. El drainer
+		// entregará en cuanto vuelva. Mensajes a `qrsgen-qr-*` (ops contacts)
+		// se manejan en HandleFor sin tocar la red, así que NO se encolan —
+		// los pasamos al camino síncrono para que la safety net actúe.
+		isQrsgenOps := payload.Conversation != nil && payload.Conversation.Meta != nil &&
+			payload.Conversation.Meta.Sender != nil &&
+			strings.HasPrefix(payload.Conversation.Meta.Sender.Identifier, "qrsgen-qr-")
+		isOutgoingForRealClient := payload.MessageType == "outgoing" && !payload.Private && !isQrsgenOps
+		if isOutgoingForRealClient && !mgr.IsConnected(instance) {
+			var remoteJID string
+			if payload.Conversation != nil && payload.Conversation.Meta != nil && payload.Conversation.Meta.Sender != nil {
+				remoteJID = payload.Conversation.Meta.Sender.Identifier
+			}
+			res, qerr := outboxQueue.Enqueue(c.Request().Context(), instance, remoteJID, raw)
+			if qerr != nil {
+				if errors.Is(qerr, outbox.ErrQueueFull) {
+					return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "queue full"})
+				}
+				logger.Error("outbox enqueue failed, falling back to sync", "err", qerr, "instance", instance)
+				// fallthrough → intent síncrono (probablemente fallará pero no perdemos información)
+			} else {
+				return c.JSON(http.StatusAccepted, map[string]any{
+					"status":     "queued",
+					"queue_id":   res.QueueID,
+					"expires_at": res.ExpiresAt,
+				})
+			}
+		}
+
+		if err := outgoing.HandleFor(c.Request().Context(), instance, payload); err != nil {
 			logger.Error("outgoing handle failed", "err", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal"})
 		}
-		return c.JSON(http.StatusOK, map[string]string{"message": "ok"})
+		return c.JSON(http.StatusOK, map[string]string{"status": "sent"})
 	}, webhookHMACMiddleware(cfg.WebhookHMACSecret, logger))
 
 	go func() {

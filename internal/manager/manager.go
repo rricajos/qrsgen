@@ -40,8 +40,12 @@ type Manager struct {
 	// disconnectNotified: per-instance flag — true si ya emitimos
 	// EventDisconnected post-grace. El próximo EventConnected debe emitirse
 	// como EventReconnected en su lugar, y limpiar el flag.
+	// pendingReconnected: per-instance flag — true entre el Connected y la
+	// confirmación a los 5s de estabilidad antes de emitir EventReconnected.
+	// Si llega un Disconnected en esos 5s, se cancela (probable flap).
 	reconMu            sync.Mutex
 	disconnectNotified map[string]bool
+	pendingReconnected map[string]bool
 
 	// pendingUnreachable: per-instance flag — true entre un Disconnected y
 	// la decisión final de emitir o no `unreachable` (grace 60s).
@@ -71,6 +75,7 @@ func New(ctx context.Context, dsn string, pool *pgxpool.Pool, logger *slog.Logge
 		onMsg:              onMsg,
 		waiters:            map[string][]chan struct{}{},
 		disconnectNotified: map[string]bool{},
+		pendingReconnected: map[string]bool{},
 		pendingUnreachable: map[string]bool{},
 	}
 	return m, nil
@@ -316,6 +321,11 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 		m.unreachMu.Lock()
 		m.pendingUnreachable[name] = true
 		m.unreachMu.Unlock()
+		// Cancela cualquier `reconnected` pendiente: probable flap, no
+		// queremos confirmar la reconexión si justo ahora se cae otra vez.
+		m.reconMu.Lock()
+		delete(m.pendingReconnected, name)
+		m.reconMu.Unlock()
 		go m.emitUnreachableAfterGrace(name, jid, now)
 		go m.emitLifecycleWebhook(name, wameow.EventDisconnected, jid, now)
 		return
@@ -343,14 +353,48 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 		wasNotifiedDown := m.disconnectNotified[name]
 		if wasNotifiedDown {
 			delete(m.disconnectNotified, name)
+			m.pendingReconnected[name] = true
 		}
 		m.reconMu.Unlock()
 		if wasNotifiedDown {
-			go m.emitLifecycleWebhook(name, wameow.EventReconnected, jid, now)
+			// Reconnected con stabilize-delay: si en 5s sigue conectado,
+			// emitimos el evento. Si cae otra vez (flap), el handler de
+			// Disconnected limpia pendingReconnected y este goroutine
+			// silencia.
+			go m.emitReconnectedAfterStabilize(name, jid, now)
 			return
 		}
 	}
 	go m.emitLifecycleWebhook(name, ev, jid, now)
+}
+
+// emitReconnectedAfterStabilize espera 5s para confirmar que la reconexión es
+// estable antes de notificar. Evita spam visual cuando hay flaps en cadena.
+const reconnectedStabilizeSeconds = 5
+
+func (m *Manager) emitReconnectedAfterStabilize(name, jid string, occurredAt time.Time) {
+	time.Sleep(reconnectedStabilizeSeconds * time.Second)
+	conn, ok := m.Get(name)
+	if !ok {
+		m.reconMu.Lock()
+		delete(m.pendingReconnected, name)
+		m.reconMu.Unlock()
+		return
+	}
+	m.reconMu.Lock()
+	stillPending := m.pendingReconnected[name]
+	delete(m.pendingReconnected, name)
+	m.reconMu.Unlock()
+	if !stillPending {
+		// Disconnect happened during the 5s window → silent.
+		return
+	}
+	if !conn.IsConnected() {
+		// Race: flag still set but connection dropped after the Disconnected
+		// handler ran. Treat as flap.
+		return
+	}
+	m.emitLifecycleWebhook(name, wameow.EventReconnected, jid, occurredAt)
 }
 
 // emitUnreachableAfterGrace espera la ventana de grace antes de decidir si

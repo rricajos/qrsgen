@@ -73,7 +73,7 @@ Portainer Stacks UI o `.env`.
 | `DEDUP_ENABLED` | `true` | |
 | `DEDUP_WINDOW_MS` | `10000` | Ventana LID-twin dedup. |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. |
-| `OVERLAY_NETWORK` | `conexianet` | Red docker overlay externa. |
+| `OVERLAY_NETWORK` | `net` | Red docker overlay externa. |
 | `PORT` | `3100` | HTTP listener. |
 
 ### Despliegue
@@ -191,7 +191,7 @@ Necesitas:
 
 - La imagen `qrsgen:X` en el registry o build local.
 - Postgres reachable en el overlay (`postgres:5432`).
-- La overlay network creada (`docker network create -d overlay --attachable conexianet`).
+- La overlay network creada (`docker network create -d overlay --attachable net`).
 
 ---
 

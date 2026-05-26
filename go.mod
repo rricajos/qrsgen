@@ -3,7 +3,7 @@ module github.com/rricajos/qrsgen
 go 1.25.0
 
 require (
-	github.com/caarlos0/env/v11 v11.2.2
+	github.com/caarlos0/env/v11 v11.4.1
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/labstack/echo/v4 v4.15.2
 	github.com/prometheus/client_golang v1.23.2

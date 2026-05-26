@@ -56,3 +56,38 @@ enrutar por `owner_tag` y mantener un mapa de clientes HTTP. Pendiente.
 
 Workaround actual: un proceso qrsgen por downstream, todos apuntando al
 mismo Postgres (los nombres de instancia separan los namespaces).
+
+## Glosario
+
+**Multi-instance**: arquitectura donde un solo proceso gestiona varias
+sesiones WhatsApp independientes. Cada instancia = un número.
+
+**Instance name**: identificador único de una instancia dentro del
+proceso. Aparece en URLs (`/api/instances/<name>/...`) y en logs.
+
+**Routing**: proceso de determinar a qué instancia va una request o un
+evento. Por nombre de URL (outgoing) o por sesión WhatsApp (incoming).
+
+**Aislamiento entre instancias**: cada instancia tiene su propio
+WebSocket, sus propios buffers y su propia config en DB. No comparten
+estado en memoria (solo el pool Postgres compartido).
+
+**Namespace** (en este contexto): conjunto de nombres dentro del cual
+los identificadores son únicos. Cada proceso qrsgen tiene su propio
+namespace de nombres de instancia.
+
+**owner_tag**: string libre del integrador para correlacionar instancias
+con su modelo de tenants. qrsgen lo lee solo en el agregado de
+facturación.
+
+**Multi-tenant ligero**: arquitectura donde un proceso sirve varios
+clientes identificándolos solo por etiqueta (`owner_tag`), sin
+aislamiento real. Bueno cuando el integrador es de confianza.
+
+**Multi-tenant fuerte**: arquitectura donde cada cliente tiene
+aislamiento real (DB separada, proceso separado, secrets separados).
+qrsgen no lo soporta nativamente — workaround: un proceso por cliente.
+
+**Multi-downstream**: capacidad de servir varios destinos downstream
+distintos desde un solo proceso qrsgen. NO soportado actualmente —
+`DOWNSTREAM_BASE_URL` y `DOWNSTREAM_API_TOKEN` son globales.

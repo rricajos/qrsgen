@@ -77,3 +77,44 @@ filtros que hacen no-op:
 `outbox.MaxQueueDepth` (default 200) limita el backlog por instancia.
 Cuando se alcanza, nuevos POSTs devuelven `503` en lugar de encolar más.
 Evita runaway buffering cuando una instancia está permanentemente muerta.
+
+## Glosario
+
+**Outgoing**: mensaje que va de tu sistema al cliente WhatsApp.
+
+**Outbox pattern**: patrón de diseño donde escrituras se persisten
+primero en una tabla "outbox" local, y un proceso async las despacha
+hacia el destino final. Garantiza que no se pierde nada en restarts.
+
+**Drainer**: goroutine que periódicamente revisa la outbox y reentrega
+mensajes pending cuando su instancia ha vuelto a estar conectada.
+
+**Expirer**: goroutine que marca como `expired` los mensajes pending
+cuya `expires_at` ha pasado. Emite el evento lifecycle `outgoing_expired`.
+
+**TTL** (Time To Live): tiempo máximo que un mensaje puede esperar en
+la outbox antes de expirar. Default 5 minutos en qrsgen.
+
+**Safety net**: filtros defensivos que rechazan mensajes en estados
+peligrosos (notas privadas, ecos, contactos sintéticos). Devuelven 200
+OK sin enviar nada.
+
+**Spamguard**: filtro que descarta outgoings duplicados (mismo contenido
+al mismo JID consecutivamente). Activo solo cuando
+`spamguard_enabled=true` en la instancia.
+
+**Dedup por msg_id**: mecanismo de idempotencia. Si el downstream
+reintenta un POST con el mismo `id`, qrsgen lo detecta y devuelve OK
+sin reenviar.
+
+**Banwatch.Record**: hook que registra cada send (exitoso o fallido)
+para que el detector de ban-risk compute velocity / diversity /
+delivery_ratio.
+
+**MaxQueueDepth**: tamaño máximo del backlog outbox por instancia (200
+default). Evita acumulación infinita si una instancia muere
+permanentemente.
+
+**Runaway buffering**: situación donde un componente sigue acumulando
+trabajo pendiente porque nunca llega a procesarlo, eventualmente
+consumiendo toda la memoria/disco. MaxQueueDepth lo previene.

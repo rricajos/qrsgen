@@ -19,7 +19,8 @@ Sin auth. Cuando `PUBLIC_STATS_ENABLED=false` (default) devuelve `403`.
   "instances_connected":  4,
   "instances_total":      4,
   "installations_active": 4,
-  "qrs_scanned_total":    37,
+  "installations_total":  37,
+  "qrs_scanned_total":    42,
   "messages_in_total":    152340,
   "messages_out_total":   178921,
   "version": "0.23.0",
@@ -27,14 +28,22 @@ Sin auth. Cuando `PUBLIC_STATS_ENABLED=false` (default) devuelve `403`.
 }
 ```
 
+Las parejas son **live** vs **histórico**:
+
+- `instances_connected` / `instances_total` — snapshot live: lo que el
+  proceso tiene en memoria ahora mismo.
+- `installations_active` / `installations_total` — datos persistidos:
+  lo que ha existido en DB en cualquier momento.
+
 Campos:
 
 | Campo | Significado |
 |---|---|
 | `instances_connected` | Cuántas instancias están **ahora mismo** en estado `ready` o `connected` (snapshot live). |
-| `instances_total` | Total de instancias **registradas en el proceso** (incluye `qr_pending`, `disconnected`, etc.). |
+| `instances_total` | Total de instancias **registradas en el proceso** ahora mismo (incluye `qr_pending`, `disconnected`, etc.). Snapshot live. |
 | `installations_active` | Instancias en DB con `jid` configurado — han llegado a parearse al menos una vez y siguen registradas. |
-| `qrs_scanned_total` | Histórico acumulado de pairings exitosos (= veces que un usuario ha escaneado un QR). Cuenta filas en `bridge_audit_log` con `action='instance.paired'`. Sobrevive a borrar instancias. |
+| `installations_total` | Histórico acumulado de instancias que han existido en algún momento — incluye las ya borradas via DELETE (sobrevive a borrar porque cuenta entradas distintas en `bridge_audit_log`, que es append-only). |
+| `qrs_scanned_total` | Histórico acumulado de pairings exitosos (= veces que un usuario ha escaneado un QR). Cuenta filas en `bridge_audit_log` con `action='instance.paired'`. Incluye re-pairings de una misma instancia. |
 | `messages_in_total` / `messages_out_total` | All-time totals agregados desde `bridge_usage_daily`. |
 | `version` | Tag de release del binario. |
 | `last_updated` | Timestamp UTC de la respuesta. |

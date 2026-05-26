@@ -260,10 +260,20 @@ func main() {
 		).Scan(&installationsActive); err != nil {
 			logger.Warn("public stats: installations active query failed", "err", err)
 		}
+		// Instalaciones totales históricas: cualquier instancia que haya
+		// aparecido en el audit log alguna vez (incluye las ya borradas).
+		// Sobrevive a DELETE — el audit log es append-only.
+		var installationsTotal int64
+		if err := pool.QueryRow(c.Request().Context(),
+			`SELECT COUNT(DISTINCT instance) FROM bridge_audit_log WHERE instance IS NOT NULL AND instance <> ''`,
+		).Scan(&installationsTotal); err != nil {
+			logger.Warn("public stats: installations total query failed", "err", err)
+		}
 		return c.JSON(http.StatusOK, map[string]any{
 			"instances_connected":  connected,
 			"instances_total":      total,
 			"installations_active": installationsActive,
+			"installations_total":  installationsTotal,
 			"qrs_scanned_total":    qrsScannedTotal,
 			"messages_in_total":    totals.MessagesIn,
 			"messages_out_total":   totals.MessagesOut,

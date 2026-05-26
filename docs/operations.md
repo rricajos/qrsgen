@@ -21,7 +21,7 @@ fetch('http://qrsgen:3100/api/instances',{headers:{'Authorization':'Bearer '+TOK
 ### "¿Una instancia específica está OK?"
 
 ```bash
-curl -H "Authorization: Bearer $TOK" http://qrsgen:3100/api/instances/SAT-ALBERT
+curl -H "Authorization: Bearer $TOK" http://qrsgen:3100/api/instances/whatsapp-main
 ```
 
 ### "¿Cuántos mensajes han pasado hoy?"
@@ -31,14 +31,17 @@ curl -H "Authorization: Bearer $TOK" http://qrsgen:3100/api/instances/SAT-ALBERT
 ### "¿Está bloqueando spam?"
 
 ```
-qrsgen_spamguard_blocks_total{instance="SAT-ALBERT"}
+qrsgen_spamguard_blocks_total{instance="whatsapp-main"}
 ```
 
 ## Procedimientos comunes
 
 ### Re-pareado de un técnico (sesión perdida)
 
-1. n8n: pide al usuario ``POST /api/instances/SAT-XXX` (vía tu downstream o directamente con curl)` desde el chat con el contacto QR-X.
+El nombre de la instancia (`whatsapp-main` en los ejemplos) es libre — usa
+el que corresponda al canal/inbox del downstream que estás operando.
+
+1. Orquestador: pide al usuario `POST /api/instances/<INSTANCE_NAME>` (vía tu downstream o directamente con curl) desde el chat ops del contacto.
 2. Si el inbox y contacto ya existen, el sub-workflow downstream refresca metadata y muestra el QR si la sesión se ha caído.
 3. Si la sesión está perdida (logged_out), qrsgen emitirá `qr_generated` cada ~20s y el notifier postea el PNG renovado en la conv ops.
 
@@ -46,7 +49,7 @@ Manual:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $TOK" \
-  http://qrsgen:3100/api/instances/SAT-XXX/refresh-qr
+  http://qrsgen:3100/api/instances/whatsapp-main/refresh-qr
 ```
 
 ### Borrar una instancia completamente
@@ -54,11 +57,11 @@ curl -X POST -H "Authorization: Bearer $TOK" \
 ```bash
 # 1. Desactiva sesión en WhatsApp servers
 curl -X POST -H "Authorization: Bearer $TOK" \
-  http://qrsgen:3100/api/instances/SAT-XXX/logout
+  http://qrsgen:3100/api/instances/whatsapp-main/logout
 
 # 2. Borra config + state
 curl -X DELETE -H "Authorization: Bearer $TOK" \
-  http://qrsgen:3100/api/instances/SAT-XXX
+  http://qrsgen:3100/api/instances/whatsapp-main
 ```
 
 ### Restart del backend
@@ -82,7 +85,7 @@ Downtime efectivo del WebSocket: ~5-10 segundos. Mensajes entrantes durante ese 
 ```bash
 curl -X PATCH -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
   -d '{"inbox_id":90}' \
-  http://qrsgen:3100/api/instances/SAT-ALBERT
+  http://qrsgen:3100/api/instances/whatsapp-sales
 ```
 
 ### Toggle spamguard
@@ -91,10 +94,10 @@ curl -X PATCH -H "Authorization: Bearer $TOK" -H "Content-Type: application/json
 # Activar
 curl -X PATCH -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
   -d '{"spamguard_enabled":true}' \
-  http://qrsgen:3100/api/instances/SAT-ALBERT
+  http://qrsgen:3100/api/instances/whatsapp-sales
 ```
 
-O desde el downstream: `spamguard on` / `spamguard off` / `spamguard status` en el panel QR-X conv.
+O desde el downstream: `spamguard on` / `spamguard off` / `spamguard status` en la conversación ops del canal.
 
 ## Troubleshooting
 
@@ -103,9 +106,9 @@ O desde el downstream: `spamguard on` / `spamguard off` / `spamguard status` en 
 Causas frecuentes:
 
 1. **Container down**: `docker service ps qrsgen_qrsgen` — ¿está running?
-2. **Webhook URL mal configurada**: comprueba el inbox del downstream → `webhook_url` debe ser `http://bridge_bridge:3100/api/instances/SAT-XXX/webhook` o `http://qrsgen:3100/...`.
+2. **Webhook URL mal configurada**: comprueba el inbox del downstream → `webhook_url` debe ser `http://qrsgen:3100/api/instances/<INSTANCE_NAME>/webhook` (sustituyendo `<INSTANCE_NAME>` por el nombre de la instancia).
 3. **Firewall bloquea**: `dmesg | grep QRSGEN-DROP` — paquetes droppeados. Si ves drops al downstream, añade su CIDR al allowlist en `firewall.sh`.
-4. **Sesión WhatsApp perdida**: `GET /api/instances/SAT-XXX` → `state: "disconnected"`. Re-parear.
+4. **Sesión WhatsApp perdida**: `GET /api/instances/<INSTANCE_NAME>` → `state: "disconnected"`. Re-parear.
 
 ### "Inbox X — sin conexión activa" en el link de creation path
 

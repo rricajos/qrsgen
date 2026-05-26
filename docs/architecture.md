@@ -147,7 +147,7 @@ metric: `qrsgen_messages_total{direction="in",instance}++`
 Tu sistema decide enviar un msg al cliente
         │
         ▼
-POST http://qrsgen:3100/api/instances/SAT-X/webhook
+POST http://qrsgen:3100/api/instances/<INSTANCE_NAME>/webhook
    Content-Type: application/json
    Body: {
      "event": "message_created",
@@ -223,13 +223,13 @@ Eventos custom (no provienen directamente de whatsmeow):
 Cuando llega un msg incoming:
 
 1. whatsmeow sabe la instancia.
-2. `mgr.InboxIDFor("SAT-ALBERT")` → query DB → `inbox_id=N` (arbitrario, lo defines tú).
+2. `mgr.InboxIDFor("whatsapp-main")` → query DB → `inbox_id=N` (arbitrario, lo defines tú).
 3. POST al endpoint downstream con ese inbox_id en el payload.
 
 Cuando llega outgoing:
 
-1. URL del webhook contiene `/api/instances/SAT-ALBERT/webhook` → instancia parseada.
-2. `mgr.Get("SAT-ALBERT")` → `Conn` → `SendText`.
+1. URL del webhook contiene `/api/instances/whatsapp-main/webhook` → instancia parseada.
+2. `mgr.Get("whatsapp-main")` → `Conn` → `SendText`.
 
 → Multi-instancia funciona en el mismo proceso qrsgen, cada una con su WebSocket independiente.
 

@@ -35,3 +35,36 @@ esfuerzo de mantenimiento — los certs de Meta rotan).
 # Capturar tráfico saliente; debe ser todo TLS hacia *.whatsapp.net
 sudo tcpdump -i any -nn 'host whatsapp.net' -c 5
 ```
+
+## Glosario
+
+**TLS** (Transport Layer Security): protocolo que cifra el tráfico TCP.
+Sucesor de SSL. WhatsApp Web lo usa para todo el tráfico cliente-Meta.
+
+**WebSocket sobre TLS** (`wss://`): conexión WebSocket cifrada. qrsgen
+mantiene una por instancia contra Meta.
+
+**MITM pasivo**: atacante en la red que solo lee tráfico (sniff). TLS
+lo previene — solo ve ciphertext.
+
+**MITM activo**: atacante que se interpone modificando tráfico. TLS lo
+previene **si el cert es válido** (no firmado por una CA controlada
+por el atacante).
+
+**CA** (Certificate Authority): entidad que firma certificados TLS.
+El sistema operativo y las imágenes Docker confían en una lista
+preinstalada (Let's Encrypt, DigiCert, etc.).
+
+**CA root compromise**: situación en la que un atacante mete una CA
+maliciosa en el trust store del host. Permitiría MITM activo. Requiere
+root del host — si lo tiene, ya estás perdido por otras vías.
+
+**Cert pinning**: técnica donde el cliente solo confía en certs con un
+fingerprint específico, no en la cadena CA. Defensa contra CA root
+compromise. Alto mantenimiento porque los certs rotan.
+
+**Bundle de CAs**: archivo con todas las CAs en las que el OS confía.
+La imagen distroless de qrsgen lo lleva preinstalado.
+
+**Certificado de Meta**: cert TLS que los servidores de WhatsApp
+presentan. Lo firma una CA pública estándar.

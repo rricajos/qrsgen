@@ -61,3 +61,33 @@ curl -sS -X POST http://qrsgen:3100/api/instances/whatsapp-main/webhook \
   -H "X-Qrsgen-Signature: $SIG" \
   -d "$BODY"
 ```
+
+## Glosario
+
+**HMAC** (Hash-based Message Authentication Code): firma criptográfica
+que prueba que un mensaje viene de alguien que conoce un secret
+compartido **y** que el mensaje no fue alterado en tránsito.
+
+**SHA-256**: función de hash criptográfica que produce un digest de 256
+bits. Usada como parte interna del HMAC. Resistente a colisiones para
+todos los efectos prácticos.
+
+**Body crudo** (raw body): el body de la HTTP request tal cual llegó,
+sin re-serializar. Importante para HMAC: si re-serializas, los
+caracteres pueden cambiar de orden y la firma falla.
+
+**Constant-time compare**: comparación criptográfica que tarda lo mismo
+independientemente del input, para evitar timing attacks. Go la provee
+con `crypto/hmac.Equal`.
+
+**Timing attack**: ataque donde el atacante deduce información midiendo
+cuánto tarda una comparación. HMAC mal implementado puede filtrar bytes
+del secret. qrsgen usa `hmac.Equal` para prevenirlo.
+
+**Secret compartido**: string que solo conocen el emisor (downstream) y
+el receptor (qrsgen). Debe ser largo (32+ bytes) y aleatorio. Si se
+filtra, se rota.
+
+**Inyección por LAN**: un atacante con presencia en el overlay LAN
+intenta enviar requests directas al endpoint sin auth. HMAC lo bloquea
+si no tiene el secret.

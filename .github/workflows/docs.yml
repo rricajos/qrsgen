@@ -30,6 +30,12 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install mkdocs-material pymdown-extensions
+      - name: Stage legal docs inside docs/legal
+        run: |
+          mkdir -p docs/legal
+          cp DISCLAIMER.md docs/legal/disclaimer.md
+          cp NOTICE.md     docs/legal/notice.md
+          cp LICENSE       docs/legal/license.md
       - run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3
         with:

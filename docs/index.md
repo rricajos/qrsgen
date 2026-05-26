@@ -8,4 +8,4 @@ WhatsApp ↔ HTTP API bridge en Go.
 
 → [API](api.md) si vas a integrar.
 
-> ⚠️ Lee [DISCLAIMER](../DISCLAIMER.md) antes de usar — riesgos WhatsApp ToS, GDPR, etc.
+> ⚠️ Lee [DISCLAIMER](legal/disclaimer.md) antes de usar — riesgos WhatsApp ToS, GDPR, etc.

@@ -53,6 +53,6 @@ nav:
   - Operations: operations.md
   - n8n example: n8n-example.md
   - Legal:
-      - Disclaimer: ../DISCLAIMER.md
-      - License: ../LICENSE
-      - Notice: ../NOTICE.md
+      - Disclaimer: legal/disclaimer.md
+      - License: legal/license.md
+      - Notice: legal/notice.md

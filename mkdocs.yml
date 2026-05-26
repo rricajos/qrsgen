@@ -118,6 +118,13 @@ nav:
       - integrations/index.md
       - n8n: integrations/n8n.md
       - Python: integrations/python.md
+  - Migrations:
+      - migrations/index.md
+      - Desde Evolution API: migrations/from-evolution-api.md
+      - Desde whatsapp-web.js: migrations/from-whatsapp-web-js.md
+      - Desde Baileys / WPPConnect: migrations/from-baileys.md
+      - Desde SaaS (Whapi, MaytAPI): migrations/from-saas.md
+      - Salir de qrsgen: migrations/leaving.md
   - Legal:
       - Disclaimer: legal/disclaimer.md
       - License: legal/license.md

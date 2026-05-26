@@ -725,6 +725,16 @@ func (m *Manager) Get(name string) (*wameow.Conn, bool) {
 	return c, ok
 }
 
+// IsConnected reports whether the instance is in memory and its WhatsApp
+// WebSocket is up. False for unknown instances. Satisfies outbox.Connector.
+func (m *Manager) IsConnected(name string) bool {
+	c, ok := m.Get(name)
+	if !ok {
+		return false
+	}
+	return c.IsConnected()
+}
+
 // List devuelve los nombres de todas las instancias activas (en memoria).
 func (m *Manager) List() []InstanceInfo {
 	m.mu.RLock()

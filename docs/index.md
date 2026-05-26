@@ -61,6 +61,14 @@ documentada en [CHANGELOG](https://github.com/rricajos/qrsgen/blob/main/CHANGELO
     <div class="stat-label">QRs conectados</div>
   </div>
   <div class="stat-card">
+    <div class="stat-value" id="stat-scanned">—</div>
+    <div class="stat-label">QRs escaneados</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="stat-active">—</div>
+    <div class="stat-label">Instalaciones activas</div>
+  </div>
+  <div class="stat-card">
     <div class="stat-value" id="stat-total">—</div>
     <div class="stat-label">Instalaciones totales</div>
   </div>
@@ -84,3 +92,48 @@ documentada en [CHANGELOG](https://github.com/rricajos/qrsgen/blob/main/CHANGELO
 - [License](legal/license.md) — MIT.
 - [Disclaimer](legal/disclaimer.md) — riesgos antes de usar.
 - [Notice](legal/notice.md) — atribución a librerías de terceros.
+
+## Glosario
+
+**Bridge**: programa intermediario que traduce entre dos protocolos. qrsgen
+hace de bridge entre el protocolo binario de WhatsApp y HTTP REST.
+
+**WhatsApp Web / Multi-Device**: API no oficial de WhatsApp que permite a
+clientes externos (no oficial app) mantener una sesión vinculada a un
+número escaneando un QR. Multi-Device permite hasta 4 dispositivos
+simultáneos por número.
+
+**whatsmeow**: librería Go open-source que implementa el protocolo
+WhatsApp Web. Es lo que qrsgen usa para hablar con Meta.
+
+**Instancia**: una sesión WhatsApp dentro del proceso qrsgen. Una
+instancia = un número de teléfono. Un solo binario gestiona N instancias
+en paralelo.
+
+**Outbox**: cola persistida en Postgres donde van los mensajes outgoing
+cuando la instancia está temporalmente desconectada. Se reentregan al
+volver, con TTL de 5 minutos.
+
+**BanWatcher**: módulo interno que analiza el ritmo de envíos para
+detectar patrones que WhatsApp suele penalizar (velocity, diversity,
+delivery ratio) y avisa antes de que actúe.
+
+**Lifecycle event**: notificación HTTP que qrsgen POSTea cuando ocurre
+algo relevante en una instancia (conexión, desconexión, QR generado,
+strike, etc.).
+
+**owner_tag**: string libre que el integrador puede asignar a una
+instancia para correlacionarla con su modelo de tenants (clientes
+internos). qrsgen lo expone en los agregados de facturación pero no lo
+interpreta.
+
+**Audit log inmutable**: tabla `bridge_audit_log` con triggers de
+Postgres que rechazan UPDATE/DELETE — solo INSERT. Útil para forensics
+y compliance.
+
+**HMAC**: hash-based message authentication code. Firma criptográfica que
+demuestra que un mensaje viene de quien dice y no ha sido modificado.
+qrsgen lo usa opcionalmente para autenticar el webhook entrante.
+
+**Distroless**: imagen Docker mínima sin shell ni paquetes auxiliares.
+Reduce la superficie de ataque ante un RCE (remote code execution).

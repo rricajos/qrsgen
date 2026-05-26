@@ -36,21 +36,26 @@
       }
     }
 
+    function setVal(id, v) {
+      const el = $(id);
+      if (el) el.textContent = v;
+    }
+
     async function fetchOnce() {
       try {
         const res = await fetch(endpoint, { cache: "no-store" });
         if (!res.ok) throw new Error("HTTP " + res.status);
         const d = await res.json();
-        $("stat-connected").textContent = d.instances_connected ?? "—";
-        $("stat-total").textContent = d.instances_total ?? "—";
-        $("stat-in").textContent = (d.messages_in_total ?? 0).toLocaleString();
-        $("stat-out").textContent = (d.messages_out_total ?? 0).toLocaleString();
+        setVal("stat-connected", d.instances_connected ?? "—");
+        setVal("stat-scanned", (d.qrs_scanned_total ?? 0).toLocaleString());
+        setVal("stat-active", d.installations_active ?? "—");
+        setVal("stat-total", d.instances_total ?? "—");
+        setVal("stat-in", (d.messages_in_total ?? 0).toLocaleString());
+        setVal("stat-out", (d.messages_out_total ?? 0).toLocaleString());
         setUI(true, true);
       } catch (err) {
-        $("stat-connected").textContent = "—";
-        $("stat-total").textContent = "—";
-        $("stat-in").textContent = "—";
-        $("stat-out").textContent = "—";
+        ["stat-connected", "stat-scanned", "stat-active",
+         "stat-total", "stat-in", "stat-out"].forEach(id => setVal(id, "—"));
         setUI(true, false);
       }
     }

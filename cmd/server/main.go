@@ -86,6 +86,8 @@ func main() {
 	auditLog.Record(ctx, "system", "backend.boot", "", "", map[string]any{
 		"instance_name": cfg.InstanceName,
 	})
+	// El manager registra paired events en el audit log; el endpoint
+	// /api/public/stats los cuenta para "QRs Escaneados".
 
 	cw := downstream.New(cfg.DownstreamBaseURL, cfg.DownstreamAPIToken, cfg.DownstreamAccountID)
 	dedup := bridge.NewDeduper(pool, cfg.InstanceName, cfg.DedupWindowMs, cfg.DedupEnabled)
@@ -146,6 +148,7 @@ func main() {
 	outgoing.SetUsage(usageTracker)
 	incoming.SetUsage(usageTracker)
 	mgr.SetUsage(usageTracker)
+	mgr.SetAudit(auditLog)
 
 	banWatcher := banwatch.New(banwatch.DefaultConfig(), spamguardAdapter{mgr: mgr}, logger)
 	banWatcher.Start(ctx, 30*time.Second)
@@ -241,13 +244,31 @@ func main() {
 			logger.Warn("public stats: totals query failed", "err", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "totals unavailable"})
 		}
+		// QRs escaneados: contador histórico de eventos paired desde el audit log
+		// (sobrevive a borrado de instancias).
+		var qrsScannedTotal int64
+		if err := pool.QueryRow(c.Request().Context(),
+			`SELECT COUNT(*) FROM bridge_audit_log WHERE action='instance.paired'`,
+		).Scan(&qrsScannedTotal); err != nil {
+			logger.Warn("public stats: qrs scanned query failed", "err", err)
+		}
+		// Instalaciones activas: instancias que tienen jid configurado (alguna
+		// vez se han pareado y siguen registradas).
+		var installationsActive int64
+		if err := pool.QueryRow(c.Request().Context(),
+			`SELECT COUNT(*) FROM bridge_instance WHERE jid IS NOT NULL AND jid <> ''`,
+		).Scan(&installationsActive); err != nil {
+			logger.Warn("public stats: installations active query failed", "err", err)
+		}
 		return c.JSON(http.StatusOK, map[string]any{
-			"instances_connected": connected,
-			"instances_total":     total,
-			"messages_in_total":   totals.MessagesIn,
-			"messages_out_total":  totals.MessagesOut,
-			"version":             "0.23.0",
-			"last_updated":        time.Now().UTC().Format(time.RFC3339),
+			"instances_connected":  connected,
+			"instances_total":      total,
+			"installations_active": installationsActive,
+			"qrs_scanned_total":    qrsScannedTotal,
+			"messages_in_total":    totals.MessagesIn,
+			"messages_out_total":   totals.MessagesOut,
+			"version":              "0.23.0",
+			"last_updated":         time.Now().UTC().Format(time.RFC3339),
 		})
 	})
 	// CORS preflight para el endpoint público.

@@ -63,6 +63,10 @@ type Manager struct {
 
 	// usage es el contador opcional. Si nil, los lifecycle events no se cuentan.
 	usage UsageRecorder
+
+	// audit es el logger opcional para eventos lifecycle. Si nil, no se
+	// registran transiciones (paired / logged_out / strike) en el audit log.
+	audit AuditRecorder
 }
 
 // UsageRecorder es la interfaz mínima que el manager usa para incrementar
@@ -73,6 +77,15 @@ type UsageRecorder interface {
 
 // SetUsage attaches a usage recorder. Pass nil to disable.
 func (m *Manager) SetUsage(u UsageRecorder) { m.usage = u }
+
+// AuditRecorder es la interfaz mínima que el manager usa para registrar
+// eventos forenses (paired, logged_out). Inyectable vía SetAudit; nil → no-op.
+type AuditRecorder interface {
+	Record(ctx context.Context, actor, action, instance, target string, metadata map[string]any)
+}
+
+// SetAudit attaches an audit recorder. Pass nil to disable.
+func (m *Manager) SetAudit(a AuditRecorder) { m.audit = a }
 
 func New(ctx context.Context, dsn string, pool *pgxpool.Pool, logger *slog.Logger, onMsg wameow.MessageHandler) (*Manager, error) {
 	container, err := wameow.NewContainer(ctx, dsn)
@@ -308,6 +321,11 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 	case wameow.EventPaired:
 		query = `UPDATE bridge_instance SET jid=$2, paired_at=COALESCE(paired_at, $3), last_event_at=$3 WHERE name=$1`
 		args = []any{name, jid, now}
+		// Registrar el escaneo en el audit log (histórico inmutable; el endpoint
+		// /api/public/stats lo cuenta para "QRs Escaneados").
+		if m.audit != nil {
+			m.audit.Record(ctx, "system", "instance.paired", name, jid, nil)
+		}
 	case wameow.EventConnected:
 		// Conectado → el PNG anterior ya no sirve. Limpia el puntero para
 		// no intentar borrar un mensaje que el notifier no debe tocar.

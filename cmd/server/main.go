@@ -374,6 +374,23 @@ func main() {
 		return c.JSON(http.StatusOK, banWatcher.Snapshot(c.Param("name")))
 	})
 
+	// GET /api/usage/summary?from=YYYY-MM&to=YYYY-MM
+	// Resumen mensual agregado por (owner_tag, mes). Pensado para billing —
+	// el integrador mapea owner_tag a su modelo de tenant y suma los contadores.
+	// Defaults: últimos 3 meses naturales.
+	api.GET("/usage/summary", func(c echo.Context) error {
+		from, to := parseMonthRange(c)
+		rows, err := usageTracker.MonthlySummary(c.Request().Context(), from, to)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{
+			"from": from,
+			"to":   to,
+			"rows": rows,
+		})
+	})
+
 	// GET /api/usage?from=YYYY-MM-DD&to=YYYY-MM-DD
 	// Devuelve filas diarias agregadas por (instance, day), todas las instancias.
 	// Pensado para que el integrador haga billing/reporting.
@@ -579,6 +596,23 @@ func parseUsageRange(c echo.Context) (from, to string) {
 	}
 	if _, err := time.Parse(dayLayout, to); err != nil {
 		to = now.Format(dayLayout)
+	}
+	return from, to
+}
+
+// parseMonthRange reads ?from / ?to as YYYY-MM (UTC). Defaults to the last
+// 3 calendar months ending in the current month. Invalid input is replaced
+// by defaults.
+func parseMonthRange(c echo.Context) (from, to string) {
+	const monthLayout = "2006-01"
+	now := time.Now().UTC()
+	from = c.QueryParam("from")
+	to = c.QueryParam("to")
+	if _, err := time.Parse(monthLayout, from); err != nil {
+		from = now.AddDate(0, -2, 0).Format(monthLayout)
+	}
+	if _, err := time.Parse(monthLayout, to); err != nil {
+		to = now.Format(monthLayout)
 	}
 	return from, to
 }

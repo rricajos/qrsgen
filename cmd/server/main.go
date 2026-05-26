@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rricajos/qrsgen/internal/audit"
 	"github.com/rricajos/qrsgen/internal/banwatch"
 	"github.com/rricajos/qrsgen/internal/bridge"
 	"github.com/rricajos/qrsgen/internal/downstream"
@@ -74,6 +75,15 @@ func main() {
 	}
 	usageTracker := usage.New(pool, logger)
 	usageTracker.Start(ctx, 60*time.Second)
+
+	if err := audit.EnsureSchema(ctx, pool); err != nil {
+		logger.Error("ensure audit schema", "err", err)
+		os.Exit(1)
+	}
+	auditLog := audit.New(pool, logger)
+	auditLog.Record(ctx, "system", "backend.boot", "", "", map[string]any{
+		"instance_name": cfg.InstanceName,
+	})
 
 	cw := downstream.New(cfg.DownstreamBaseURL, cfg.DownstreamAPIToken, cfg.DownstreamAccountID)
 	dedup := bridge.NewDeduper(pool, cfg.InstanceName, cfg.DedupWindowMs, cfg.DedupEnabled)
@@ -219,6 +229,8 @@ func main() {
 			logger.Error("create instance failed", "name", req.Name, "err", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
+		auditLog.Record(c.Request().Context(), "api", "instance.create", req.Name, "",
+			map[string]any{"owner_tag_set": req.OwnerTag != nil, "inbox_id_set": req.InboxID != nil})
 		return c.JSON(http.StatusOK, manager.InstanceInfo{
 			Name:  conn.Name(),
 			State: conn.State(),
@@ -258,6 +270,12 @@ func main() {
 			}
 		}
 		sgEnabled, sgWin, sgMin := mgr.SpamguardConfig(c.Request().Context(), name)
+		auditLog.Record(c.Request().Context(), "api", "instance.patch", name, "", map[string]any{
+			"owner_tag_set":         req.OwnerTag != nil,
+			"inbox_id_set":          req.InboxID != nil,
+			"events_webhook_set":    req.EventsWebhookURL != nil,
+			"spamguard_enabled_set": req.SpamguardEnabled != nil,
+		})
 		return c.JSON(http.StatusOK, map[string]any{
 			"name":                conn.Name(),
 			"state":               conn.State(),
@@ -329,6 +347,23 @@ func main() {
 			"to":       to,
 			"rows":     rows,
 		})
+	})
+
+	// GET /api/audit?instance=&limit=
+	// Append-only log con triggers en DB que rechazan UPDATE/DELETE — útil para
+	// compliance y forensics. limit default 100, máximo 500.
+	api.GET("/audit", func(c echo.Context) error {
+		limit := 0
+		if v := c.QueryParam("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				limit = n
+			}
+		}
+		entries, err := auditLog.Query(c.Request().Context(), c.QueryParam("instance"), limit)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"entries": entries})
 	})
 
 	// GET /api/instances/:name/ban-risk
@@ -453,9 +488,11 @@ func main() {
 	})
 
 	api.DELETE("/instances/:name", func(c echo.Context) error {
-		if err := mgr.Delete(c.Request().Context(), c.Param("name")); err != nil {
+		name := c.Param("name")
+		if err := mgr.Delete(c.Request().Context(), name); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
+		auditLog.Record(c.Request().Context(), "api", "instance.delete", name, "", nil)
 		return c.JSON(http.StatusOK, map[string]string{"message": "deleted"})
 	})
 

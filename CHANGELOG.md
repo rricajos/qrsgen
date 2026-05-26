@@ -4,6 +4,30 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-downstream real** (`internal/tenant` + `internal/downstream/registry.go`):
+  un proceso qrsgen puede servir varios downstreams distintos, enrutados
+  por `bridge_instance.owner_tag` vía la nueva tabla `bridge_tenant`
+  (owner_tag PK + downstream URL/token/account/inbox). Cache in-memory per
+  tenant con invalidación en cada upsert/delete; instance→owner_tag con
+  TTL 30s. Si una instancia no tiene `owner_tag`, o no hay tenant para él,
+  cae al fallback global (`DOWNSTREAM_*` del env) — totalmente backward
+  compatible.
+- **Endpoints `/api/tenants/*`**: `GET` (list/detail sin tokens),
+  `PUT /:owner_tag` (upsert con `downstream_api_token` solo de escritura),
+  `DELETE /:owner_tag` (instancias caen al fallback global). Cada cambio
+  invalida el cache del `*Client` por tenant.
+
+### Changed
+
+- `bridge.Incoming` y `bridge.Outgoing` dependen del nuevo interface
+  `downstream.Router` en lugar de `*downstream.Client`. `*Client` lo
+  implementa devolviéndose a sí mismo, así el callsite single-downstream
+  no necesita ningún cambio.
+- `resolveInbox` (incoming flow) ahora prioriza
+  `bridge_tenant.downstream_inbox_id` antes que el per-instance y el env.
+
 ## [0.23.0] - 2026-05-26
 
 Robustez producción + capa de monetización ligera + cero pérdida en

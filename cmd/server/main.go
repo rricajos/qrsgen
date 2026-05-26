@@ -48,6 +48,8 @@ func main() {
 		}
 	}
 
+	processStart := time.Now()
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
@@ -213,11 +215,55 @@ func main() {
 	}
 
 	api.GET("/health", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]any{
-			"status":    "ok",
-			"instances": mgr.List(),
-			"version":   "0.2.0",
-			"ts":        time.Now().Format(time.RFC3339),
+		ctx := c.Request().Context()
+		now := time.Now()
+
+		// DB liveness con timeout corto.
+		dbCtx, dbCancel := context.WithTimeout(ctx, 2*time.Second)
+		dbStart := time.Now()
+		var dbOK bool
+		if err := pool.Ping(dbCtx); err == nil {
+			dbOK = true
+		}
+		dbCancel()
+		dbLatencyMs := time.Since(dbStart).Milliseconds()
+
+		// Snapshot de instancias y outbox.
+		instances := mgr.List()
+		var connected int
+		for _, i := range instances {
+			if i.State == "ready" || i.State == "connected" {
+				connected++
+			}
+		}
+
+		// Outbox total pending across all instances.
+		var outboxPending int
+		outboxCtx, oc := context.WithTimeout(ctx, 2*time.Second)
+		_ = pool.QueryRow(outboxCtx,
+			`SELECT COUNT(*) FROM bridge_outgoing_queue WHERE status='pending'`,
+		).Scan(&outboxPending)
+		oc()
+
+		status := "ok"
+		code := http.StatusOK
+		if !dbOK {
+			status = "degraded"
+			code = http.StatusServiceUnavailable
+		}
+
+		return c.JSON(code, map[string]any{
+			"status":  status,
+			"version": "0.23.0",
+			"ts":      now.UTC().Format(time.RFC3339),
+			"uptime_seconds": int64(time.Since(processStart).Seconds()),
+			"checks": map[string]any{
+				"db":                  map[string]any{"ok": dbOK, "latency_ms": dbLatencyMs},
+				"instances_connected": connected,
+				"instances_total":     len(instances),
+				"outbox_pending":      outboxPending,
+			},
+			"instances": instances,
 		})
 	})
 

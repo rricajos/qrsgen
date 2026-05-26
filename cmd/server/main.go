@@ -184,12 +184,13 @@ func main() {
 		})
 	})
 
-	// POST /api/instances {name, events_webhook_url?, inbox_id?} → crea/inicia instancia
+	// POST /api/instances {name, events_webhook_url?, inbox_id?, owner_tag?} → crea/inicia instancia
 	api.POST("/instances", func(c echo.Context) error {
 		var req struct {
 			Name             string  `json:"name"`
 			EventsWebhookURL *string `json:"events_webhook_url,omitempty"`
 			InboxID          *int    `json:"inbox_id,omitempty"`
+			OwnerTag         *string `json:"owner_tag,omitempty"`
 		}
 		if err := c.Bind(&req); err != nil || req.Name == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing name"})
@@ -197,6 +198,7 @@ func main() {
 		conn, err := mgr.CreateWithOpts(c.Request().Context(), req.Name, manager.CreateOpts{
 			EventsWebhookURL: req.EventsWebhookURL,
 			InboxID:          req.InboxID,
+			OwnerTag:         req.OwnerTag,
 		})
 		if err != nil {
 			logger.Error("create instance failed", "name", req.Name, "err", err)
@@ -209,7 +211,7 @@ func main() {
 		})
 	})
 
-	// PATCH /api/instances/:name {inbox_id?, events_webhook_url?, spamguard_enabled?} → actualiza config existente
+	// PATCH /api/instances/:name {inbox_id?, events_webhook_url?, spamguard_enabled?, owner_tag?} → actualiza config existente
 	api.PATCH("/instances/:name", func(c echo.Context) error {
 		name := c.Param("name")
 		var req struct {
@@ -217,6 +219,7 @@ func main() {
 			InboxID          *int    `json:"inbox_id,omitempty"`
 			SpamguardEnabled *bool   `json:"spamguard_enabled,omitempty"`
 			LastQRMsgID      *int    `json:"last_qr_msg_id,omitempty"`
+			OwnerTag         *string `json:"owner_tag,omitempty"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad json"})
@@ -224,6 +227,7 @@ func main() {
 		conn, err := mgr.CreateWithOpts(c.Request().Context(), name, manager.CreateOpts{
 			EventsWebhookURL: req.EventsWebhookURL,
 			InboxID:          req.InboxID,
+			OwnerTag:         req.OwnerTag,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})

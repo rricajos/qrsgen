@@ -106,6 +106,9 @@ func (m *Manager) EnsureSchema(ctx context.Context) error {
 		// el último PNG posteado, para que el notifier lo borre antes de postear
 		// el siguiente cuando whatsmeow rota el código.
 		`ALTER TABLE bridge_instance ADD COLUMN IF NOT EXISTS last_qr_msg_id INT`,
+		// migrations v0.23 — owner_tag opcional para que el integrador correlacione
+		// instancias con su modelo de tenants (string libre, qrsgen no lo interpreta).
+		`ALTER TABLE bridge_instance ADD COLUMN IF NOT EXISTS owner_tag TEXT`,
 	}
 	for _, s := range stmts {
 		if _, err := m.pool.Exec(ctx, s); err != nil {
@@ -167,6 +170,10 @@ type CreateOpts struct {
 	// Si nil → se mantiene el valor previo en DB.
 	// Si 0 explícito → se borra el valor previo.
 	InboxID *int
+	// OwnerTag: string libre que el integrador usa para correlacionar la
+	// instancia con su modelo de tenants/facturación. qrsgen no lo interpreta.
+	// Si nil → mantiene valor previo. Si "" explícito → borra.
+	OwnerTag *string
 }
 
 // Create crea (o reusa) la instancia con el name dado y arranca su conexión.
@@ -200,6 +207,15 @@ func (m *Manager) CreateWithOpts(ctx context.Context, name string, opts CreateOp
 		}
 		if _, err := m.pool.Exec(ctx, `UPDATE bridge_instance SET inbox_id=$2 WHERE name=$1`, name, val); err != nil {
 			return nil, fmt.Errorf("set inbox_id: %w", err)
+		}
+	}
+	if opts.OwnerTag != nil {
+		var val any = *opts.OwnerTag
+		if *opts.OwnerTag == "" {
+			val = nil
+		}
+		if _, err := m.pool.Exec(ctx, `UPDATE bridge_instance SET owner_tag=$2 WHERE name=$1`, name, val); err != nil {
+			return nil, fmt.Errorf("set owner_tag: %w", err)
 		}
 	}
 
@@ -541,6 +557,24 @@ func (m *Manager) IsSpamguardEnabled(ctx context.Context, name string) bool {
 	return enabled
 }
 
+// SetOwnerTag actualiza el owner_tag de una instancia. Pasa "" para borrar.
+// Devuelve ErrNotFound si la instancia no existe.
+func (m *Manager) SetOwnerTag(ctx context.Context, name, tag string) error {
+	var val any = tag
+	if tag == "" {
+		val = nil
+	}
+	res, err := m.pool.Exec(ctx,
+		`UPDATE bridge_instance SET owner_tag=$2 WHERE name=$1`, name, val)
+	if err != nil {
+		return fmt.Errorf("set owner_tag: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // LastQRMsgID lectura del id del último mensaje del downstream que contiene el QR
 // PNG actual. 0 si no hay (primer QR de la sesión o ya limpiado).
 func (m *Manager) LastQRMsgID(ctx context.Context, name string) int {
@@ -718,6 +752,7 @@ type InstanceStatus struct {
 	PairedAt    *time.Time `json:"paired_at,omitempty"`
 	ReadyAt     *time.Time `json:"ready_at,omitempty"`
 	LastEventAt *time.Time `json:"last_event_at,omitempty"`
+	OwnerTag    string     `json:"owner_tag,omitempty"`
 }
 
 // qrLifetimeSeconds es el TTL aproximado de cada QR generado por whatsmeow.
@@ -734,11 +769,11 @@ func (m *Manager) Status(ctx context.Context, name string) (InstanceStatus, erro
 
 	// timestamps persistidos
 	var createdAt, pairedAt, readyAt, lastEvent *time.Time
-	var jidDB string
+	var jidDB, ownerTag string
 	err := m.pool.QueryRow(ctx, `
-		SELECT created_at, paired_at, ready_at, last_event_at, COALESCE(jid,'')
+		SELECT created_at, paired_at, ready_at, last_event_at, COALESCE(jid,''), COALESCE(owner_tag,'')
 		FROM bridge_instance WHERE name=$1
-	`, name).Scan(&createdAt, &pairedAt, &readyAt, &lastEvent, &jidDB)
+	`, name).Scan(&createdAt, &pairedAt, &readyAt, &lastEvent, &jidDB, &ownerTag)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if !inMem {
 			return InstanceStatus{}, ErrNotFound
@@ -751,6 +786,7 @@ func (m *Manager) Status(ctx context.Context, name string) (InstanceStatus, erro
 	st.PairedAt = pairedAt
 	st.ReadyAt = readyAt
 	st.LastEventAt = lastEvent
+	st.OwnerTag = ownerTag
 
 	// live state
 	if inMem {

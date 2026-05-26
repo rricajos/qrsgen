@@ -5,6 +5,10 @@ qrsgen
 vendor/
 dist/
 
+# mkdocs build outputs (workflow stages docs/legal/ from repo root)
+site/
+docs/legal/
+
 # Local config / secrets
 .env
 .env.local

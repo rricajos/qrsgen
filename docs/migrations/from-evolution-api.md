@@ -1,9 +1,65 @@
 # Migrar desde Evolution API
 
 [Evolution API](https://github.com/EvolutionAPI/evolution-api) es una
-plataforma popular (PHP/Laravel, Postgres) muy usada en LATAM. La
-migración a qrsgen es directa porque ambas exponen REST y guardan
-sesiones en Postgres.
+plataforma popular (TypeScript con Prisma + Postgres) muy usada en
+LATAM. La migración a qrsgen es directa porque ambas exponen REST y
+guardan sesiones en Postgres.
+
+## Estructura de datos en Evolution
+
+Evolution usa **Postgres** (o MySQL en versiones antiguas) con schema
+Prisma. Tablas relevantes:
+
+```
+Instance                  -- una fila por sesión WhatsApp
+├── id (UUID PK)
+├── name                  -- identificador único (= name en qrsgen)
+├── token                 -- token per-instance (auth API)
+├── connectionStatus      -- "open" | "close" | "connecting"
+├── number                -- número (cuando está pareado)
+├── ownerJid              -- JID del owner
+└── createdAt, updatedAt
+
+Webhook                   -- config webhook per-instance
+├── id, instanceId (FK)
+├── url
+├── events (JSON: ["MESSAGES_UPSERT", "QRCODE_UPDATED", ...])
+├── webhookByEvents (bool, ruta por tipo de evento)
+└── enabled
+
+Message                   -- histórico completo
+├── id, instanceId (FK)
+├── keyId, keyRemoteJid   -- WAID + JID destino
+├── message (JSONB)       -- payload completo whatsmeow
+├── messageType
+├── status
+└── messageTimestamp
+
+Contact                   -- contactos vistos
+├── remoteJid (PK compuesta con instanceId)
+├── pushName, profilePicUrl
+└── isMyContact
+
+Chat                      -- conversaciones
+├── remoteJid, instanceId
+├── unreadCount
+└── lastMessageTimestamp
+
+Session                   -- whatsmeow Multi-Device session state (NO PORTABLE)
+PreKey, SenderKey, ...    -- claves crypto whatsmeow (NO PORTABLES)
+```
+
+**Lo que SÍ se migra a qrsgen**: `Instance.name` + `Webhook.url` (→
+provisioning automático).
+
+**Lo que NO**: `Session`, claves crypto. Aunque ambos usan whatsmeow
+internamente, los formatos de serialización pueden diferir entre
+versiones — no es seguro reusarlos.
+
+**Lo que es opcional migrar**: `Message` histórico. qrsgen no guarda
+mensajes intencionalmente (eso es trabajo del downstream). Si tu
+downstream necesita el histórico, exporta `Message` directamente a su
+DB sin pasar por qrsgen.
 
 ## Mapeo conceptual
 

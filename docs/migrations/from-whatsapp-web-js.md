@@ -13,6 +13,78 @@ La migración a qrsgen tiene sentido cuando:
   audit log inmutable).
 - Quieres separar el bridge de tu app de negocio.
 
+## Estructura de datos en whatsapp-web.js
+
+A diferencia de Evolution o qrsgen, whatsapp-web.js **no impone un
+schema relacional propio**. Es una librería embebida en TU app; tú
+decides qué guardas y cómo.
+
+Lo único que sí define son **dos estrategias de auth state**:
+
+### `LocalAuth` (filesystem, default)
+
+```
+.wwebjs_auth/
+└── session-<clientId>/
+    ├── Default/
+    │   ├── Cookies, IndexedDB/, Local Storage/, ...   (perfil Chrome)
+    │   └── ...
+    └── ...
+```
+
+Es un directorio Chrome/Chromium serialized. Cada `clientId` es una
+sesión independiente. Puppeteer lo restaura entre arranques de tu
+app.
+
+### `RemoteAuth` (store externo)
+
+Guarda el mismo bundle en MongoDB / S3 / lo que configures:
+
+```javascript
+new RemoteAuth({
+  store: new MongoStore({ ... }),
+  clientId: 'support',
+  backupSyncIntervalMs: 300000,
+})
+```
+
+El "schema" es opaco — un blob binario por sesión. No serializable de
+forma legible.
+
+### Tablas en TU app (las que tú hayas creado)
+
+Como whatsapp-web.js no fuerza nada, lo típico es que tu app Node
+tenga algo como:
+
+```sql
+-- Ejemplo de schema en app embebiendo wajs
+clients (
+  id PRIMARY KEY,
+  client_id      -- el wajs clientId
+  webhook_url
+  inbox_id       -- mapeo a tu downstream
+  ...
+)
+
+messages_log (
+  id, client_id (FK)
+  remote_jid, content, direction
+  ...
+)
+```
+
+Esto es 100% custom — tú sabes qué tienes. Lo que importa para
+qrsgen es la lista de `client_id` para regenerarlos como instancias.
+
+## Lo que NO se puede migrar de wajs
+
+- **Directorio `.wwebjs_auth/`**: es estado Puppeteer/Chrome. qrsgen
+  usa whatsmeow (sin browser), distinto formato totalmente.
+- **`RemoteAuth` stores**: incluso si exportas el blob, qrsgen no
+  sabe leerlo. Mismo problema.
+
+→ **Re-pairing obligatorio**.
+
 ## Mapeo conceptual
 
 | whatsapp-web.js | qrsgen |

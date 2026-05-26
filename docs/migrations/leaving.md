@@ -12,6 +12,35 @@ Las razones legítimas para migrar fuera de qrsgen pueden ser:
 - Has decidido pasar a WhatsApp Cloud API oficial (recomendado para
   uso comercial intensivo regulado).
 
+## Estructura de datos en qrsgen
+
+Para que sepas dónde está cada cosa al exportar:
+
+```
+bridge_instance              -- config + state machine
+├── name (PK)                ← identificador (mantén este nombre en el destino)
+├── jid                      ← teléfono pareado
+├── owner_tag                ← mapeo a tu tenant
+├── inbox_id                 ← routing al downstream
+├── events_webhook_url       ← URL receptor de lifecycle events
+├── spamguard_enabled, spamguard_window_ms, spamguard_min_chars
+├── last_qr_msg_id
+├── paired_at, ready_at, last_event_at
+└── created_at
+
+bridge_dedup                 -- (no portable, descartar)
+bridge_outgoing_queue        -- (mensajes pending → si quieres preservarlos)
+bridge_usage_daily           -- counters diarios (exportable)
+bridge_audit_log             -- forensics (exportable, append-only)
+
+whatsmeow_*                  -- sesiones WhatsApp — NO PORTABLES
+                                (claves Noise específicas de whatsmeow)
+```
+
+**Lo único que NO se exporta**: las tablas `whatsmeow_*` (claves
+criptográficas). Cualquier plataforma destino tendrá su propia
+implementación del protocolo y forzará re-pairing.
+
 ## Lo que es portable hacia fuera
 
 | Dato | Cómo obtenerlo |

@@ -123,7 +123,9 @@ nav:
       - Desde Evolution API: migrations/from-evolution-api.md
       - Desde whatsapp-web.js: migrations/from-whatsapp-web-js.md
       - Desde Baileys / WPPConnect: migrations/from-baileys.md
-      - Desde SaaS (Whapi, MaytAPI): migrations/from-saas.md
+      - Desde un SaaS — overview: migrations/from-saas.md
+      - Desde Whapi.cloud: migrations/from-whapi.md
+      - Desde MaytAPI: migrations/from-maytapi.md
       - Salir de qrsgen: migrations/leaving.md
   - Legal:
       - Disclaimer: legal/disclaimer.md

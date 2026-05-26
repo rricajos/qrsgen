@@ -14,6 +14,95 @@ La migración a qrsgen tiene sentido cuando quieres:
 - BanWatcher proactivo.
 - Audit log inmutable.
 
+## Estructura de datos en Baileys
+
+Baileys es librería, no servicio. Define dos estrategias de auth
+state según cómo lo embebas:
+
+### `useMultiFileAuthState` (filesystem, lo más común)
+
+```
+./baileys-auth/                   # path que tú elijas
+├── creds.json                    # claves principales + registration ID
+├── pre-key-1.json
+├── pre-key-2.json
+├── ...
+├── session-34600000000@s.whatsapp.net.json
+├── ...
+├── sender-key-...json
+├── sync-state-...json
+└── ...
+```
+
+`creds.json` es el archivo crítico (claves Noise + identidad
+WhatsApp). Los demás son material criptográfico que Baileys gestiona
+durante la sesión.
+
+### `useSingleFileAuthState` (un solo JSON, deprecated)
+
+```
+./auth_info.json    # todo el estado en un blob
+```
+
+Versiones más nuevas de Baileys usan multi-file por eficiencia.
+Single-file está deprecated pero sigue funcionando.
+
+### `useMongoDBAuthState` (store externo, no estándar)
+
+Variantes de la comunidad guardan el state en MongoDB / Redis.
+Schema: una colección con documentos `{key, data}` donde `key` es el
+nombre del archivo equivalente y `data` el JSON serializado.
+
+## Estructura en WPPConnect (capa encima de Baileys)
+
+WPPConnect organiza varios "tokens" (= sesiones) en un directorio:
+
+```
+./tokens/
+├── support/
+│   ├── creds.json                 # mismo formato Baileys
+│   ├── pre-key-*.json
+│   └── ...
+├── sales/
+│   └── ...
+└── tech/
+    └── ...
+```
+
+Cada sub-directorio es una sesión independiente. El nombre del
+directorio (`support`, `sales`, `tech`) es el `session` que pasas a
+`wppconnect.create({session})`.
+
+## Tablas en TU app (las que tú hayas creado)
+
+Igual que con whatsapp-web.js, Baileys no impone schema. Lo típico
+es que tu app Node tenga su propia tabla de sesiones:
+
+```sql
+sessions (
+  id PRIMARY KEY,
+  session_id      -- equivalente al "session" de WPPConnect o tu naming
+  auth_path       -- ej. './baileys-auth/support/'
+  webhook_url
+  ...
+)
+```
+
+Lo que importa para qrsgen: la lista de `session_id` para
+regenerarlos como instancias.
+
+## Lo que NO se puede migrar de Baileys/WPPConnect
+
+- **`creds.json` + keys**: ambos (Baileys y whatsmeow) hablan el
+  protocolo WhatsApp Web, **pero los formatos de serialización de
+  claves son distintos**. No es solo renombrar campos: las
+  estructuras internas (CurveKeyPair, SignedPreKey, etc.) tienen
+  layouts incompatibles.
+- **MongoDB / store externos**: misma incompatibilidad. Aunque el
+  blob esté en una DB que conoces, el contenido es Baileys-specific.
+
+→ **Re-pairing obligatorio**. Sin atajos.
+
 ## Mapeo conceptual
 
 | Baileys / WPPConnect | qrsgen |

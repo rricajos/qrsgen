@@ -6,9 +6,47 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [0.23.0] - 2026-05-26
 
-Robustez producción + capa de monetización ligera.
+Robustez producción + capa de monetización ligera + cero pérdida en
+restarts + telemetría pública opt-in + 64 sub-páginas docs.
 
-### Added
+### Added (post rc1)
+
+- **Lifecycle webhook retry exponencial** para eventos críticos
+  (`strike`, `ban_risk`, `outgoing_expired`, `logged_out`,
+  `spam_blocked`, `backend_restarting`). 3 reintentos async con
+  backoff 5s → 30s → 5min. Métrica
+  `qrsgen_lifecycle_webhook_retries_total{event,outcome}` para
+  alerting (`outcome=exhausted` → el downstream lleva ≥5min caído).
+- **Health endpoint enriquecido**: `/api/health` ahora hace DB ping
+  (timeout 2s), reporta `outbox_pending`, `uptime_seconds`,
+  `checks.db.{ok, latency_ms}`. Devuelve `503` con
+  `status: "degraded"` si DB no responde → Docker HEALTHCHECK falla
+  → Swarm restart automático.
+- **`installations_total`** en `/api/public/stats` (simetría con
+  `instances_total`). Cuenta DISTINCT instances en el audit log
+  → sobrevive a DELETE.
+- **`instance.paired` registrado en audit log**: ahora cada pairing
+  exitoso queda como entrada en `bridge_audit_log`. La métrica
+  `qrs_scanned_total` del endpoint público lo cuenta.
+- **Cards live en la landing** (`docs/home/status.md`): 6 cards
+  conectadas a `/api/public/stats` con polling 10s y toggle
+  on/off persistido en localStorage. Fetch con AbortController
+  (timeout 3s) para no bloquear UI si el endpoint público está
+  caído.
+- **Documentación masivamente ampliada**:
+  - 64 sub-páginas en sidebar Material (estructura por dominio).
+  - Sección **Migrations** con 7 páginas (Evolution / wajs / Baileys
+    / SaaS overview / Whapi.cloud / MaytAPI / Salir de qrsgen).
+    Schemas de origen detallados en cada una.
+  - Sección **Integrations** con n8n + Python (cliente httpx
+    + FastAPI receiver).
+  - Glosario al final de cada sub-página (>50 términos técnicos
+    explicados consistentemente).
+- **`tools/migrate/`**: `bulk-provision.py`, `validate.py`,
+  `export-config.py` (Python httpx) para automatizar migraciones
+  desde plataformas existentes.
+
+### Added (en rc1, inalterado)
 
 - **Outbox persistido** (`internal/outbox` + tabla `bridge_outgoing_queue`).
   El endpoint `POST /api/instances/:name/webhook` ahora encola el payload
@@ -16,6 +54,9 @@ Robustez producción + capa de monetización ligera.
   Un drainer reentrega cada 5s; mensajes sin entregar a los 5 min expiran
   y emiten el evento lifecycle `outgoing_expired`. Per-instance backlog
   hard-cap (200) + retry budget (5 attempts) + audit hooks.
+
+### Added
+
 - **BanWatcher** (`internal/banwatch` + `GET /api/instances/:name/ban-risk`):
   detector proactivo con tres señales (velocity / diversity / delivery
   ratio) sobre ventanas rolling, score 0-1 + nivel ok|low|moderate|high.

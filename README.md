@@ -85,7 +85,9 @@ Toda la documentación está en https://rricajos.github.io/qrsgen/ y en
 - [Security](docs/security/) — 7 capas (Bearer / HMAC / firewall / TLS / hardening / audit / backups).
 - [Operations](docs/operations/) — runbook, métricas, troubleshooting.
 - [Integrations](docs/integrations/) — recetas para n8n, Python, etc.
+- [Migrations](docs/migrations/) — venir desde Evolution API / wajs / Baileys / SaaS, o salir de qrsgen.
 - [Backup runbook](ops/backup/README.md) — install, restore, drop-in config.
+- [Migration tools](tools/migrate/) — `bulk-provision.py` / `validate.py` / `export-config.py`.
 
 ## Stack técnico
 

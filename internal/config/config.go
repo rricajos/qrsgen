@@ -35,6 +35,12 @@ type Config struct {
 	// La ruta /api/instances/:name/webhook está exenta (el downstream típicamente no manda headers
 	// arbitrarios; usa su propia firma HMAC del webhook).
 	APIToken string `env:"QRSGEN_API_TOKEN"`
+
+	// WebhookHMACSecret protege el endpoint /api/instances/:name/webhook con
+	// verificación HMAC-SHA256 del body crudo. Si vacío, no se exige firma
+	// (backward-compat). Si configurado, el downstream debe mandar
+	// `X-Qrsgen-Signature: sha256=<hex>` calculado como HMAC(secret, body).
+	WebhookHMACSecret string `env:"WEBHOOK_HMAC_SECRET"`
 }
 
 func Load() (Config, error) {

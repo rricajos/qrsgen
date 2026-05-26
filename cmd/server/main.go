@@ -2,9 +2,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -401,7 +407,7 @@ func main() {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal"})
 		}
 		return c.JSON(http.StatusOK, map[string]string{"message": "ok"})
-	})
+	}, webhookHMACMiddleware(cfg.WebhookHMACSecret, logger))
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Port)
@@ -459,6 +465,50 @@ func (s spamguardAdapter) IsSpamguardEnabled(ctx context.Context, instance strin
 
 func (s spamguardAdapter) EmitLifecycle(name, event string, extras map[string]any) {
 	s.mgr.EmitCustomLifecycle(name, event, extras)
+}
+
+// webhookHMACMiddleware verifies X-Qrsgen-Signature: sha256=<hex> against
+// HMAC-SHA256(secret, raw body). Returns 401 on mismatch. If secret is empty,
+// the middleware is a no-op (backward-compat).
+//
+// Reads the body once, validates, then restores it so the downstream handler's
+// c.Bind() still works.
+func webhookHMACMiddleware(secret string, logger *slog.Logger) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		if secret == "" {
+			return next
+		}
+		secretBytes := []byte(secret)
+		return func(c echo.Context) error {
+			body, err := io.ReadAll(c.Request().Body)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "read body"})
+			}
+			c.Request().Body = io.NopCloser(bytes.NewBuffer(body))
+
+			sig := c.Request().Header.Get("X-Qrsgen-Signature")
+			const prefix = "sha256="
+			if !strings.HasPrefix(sig, prefix) {
+				logger.Warn("webhook hmac: missing/invalid signature header", "instance", c.Param("name"))
+				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing signature"})
+			}
+			gotHex := sig[len(prefix):]
+			got, err := hex.DecodeString(gotHex)
+			if err != nil {
+				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid signature encoding"})
+			}
+
+			mac := hmac.New(sha256.New, secretBytes)
+			mac.Write(body)
+			expected := mac.Sum(nil)
+
+			if !hmac.Equal(got, expected) {
+				logger.Warn("webhook hmac: signature mismatch", "instance", c.Param("name"))
+				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "signature mismatch"})
+			}
+			return next(c)
+		}
+	}
 }
 
 // runHealthcheck pings /api/health on localhost:$PORT (default 3100) and exits

@@ -58,6 +58,11 @@ services:
       # Si seteado, exige `Authorization: Bearer <token>` excepto /webhook.
       QRSGEN_API_TOKEN: "${QRSGEN_API_TOKEN:-}"
 
+      # HMAC del webhook entrante. Si vacío, no se exige (backward-compat).
+      # Si seteado, el downstream debe mandar `X-Qrsgen-Signature: sha256=<hex>`
+      # con HMAC-SHA256(secret, raw body).
+      WEBHOOK_HMAC_SECRET: "${WEBHOOK_HMAC_SECRET:-}"
+
       NODE_ENV: "production"
 
     networks:

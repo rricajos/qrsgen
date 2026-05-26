@@ -111,7 +111,7 @@ Body:
 
 El endpoint `/webhook` está exento del Bearer token (es el entrypoint del
 downstream). Para autenticación dedicada, activa
-`WEBHOOK_HMAC_SECRET` (ver [security.md](security.md), capa 2).
+`WEBHOOK_HMAC_SECRET` (ver [Security capa 2](security/layer-2-hmac.md)).
 
 #### Manejar el `202 queued`
 

@@ -20,11 +20,19 @@ theme:
     - navigation.instant
     - navigation.tabs
     - navigation.sections
+    - navigation.expand
+    - navigation.indexes
     - navigation.top
     - search.suggest
     - search.highlight
     - content.code.copy
     - content.action.edit
+
+extra_css:
+  - assets/css/telemetry.css
+
+extra_javascript:
+  - assets/js/telemetry.js
 
 markdown_extensions:
   - admonition
@@ -46,11 +54,61 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Architecture: architecture.md
-  - API: api.md
-  - Deployment: deployment.md
-  - Security: security.md
-  - Operations: operations.md
+  - Architecture:
+      - architecture/index.md
+      - Bootstrap: architecture/bootstrap.md
+      - Persistencia: architecture/persistence.md
+      - Flujo INCOMING: architecture/incoming-flow.md
+      - Flujo OUTGOING: architecture/outgoing-flow.md
+      - BanWatcher: architecture/banwatch.md
+      - Usage tracking: architecture/usage-tracking.md
+      - Audit log: architecture/audit-log.md
+      - Lifecycle events: architecture/lifecycle-events.md
+      - Concurrencia: architecture/concurrency.md
+      - Multi-instance: architecture/multi-instance.md
+      - Limitaciones: architecture/limitations.md
+  - API:
+      - api/index.md
+      - Quickstart: api/quickstart.md
+      - Convenciones: api/conventions.md
+      - Instancias: api/instances.md
+      - QR y ciclo de vida: api/qr-lifecycle.md
+      - Mensajes: api/messages.md
+      - Observabilidad: api/observability.md
+      - Lifecycle webhooks: api/lifecycle-webhooks.md
+      - Flujos comunes: api/flows.md
+  - Deployment:
+      - deployment/index.md
+      - Imágenes: deployment/images.md
+      - Stack Swarm: deployment/swarm.md
+      - Variables de entorno: deployment/env-vars.md
+      - Telemetría pública: deployment/public-stats.md
+      - Hardening: deployment/hardening.md
+      - Schema migrations: deployment/schema-migrations.md
+      - Portabilidad: deployment/portability.md
+      - Backups: deployment/backups.md
+      - Firewall egress: deployment/firewall.md
+      - Rollback: deployment/rollback.md
+  - Security:
+      - security/index.md
+      - Capa 1 — Bearer auth: security/layer-1-bearer.md
+      - Capa 2 — HMAC webhook: security/layer-2-hmac.md
+      - Capa 3 — Egress firewall: security/layer-3-firewall.md
+      - Capa 4 — TLS WhatsApp: security/layer-4-tls.md
+      - Capa 5 — Container hardening: security/layer-5-hardening.md
+      - Capa 6 — Audit log: security/layer-6-audit.md
+      - Capa 7 — Backups Postgres: security/layer-7-backups.md
+      - Credenciales externas: security/credentials.md
+      - Observabilidad: security/observability.md
+      - Mejoras pendientes: security/pending.md
+  - Operations:
+      - operations/index.md
+      - Diagnóstico rápido: operations/diagnostics.md
+      - Procedimientos comunes: operations/procedures.md
+      - Investigaciones: operations/forensics.md
+      - Troubleshooting: operations/troubleshooting.md
+      - Alerting Prometheus: operations/alerting.md
+      - Logs útiles: operations/logs.md
   - n8n example: n8n-example.md
   - Legal:
       - Disclaimer: legal/disclaimer.md

@@ -1,0 +1,166 @@
+# Observabilidad
+
+Endpoints para consultar estado, métricas, billing y forensics.
+
+## `GET /api/instances/:name/outbox`
+
+Stats del buffer outgoing por instancia.
+
+```json
+{"pending":0,"sent":127,"expired":1,"failed":0}
+```
+
+Cuenta sobre todas las filas históricas de `bridge_outgoing_queue` para
+esa instancia. `pending` es el indicador que importa para alerting en
+caliente.
+
+---
+
+## `GET /api/instances/:name/ban-risk`
+
+Snapshot del detector proactivo de WhatsApp ban-risk (ver
+[arquitectura](../architecture/banwatch.md) para detalle de las tres señales).
+
+```json
+{
+  "instance": "whatsapp-main",
+  "velocity_msgs_per_window": 12, "velocity_threshold": 30,
+  "velocity_window_ns": 60000000000,
+  "diversity_unique_jids": 8, "diversity_threshold": 20,
+  "diversity_window_ns": 300000000000,
+  "delivery_ratio": 0.97, "delivery_samples": 30,
+  "delivery_threshold": 0.7, "delivery_min_samples": 10,
+  "delivery_window_ns": 600000000000,
+  "alerts": [],
+  "score": 0.13,
+  "level": "low"
+}
+```
+
+`level`: `ok` | `low` | `moderate` | `high`. Cuando un signal cruza su
+threshold (`alerts` no vacío), qrsgen emite el evento lifecycle
+`ban_risk` en rising-edge (una sola vez hasta que se limpie).
+
+---
+
+## `GET /api/instances/:name/usage?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Counters diarios en UTC para una instancia. Default: últimos 30 días.
+
+```json
+{
+  "instance": "whatsapp-main",
+  "from": "2026-04-26",
+  "to":   "2026-05-26",
+  "rows": [
+    {"instance":"whatsapp-main","day":"2026-05-26",
+     "messages_in":24,"messages_out":31,
+     "spamguard_blocks":0,"lifecycle_events":2}
+  ]
+}
+```
+
+---
+
+## `GET /api/usage?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Igual que el anterior pero para **todas las instancias**. `rows` ordenado
+por `instance, day`. Pensado para dashboards y exports CSV.
+
+---
+
+## `GET /api/usage/summary?from=YYYY-MM&to=YYYY-MM`
+
+Agregado mensual por `(owner_tag, mes)`. Default: últimos 3 meses
+naturales.
+
+```json
+{
+  "from": "2026-03", "to": "2026-05",
+  "rows": [
+    {
+      "owner_tag": "tenant-acme", "month": "2026-05",
+      "messages_in": 4821, "messages_out": 5102,
+      "spamguard_blocks": 14, "lifecycle_events": 23,
+      "active_instances": 2
+    },
+    {
+      "owner_tag": "", "month": "2026-05",
+      "messages_in": 18, "messages_out": 22,
+      "spamguard_blocks": 0, "lifecycle_events": 1,
+      "active_instances": 1
+    }
+  ]
+}
+```
+
+Pensado para billing: el integrador mapea `owner_tag` a su tenant y suma
+los counters que tarifique.
+
+---
+
+## `GET /api/audit?instance=&limit=`
+
+Append-only log de operaciones (`instance.create / patch / delete`,
+`outbox.enqueue / expire / failed`, `backend.boot`). La tabla subyacente
+tiene triggers que rechazan UPDATE/DELETE — inmutable a nivel DB.
+
+| Param | Default | Notas |
+|---|---|---|
+| `instance` | (vacío) | Filtrar por nombre de instancia. |
+| `limit` | 100 | Máximo 500. |
+
+```json
+{
+  "entries": [
+    {
+      "id": 412,
+      "ts": "2026-05-26T08:15:33Z",
+      "actor": "api",
+      "action": "instance.patch",
+      "instance": "whatsapp-main",
+      "target": "",
+      "metadata": {"owner_tag_set": true, "spamguard_enabled_set": false}
+    }
+  ]
+}
+```
+
+---
+
+## `GET /api/health`
+
+Liveness check. Sin auth.
+
+```json
+{
+  "status": "ok",
+  "instances": [{"name":"whatsapp-main","state":"ready","jid":"..."}],
+  "version": "0.23.0",
+  "ts": "2026-05-26T11:30:00Z"
+}
+```
+
+---
+
+## `GET /metrics`
+
+Prometheus scrape. Sin auth.
+
+| Métrica | Tipo | Labels | Descripción |
+|---|---|---|---|
+| `qrsgen_messages_total` | counter | `direction`, `instance` | Mensajes procesados (in/out). |
+| `qrsgen_spamguard_blocks_total` | counter | `instance` | Outgoings bloqueados por dup. |
+| `qrsgen_lifecycle_events_total` | counter | `instance`, `event` | Eventos lifecycle emitidos. |
+| `qrsgen_message_dispatch_errors_total` | counter | `direction`, `instance`, `kind` | Fallos de despacho. |
+| `qrsgen_active_instances` | gauge | – | Instancias en `connected` o `ready`. |
+| `qrsgen_total_instances` | gauge | – | Total gestionadas. |
+
+Plus métricas estándar Go runtime (`go_*`, `process_*`).
+
+---
+
+## `GET /static/brand-asset.png`
+
+Asset estático (ej. avatar genérico). Útil si el downstream necesita
+descargar un PNG por URL para asociar a un contacto sintético.

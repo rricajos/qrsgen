@@ -90,3 +90,45 @@ de ellos hace **no-op** (devuelve 200 sin enviar):
   (contacto sintético del propio bridge — panel de ops).
 - Spamguard activado + contenido duplicado de los últimos 2 enviados a ese
   JID → no-op + evento `spam_blocked`.
+
+## Glosario
+
+**WebhookPayload**: estructura JSON que el downstream envía a qrsgen
+para pedir el envío de un mensaje. Sigue el formato de Channel::Api
+estándar.
+
+**Outgoing**: mensaje que va de tu sistema hacia el cliente WhatsApp
+(opuesto a "incoming", que va del cliente a tu sistema).
+
+**Echo del propio mensaje**: cuando un cliente WhatsApp recibe un
+mensaje que **tú mismo enviaste**, su app lo emite como "fromMe" tras
+sync. qrsgen lo detecta por el prefijo `WAID:` en `source_id` y lo
+ignora, evitando dobles entregas.
+
+**WAID** (WhatsApp ID): identificador único que WhatsApp asigna a cada
+mensaje enviado. qrsgen lo recibe tras un `SendText` exitoso y lo
+sincroniza con el downstream (`PATCH source_id="WAID:..."`).
+
+**JID del destinatario**: identificador WhatsApp del receptor del
+mensaje. Va en `conversation.meta.sender.identifier`. Formato
+`<phone>@s.whatsapp.net` o `<id>@lid`.
+
+**Safety net**: filtros que qrsgen aplica antes de enviar un mensaje
+para descartar casos peligrosos (notas privadas, ecos, contactos
+sintéticos del propio bridge). Devuelven `200` sin hacer nada.
+
+**Nota privada** (`private: true`): mensaje que el agente humano escribe
+en el panel del downstream para uso interno. **No se envía a WhatsApp**
+— qrsgen lo descarta automáticamente.
+
+**qrsgen-qr-***: prefijo de contactos sintéticos que el propio bridge
+crea para mostrar paneles de status. No tienen número real de WhatsApp;
+qrsgen rechaza cualquier outgoing dirigido a ellos.
+
+**Outbox queued (202)**: cuando la instancia está disconnected, qrsgen
+guarda el payload crudo en `bridge_outgoing_queue` y devuelve `202` con
+el `queue_id` y `expires_at`. El drainer lo entrega cuando vuelva.
+
+**MaxQueueDepth**: límite máximo de mensajes pending por instancia (200
+default). Evita acumulación infinita si una instancia muere
+permanentemente. Cuando se alcanza, nuevos POSTs devuelven `503`.

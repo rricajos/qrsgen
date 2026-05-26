@@ -50,3 +50,50 @@ No hay deduplicación a nivel lifecycle — si el mismo evento se emite dos
 veces (por ejemplo, dos transiciones `Connected` cercanas), tu orquestador
 debe ser idempotente. La identidad práctica de un evento es `(instance,
 event, occurred_at)`.
+
+## Glosario
+
+**Lifecycle event**: notificación HTTP que qrsgen POSTea cuando hay un
+cambio relevante en una instancia. La URL destino se configura
+per-instancia via el campo `events_webhook_url`.
+
+**Rising-edge alert**: alerta que se emite solo cuando se cruza un
+umbral (no cuando se sostiene). Usado por `ban_risk` y `spam_blocked`
+para evitar inundar al integrador.
+
+**Grace period**: tiempo de espera silencioso tras un evento antes de
+emitir su pill al usuario. Sirve para filtrar blips cortos (transitorios)
+y evitar ruido visual.
+
+**Blip silencioso**: cuando una desconexión se resuelve sola antes de
+expirar el grace period (60s para `unreachable`). qrsgen NO emite pill
+en ese caso — el agente humano no se entera.
+
+**Stabilize delay**: tiempo de espera con la conexión estable antes de
+emitir `reconnected` tras un `unreachable`. Default 5s. Evita flapping
+visual entre `connected` y `disconnected` durante reconexiones inestables.
+
+**Bootstrap window**: ventana de 15s al arrancar el proceso durante la
+cual qrsgen suprime los eventos `connected` (avalancha de reconexión).
+En su lugar emite `backend_started` por instancia al cumplir 8s post-boot.
+
+**Strike**: evento crítico — WhatsApp tomó una acción sancionatoria
+(`TemporaryBan` o `ConnectFailure 4xx`). Requiere intervención manual:
+puede indicar que el número está siendo penalizado por uso indebido.
+
+**Spam blocked**: el filtro spamguard descartó un duplicado outgoing.
+Lleva `count` (cuántos van bloqueados en la sesión) y `preview` del
+contenido descartado.
+
+**Ban risk**: el detector proactivo cruzó al menos un threshold. Lleva
+`alert` (cuál de las 3 señales), `score` 0-1 y `level`
+(`ok`/`low`/`moderate`/`high`).
+
+**Outgoing expired**: un mensaje en el outbox no se entregó antes del
+TTL (5 min). qrsgen lo marca como `expired` y avisa al integrador con
+el `preview` para que decida (notificar agente, re-postear, archivar).
+
+**Backend restarting / started**: eventos emitidos al SIGTERM (12s
+antes del shutdown) y tras el bootstrap completo (8s post-boot). El
+integrador los usa para mostrar pills "buscando conexión" / "conexión
+restaurada".

@@ -40,3 +40,35 @@ el outbox la entrega cuando vuelva.
 - Lee [Convenciones](conventions.md) para entender autenticación y HMAC.
 - Mira [Mensajes](messages.md) para el detalle del `WebhookPayload`.
 - Configura tu orquestador para escuchar [Lifecycle webhooks](lifecycle-webhooks.md).
+
+## Glosario
+
+**Provisionar**: crear una instancia nueva en qrsgen. Una instancia
+representa un número de WhatsApp gestionado por el bridge.
+
+**Instancia**: una sesión WhatsApp dentro del proceso qrsgen. Identificada
+por un `name` único (e.g. `whatsapp-main`).
+
+**Pairing**: proceso en el que el usuario escanea el QR con la app
+oficial de WhatsApp y vincula su número a qrsgen. Solo hay que hacerlo
+la primera vez (la sesión se persiste).
+
+**Long-poll**: técnica donde una llamada HTTP mantiene la conexión
+abierta hasta que ocurre un evento o expira un timeout. `wait-ready`
+funciona así: bloquea hasta que la instancia llega a `ready`.
+
+**State machine**: una instancia transita por estados bien definidos
+(`qr_pending` → `paired` → `ready` → `disconnected`). El campo `state`
+del endpoint informa en qué estado está ahora mismo.
+
+**Channel::Api-compatible**: formato JSON estándar que muchos sistemas
+de ticketing (Chatwoot, etc.) usan para mensajes. qrsgen entiende y
+genera este formato por defecto.
+
+**JID** (JabberID): identificador del destinatario en WhatsApp. Tiene
+formato `<número>@s.whatsapp.net` o `<id>@lid` (cuentas anónimas
+Multi-Device). qrsgen lo necesita en `conversation.meta.sender.identifier`.
+
+**Outbox 202 queued**: cuando la instancia está reconectando, qrsgen
+encola el mensaje y devuelve `202` en lugar de error. El mensaje se
+entrega cuando la sesión vuelve (TTL 5 min).

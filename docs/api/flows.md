@@ -60,3 +60,28 @@ GET /api/instances/whatsapp-main/usage?from=...&to=...
 GET /api/instances/whatsapp-main/ban-risk
    ↓ ver snapshot actual
 ```
+
+## Glosario
+
+**Flujo end-to-end**: secuencia completa de llamadas API necesarias
+para completar un caso de uso (provision, send, recovery, billing,
+etc.).
+
+**Provisión + pairing**: secuencia inicial donde se crea una instancia
+y el usuario escanea el QR para vincular su número WhatsApp. Solo se
+hace la primera vez.
+
+**Recovery flow** (sesión perdida): secuencia para regenerar el pairing
+cuando WhatsApp invalidó la sesión server-side (`logged_out`). Requiere
+nuevo escaneo del usuario.
+
+**Borrado limpio**: secuencia `logout` + `DELETE`. El `logout` invalida
+la sesión en Meta servers; el `DELETE` borra la fila de
+`bridge_instance`. El audit log conserva la traza.
+
+**Billing al cierre de mes**: query típica para facturación —
+`/api/usage/summary` con el mes actual, agrupado por `owner_tag`.
+
+**Forensics**: investigación post-incidente combinando `/api/audit`
+(quién hizo qué), `/api/usage` (volumen de actividad) y `/api/ban-risk`
+(estado actual de las señales).

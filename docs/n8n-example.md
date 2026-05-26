@@ -149,8 +149,15 @@ cualquier otro proxy) que reciba el POST y lo reformatee a tu necesidad.
 
 ### QR pruning automático
 
-Cron diario que limpia instancias `qr_pending` que llevan >24h sin
-escanear:
+Cron diario que borra instancias que **nunca llegaron a parearse**: están
+en `state="qr_pending"` (QR generado pero nadie lo escaneó) y fueron
+creadas hace más de 24 h.
+
+> ⚠️ **Importante**: este cron NO toca instancias que estaban conectadas
+> y se desconectaron. Esas pasan a `disconnected` / `logged_out`, no a
+> `qr_pending`. Tampoco borra mensajes — si nunca se pareó, no hay
+> mensajes (la sesión jamás existió). El cron solo limpia QRs huérfanos
+> que claramente no se van a usar.
 
 ```javascript
 // Code node en n8n
@@ -251,3 +258,43 @@ no anda bien).
 - **Workflow tags**: etiqueta los workflows de qrsgen con un tag común
   (`qrsgen`) para que sea fácil pausar todos a la vez en una alerta de
   `ban_risk`.
+
+## Glosario
+
+**Orquestador**: sistema que conecta servicios entre sí mediante reglas o
+workflows. n8n, Zapier, Make o Temporal son ejemplos.
+
+**Workflow**: secuencia de pasos automatizados en un orquestador. Cada
+paso es típicamente un "nodo" que llama una API, transforma datos, o
+ramifica.
+
+**HTTP Request node**: nodo de n8n (y equivalente en otros orquestadores)
+que hace una llamada HTTP a una API externa. Es como se invoca la API
+qrsgen desde un workflow.
+
+**Webhook node**: nodo que **recibe** llamadas HTTP entrantes. n8n
+expone una URL pública por workflow donde otros sistemas (como qrsgen)
+POSTean eventos.
+
+**Credentials**: mecanismo de n8n para guardar tokens/secrets de forma
+encriptada en la DB de n8n, sin hardcodear en el JSON del workflow.
+
+**Switch node**: nodo que ramifica el flujo según el valor de un campo.
+Útil para procesar distintos tipos de lifecycle event con sub-flujos
+distintos.
+
+**HMAC**: hash-based message authentication code. Firma criptográfica que
+demuestra que un body de request viene de quien dice y no ha sido
+modificado en tránsito.
+
+**Lifecycle event**: notificación HTTP que qrsgen POSTea cuando ocurre
+algo en una instancia (`connected`, `qr_generated`, `ban_risk`, etc.).
+Ver el [catálogo completo](api/lifecycle-webhooks.md).
+
+**Outbox queue**: cola persistida donde qrsgen mete los mensajes outgoing
+cuando la instancia está desconectada, para reentregarlos al volver.
+Cuando se usa, el endpoint devuelve `202 queued` en lugar de `200 sent`.
+
+**Strike**: evento que qrsgen emite cuando WhatsApp toma una acción
+sancionatoria contra la sesión (TemporaryBan, ConnectFailure 4xx).
+Requiere intervención manual inmediata.

@@ -51,3 +51,31 @@ docker network create -d overlay --attachable net
 ```
 
 Configurable vía `OVERLAY_NETWORK` env var si quieres otro nombre.
+
+## Glosario
+
+**docker stack deploy**: comando para desplegar/actualizar un stack
+completo desde un compose file en Docker Swarm.
+
+**--resolve-image=changed**: opción de `stack deploy` que solo
+re-resuelve digests para imágenes que cambiaron. Más rápido en re-deploys.
+
+**Service**: unidad de despliegue en Swarm. Un service corre una o
+varias réplicas de un container con la misma config.
+
+**Replica**: una instancia corriendo del service. qrsgen usa `replicas:
+1` por diseño (una sesión WhatsApp = un proceso).
+
+**Alias** (overlay): nombre alternativo del servicio dentro del
+overlay. qrsgen responde a `qrsgen:3100` y al alias retro `bridge_bridge:3100`.
+
+**HEALTHCHECK**: directiva del Dockerfile que define cómo Docker chequea
+si el container está sano. qrsgen lo implementa con un flag
+`-healthcheck` del propio binario.
+
+**Liveness probe**: comprobación de que el proceso está vivo y
+responde. Docker la usa para reiniciar containers stuck.
+
+**Distroless friendly**: característica que funciona en imágenes
+distroless (sin shell/curl). El `-healthcheck` flag lo es porque usa
+el propio binario.

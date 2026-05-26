@@ -39,3 +39,26 @@ curl -sS -H "Authorization: Bearer $TOK" \
   "http://qrsgen:3100/api/audit?limit=500" \
   | jq '.entries[] | select(.action=="instance.patch" and .metadata.owner_tag_set==true)'
 ```
+
+## Glosario
+
+**Forensics**: investigación post-incidente. Combina audit log
+(cronología de cambios), usage (volúmenes), ban-risk (estado actual)
+para reconstruir qué pasó.
+
+**Pico de envíos**: incremento brusco en el counter `messages_out`
+durante una ventana corta. Indicador típico de antes de un strike.
+
+**Audit query**: consulta al endpoint `/api/audit` para inspeccionar
+operaciones pasadas. Filtrable por instancia y limitable.
+
+**Outbox expirado**: mensaje en el outbox que no se entregó antes del
+TTL (5 min). qrsgen lo marca como `expired` y emite el evento
+lifecycle.
+
+**Strike investigation**: protocolo para entender qué causó una
+sanción WhatsApp. Empieza por audit + usage en las horas previas.
+
+**Cadena de causalidad**: secuencia de eventos que llevó a un
+incidente. El audit log da la cronología; el usage da los volúmenes;
+el ban-risk da el indicador previo.

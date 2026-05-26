@@ -130,3 +130,37 @@ docker exec "$PG" psql -U postgres -d bridge -c "
 ```
 
 El expirer (cada 30s) lo recogerá y emitirá `outgoing_expired`.
+
+## Glosario
+
+**Re-pareado**: regenerar el QR para que un usuario vuelva a escanear y
+reactive la sesión. Necesario tras un `logged_out` server-side.
+
+**Refresh QR**: forzar la regeneración del QR sin esperar al ciclo
+natural de 20s. Útil cuando el QR mostrado caducó.
+
+**Logout server-side**: invalidación de la sesión en los servidores de
+Meta. Tras esto, la sesión no se puede recuperar — hay que escanear un
+QR nuevo. Distinto del DELETE de qrsgen (que borra la fila pero no
+toca Meta).
+
+**Restart del backend**: redeploy del container qrsgen (ej.
+`docker service update --force`). Provoca downtime de ~10-15s; el
+outbox lo cubre.
+
+**Backend restarting → backend started**: secuencia de eventos
+lifecycle que qrsgen emite al SIGTERM y al boot. Útiles para
+visualizar el cycle en el panel del agente.
+
+**owner_tag**: string libre para mapear instancias a tenants/clientes.
+Asignable vía `PATCH /api/instances/:name`. Aparece en
+`/api/usage/summary` agrupado.
+
+**Billing report**: agregado mensual del usage por `(owner_tag, mes)`.
+Útil para facturación al cierre de mes.
+
+**Spamguard toggle**: encender/apagar el filtro de duplicados outgoing
+vía `PATCH spamguard_enabled`. Aplicable per-instancia.
+
+**Drainer manual**: forzar el procesamiento del outbox para una
+instancia. Normalmente innecesario — el drainer goroutine corre cada 5s.

@@ -42,3 +42,27 @@ ssh new-vps "
 
 Tras el restore, qrsgen reconecta automáticamente cada sesión persistida
 en `whatsmeow_*` — no se necesita re-escanear QR.
+
+## Glosario
+
+**Portabilidad**: facilidad para mover el sistema entre hosts/clouds
+con cambios mínimos. qrsgen lo soporta vía `scp` del stack + ajuste
+del `.env`.
+
+**scp**: secure copy. Copia archivos entre hosts vía SSH.
+
+**Snapshot del estado**: copia point-in-time de los datos persistidos
+(DB dump). Permite restore en otra máquina.
+
+**Stack portable**: conjunto de archivos suficientes para reproducir
+el deploy en otro host (compose + env + systemd units).
+
+**Migración de Postgres**: trasladar la DB completa de un host a otro.
+qrsgen lo soporta via pg_dump + pg_restore.
+
+**Re-escaneo de QR**: forzar al usuario a volver a parear la sesión.
+qrsgen lo evita en portabilidad porque las sesiones whatsmeow viven
+en Postgres y se migran junto con el resto.
+
+**Stateful migration**: migración que incluye datos (DB) además de
+config. Opuesto a stateless (solo config).

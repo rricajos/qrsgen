@@ -29,3 +29,29 @@
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. |
 | `OVERLAY_NETWORK` | `net` | Red docker overlay externa. |
 | `PORT` | `3100` | HTTP listener. |
+
+## Glosario
+
+**Variable de entorno**: parámetro de configuración que el proceso lee
+al arrancar via `os.Getenv`. qrsgen las parsea con `caarlos0/env`.
+
+**Required vs optional**: una env required hace fallar el boot si está
+ausente o vacía. Las optional tienen default.
+
+**Default value**: valor que toma una env si no se pasa. qrsgen usa
+defaults razonables para el 90% de casos.
+
+**Backward-compat**: cuando una env nueva opt-in queda desactivada por
+default para que despliegues antiguos sigan funcionando sin tocar config.
+
+**Opt-in**: feature que requiere activación explícita (env=true o
+similar). Filosofía conservadora — más seguro que opt-out.
+
+**Token / Bearer**: credencial de auth que qrsgen exige en
+`Authorization: Bearer ...`. Generar con `secrets.token_urlsafe(32)`.
+
+**HMAC secret**: string usado como clave para firmar/verificar HMACs
+del webhook entrante. Debe ser largo y aleatorio.
+
+**DSN** (Data Source Name): cadena de conexión a la base de datos. qrsgen
+la construye internamente desde `POSTGRES_HOST/USER/DB/PASSWORD`.

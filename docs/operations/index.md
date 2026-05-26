@@ -16,3 +16,24 @@ en `$TOK` y los nombres de instancia en `whatsapp-main` /
   outbox full, ban-risk alto, "Error al enviar", reconexiones.
 - [Alerting Prometheus](alerting.md) — reglas sugeridas.
 - [Logs útiles](logs.md) — qrsgen, firewall, backups.
+
+## Glosario
+
+**Runbook**: documento operativo con procedimientos paso a paso para
+las tareas y situaciones más frecuentes en producción.
+
+**Diagnóstico rápido**: serie de comprobaciones para entender el
+estado del sistema en menos de 1 minuto.
+
+**Forensics**: investigación post-incidente para reconstruir qué pasó,
+quién lo hizo y qué metadata acompañaba.
+
+**Troubleshooting**: proceso de identificar y resolver problemas
+concretos (códigos de error inesperados, comportamientos anómalos).
+
+**Alerting**: configuración que notifica automáticamente cuando un
+sistema cruza ciertos umbrales (instancias caídas, alta tasa de
+errores, strikes).
+
+**Procedure**: secuencia de pasos para una operación común (re-pareado,
+borrado, restart, billing report).

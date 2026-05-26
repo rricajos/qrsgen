@@ -74,3 +74,27 @@ curl -sS -H "Authorization: Bearer $TOK" \
 
 Mira `level` (`ok` / `low` / `moderate` / `high`) y `alerts`. Si hay
 `alerts: ["high_velocity"]` o similar, **reduce ritmo de envíos**.
+
+## Glosario
+
+**Liveness probe**: comprobación de que el proceso está vivo y responde.
+Para qrsgen es `/api/health`.
+
+**State**: estado actual de una instancia. Valores: `qr_pending`,
+`paired`, `ready` / `connected`, `connecting`, `disconnected`,
+`logged_out`.
+
+**last_event_at**: timestamp de la última transición lifecycle de la
+instancia. Útil para saber si lleva mucho rato silenciosa.
+
+**Snapshot live**: foto del estado actual del sistema (instances
+conectadas en este momento). Distinto de los counters históricos
+acumulados.
+
+**Counter histórico**: contador que solo crece (mensajes totales,
+spamguard blocks acumulados). Para tasas se calcula derivada
+(`rate()`).
+
+**Ban-risk score**: agregado 0-1 de las tres señales del BanWatcher
+(velocity / diversity / delivery_ratio). Más alto = más cerca del
+ban.

@@ -25,3 +25,28 @@ journalctl -u qrsgen-firewall.service -n 20
 
 Detalle de la allowlist y el modelo de amenaza:
 [Security capa 3](../security/layer-3-firewall.md).
+
+## Glosario
+
+**Egress firewall**: filtro del tráfico saliente. Opuesto a ingress
+(entrante).
+
+**iptables**: herramienta clásica de Linux para definir reglas de
+firewall a nivel kernel.
+
+**Watchdog**: proceso que vigila eventos del sistema y reacciona. Aquí
+escucha `docker events` y re-aplica iptables si qrsgen reinicia.
+
+**docker events**: stream de eventos de Docker (start, stop, restart)
+en tiempo real. Filtable por container/service.
+
+**Allowlist**: lista de destinos permitidos. Todo lo demás se bloquea.
+Opuesto a blocklist.
+
+**CIDR**: notación de rango de IPs (`192.168.0.0/16`).
+
+**LOG + DROP**: política iptables que loguea el paquete antes de
+descartarlo. Útil para observabilidad.
+
+**Rate-limited LOG**: limitar cuántos logs por segundo para no
+inundar dmesg.

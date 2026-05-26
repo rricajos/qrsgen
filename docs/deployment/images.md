@@ -34,3 +34,31 @@ chmod +x qrsgen
 ```
 
 Cada binario lleva SBOM (`*.sbom.json`) + checksum firmado.
+
+## Glosario
+
+**GHCR**: GitHub Container Registry. Registry de imágenes Docker
+integrado con GitHub Actions. `ghcr.io/rricajos/qrsgen`.
+
+**Multi-arch image**: una sola tag que internamente apunta a imágenes
+distintas para amd64 / arm64. Docker descarga la adecuada para tu host.
+
+**Cosign**: herramienta para firmar y verificar artefactos Docker.
+qrsgen firma sus imágenes y SBOMs en cada release.
+
+**Distroless**: imagen Docker minimalista sin shell ni package
+manager. Solo el binario + libs estrictamente necesarias.
+
+**Multi-stage build**: Dockerfile con varias etapas (`FROM ... AS ...`).
+Permite compilar en una imagen grande (`golang:1.26-alpine`) y copiar
+solo el binario a una pequeña (`distroless`).
+
+**SBOM** (Software Bill of Materials): inventario formal de las
+dependencias del binario. qrsgen lo genera por arquitectura para
+audit trail / vulnerability scanning.
+
+**Checksum firmado**: hash del artefacto acompañado de una firma
+cosign. Verifica integridad + autenticidad.
+
+**GoReleaser**: herramienta que automatiza builds multi-arch, dockers,
+SBOMs y firmas. qrsgen lo dispara en cada tag `v*`.

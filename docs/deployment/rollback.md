@@ -13,3 +13,25 @@ rollback es seguro.
 
 Ver [Schema migrations — compatibilidad backwards](schema-migrations.md)
 para el detalle.
+
+## Glosario
+
+**Rollback**: volver a una versión anterior del software tras detectar
+un problema con la nueva.
+
+**Backwards compatible**: una versión nueva que respeta el formato de
+datos de las versiones anteriores. qrsgen lo respeta con migraciones
+aditivas.
+
+**Aditivo (schema)**: cambios que solo añaden tablas/columnas, sin
+modificar las existentes. Esto garantiza que un binario antiguo siga
+leyendo el schema sin fallos.
+
+**Pin de versión**: especificar exactamente qué versión usar (e.g.
+`QRSGEN_VERSION=0.21.0` en `.env`) en lugar de `:latest` que se mueve.
+
+**Tag immutable**: cada tag `v0.23.0` apunta siempre al mismo binario.
+qrsgen sigue esa convención — no se reescriben tags publicados.
+
+**Redeploy**: lanzar `docker stack deploy` de nuevo con la config
+actualizada. Docker hace el rollout según el `update_config`.

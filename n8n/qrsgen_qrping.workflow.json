@@ -156,7 +156,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/search",
+        "url": "=https://your-downstream.example.com/api/v1/accounts/1/contacts/search",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -210,7 +210,7 @@
     {
       "parameters": {
         "method": "PUT",
-        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/{{ $json.contact_id }}",
+        "url": "=https://your-downstream.example.com/api/v1/accounts/1/contacts/{{ $json.contact_id }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -220,7 +220,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"name\": \"qrsgen / {{ $json.instance }}\",\n  \"avatar_url\": \"http://bridge_bridge:3100/static/omnia.png\",\n  \"additional_attributes\": {\n    \"company_name\": \"Conexia Telecom\",\n    \"country\": \"España\",\n    \"country_code\": \"ES\",\n    \"city\": \"Barcelona\",\n    \"description\": \"Asistente Omnia · panel de estado del canal {{ $json.instance }} · sistema interno\"\n  }\n}",
+        "jsonBody": "={\n  \"name\": \"qrsgen / {{ $json.instance }}\",\n  \"avatar_url\": \"http://bridge_bridge:3100/static/omnia.png\",\n  \"additional_attributes\": {\n    \"company_name\": \"your-company\",\n    \"country\": \"España\",\n    \"country_code\": \"ES\",\n    \"city\": \"Barcelona\",\n    \"description\": \"Asistente Omnia · panel de estado del canal {{ $json.instance }} · sistema interno\"\n  }\n}",
         "options": {}
       },
       "id": "node-put",
@@ -274,7 +274,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const items = $json.items || [];\nconst updated = items.filter(i => i.status === 'updated');\nconst missing = items.filter(i => i.status === 'not_found');\nconst lines = [];\nif (updated.length > 0) {\n  lines.push('✅ *Metadata sincronizada* en ' + updated.length + ' contacto(s):');\n  updated.forEach(i => lines.push('  • qrsgen / ' + i.instance));\n}\nif (missing.length > 0) {\n  lines.push('\\n⚠️ *Sin contacto ops* (no existe «qrsgen / X»):');\n  missing.forEach(i => lines.push('  • ' + i.instance + ' — ejecuta /qrv2 ' + i.instance + ' primero'));\n}\nif (updated.length === 0 && missing.length === 0) {\n  lines.push('(sin resultados)');\n}\nlines.push('\\n_Campos sincronizados: nombre, avatar Omnia, empresa Conexia Telecom, país España, descripción._');\nreturn [{ json: { summary: lines.join('\\n') } }];"
+        "jsCode": "const items = $json.items || [];\nconst updated = items.filter(i => i.status === 'updated');\nconst missing = items.filter(i => i.status === 'not_found');\nconst lines = [];\nif (updated.length > 0) {\n  lines.push('✅ *Metadata sincronizada* en ' + updated.length + ' contacto(s):');\n  updated.forEach(i => lines.push('  • qrsgen / ' + i.instance));\n}\nif (missing.length > 0) {\n  lines.push('\\n⚠️ *Sin contacto ops* (no existe «qrsgen / X»):');\n  missing.forEach(i => lines.push('  • ' + i.instance + ' — ejecuta /qrv2 ' + i.instance + ' primero'));\n}\nif (updated.length === 0 && missing.length === 0) {\n  lines.push('(sin resultados)');\n}\nlines.push('\\n_Campos sincronizados: nombre, avatar Omnia, empresa your-company, país España, descripción._');\nreturn [{ json: { summary: lines.join('\\n') } }];"
       },
       "id": "node-summary",
       "name": "build summary",
@@ -285,7 +285,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/conversations/{{ $('extract context').item.json.source_conversation_id }}/messages",
+        "url": "=https://your-downstream.example.com/api/v1/accounts/1/conversations/{{ $('extract context').item.json.source_conversation_id }}/messages",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

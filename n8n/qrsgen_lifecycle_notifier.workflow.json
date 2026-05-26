@@ -60,7 +60,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/search",
+        "url": "=https://your-downstream.example.com/api/v1/accounts/1/contacts/search",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -121,7 +121,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/contacts/{{ $('extract contact id').item.json.contact_id }}/conversations",
+        "url": "=https://your-downstream.example.com/api/v1/accounts/1/contacts/{{ $('extract contact id').item.json.contact_id }}/conversations",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [{ "name": "api_access_token", "value": "dmUhraPzzZKZnJrB15ouknNM" }]
@@ -147,7 +147,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://dertochip-omnia.conexiatec.com/api/v1/accounts/1/conversations/{{ $json.conv_id }}/messages",
+        "url": "=https://your-downstream.example.com/api/v1/accounts/1/conversations/{{ $json.conv_id }}/messages",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

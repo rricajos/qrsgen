@@ -23,7 +23,7 @@
 #   DEDUP_ENABLED              true
 #   DEDUP_WINDOW_MS            10000
 #   LOG_LEVEL                  info
-#   OVERLAY_NETWORK            red docker (default: conexianet)
+#   OVERLAY_NETWORK            red docker (default: net)
 #
 # Para portar a otro VPS: copias compose + ajustas env vars + deploy.
 
@@ -78,7 +78,7 @@ services:
           size: 67108864   # 64 MB
 
     networks:
-      conexianet:
+      net:
         aliases:
           - qrsgen
           - bridge_bridge   # retro-compat con workflows n8n que apuntan al alias viejo
@@ -100,6 +100,6 @@ services:
         order: stop-first
 
 networks:
-  conexianet:
+  net:
     external: true
-    name: ${OVERLAY_NETWORK:-conexianet}
+    name: ${OVERLAY_NETWORK:-net}

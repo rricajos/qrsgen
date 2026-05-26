@@ -191,11 +191,29 @@ func (c *Conn) PNForLID(lid types.JID) (types.JID, bool) {
 
 // DownloadAny descarga el primer media (image/audio/video/document/sticker)
 // presente en el mensaje. Devuelve los bytes en claro.
+//
+// Implementado encima de client.Download (la API recomendada por whatsmeow);
+// reemplaza el deprecated client.DownloadAny.
 func (c *Conn) DownloadAny(ctx context.Context, msg *waE2E.Message) ([]byte, error) {
 	if c.client == nil || msg == nil {
 		return nil, fmt.Errorf("download: cliente o mensaje nil")
 	}
-	return c.client.DownloadAny(ctx, msg)
+	var dl whatsmeow.DownloadableMessage
+	switch {
+	case msg.ImageMessage != nil:
+		dl = msg.ImageMessage
+	case msg.AudioMessage != nil:
+		dl = msg.AudioMessage
+	case msg.VideoMessage != nil:
+		dl = msg.VideoMessage
+	case msg.DocumentMessage != nil:
+		dl = msg.DocumentMessage
+	case msg.StickerMessage != nil:
+		dl = msg.StickerMessage
+	default:
+		return nil, fmt.Errorf("download: no hay media descargable en el mensaje")
+	}
+	return c.client.Download(ctx, dl)
 }
 
 // LIDForPN intenta mapear un JID PN a su LID. Devuelve la JID y true si lo conoce.

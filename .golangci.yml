@@ -22,8 +22,6 @@ linters:
     staticcheck:
       checks:
         - all
-        # Exclusions: APIs whatsmeow deprecated (todavía funcionan, migración futura)
-        - "-SA1019"
 
   exclusions:
     rules:
@@ -39,4 +37,3 @@ linters:
 
 # Notas:
 # - misspell deshabilitado: comentarios en español/catalán flagean falsos positivos
-# - SA1019 excluido: deprecación de APIs whatsmeow (DownloadAny, waProto.Message)

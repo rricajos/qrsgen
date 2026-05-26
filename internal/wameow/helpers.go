@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"go.mau.fi/whatsmeow"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -20,8 +19,8 @@ func parseJID(s string) (types.JID, error) {
 	return jid, nil
 }
 
-func simpleTextMessage(text string) *waProto.Message {
-	return &waProto.Message{
+func simpleTextMessage(text string) *waE2E.Message {
+	return &waE2E.Message{
 		Conversation: proto.String(text),
 	}
 }

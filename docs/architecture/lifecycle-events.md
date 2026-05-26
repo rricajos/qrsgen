@@ -50,6 +50,70 @@ Para que el panel del agente no se inunde de notificaciones espurias:
   webhooks `connected` de la avalancha de reconexiones. En su lugar,
   `backend_started` resume el estado a los 8s.
 
+## Retry exponencial para eventos críticos
+
+Algunos eventos lifecycle son **operativamente críticos** — si tu
+orquestador está caído cuando llegan, perderlos tiene consecuencias
+reales (estado del agente, contabilidad, decisiones de pausa de
+envíos). qrsgen los reintenta automáticamente:
+
+```
+POST inicial (síncrono)
+   │
+   │ fallo (timeout, 4xx, 5xx, network error)
+   ▼
+attempt 2: tras 5s    (async, en goroutine)
+   │
+   │ fallo
+   ▼
+attempt 3: tras 30s
+   │
+   │ fallo
+   ▼
+attempt 4: tras 5 min
+   │
+   │ fallo
+   ▼
+Drop + log ERROR + métrica qrsgen_lifecycle_webhook_retries_total{outcome="exhausted"}
+```
+
+Total: ~5.5 min de ventana hasta abandonar.
+
+**Eventos críticos** (con retry):
+
+- `strike` — WhatsApp baneó/restringió. Requiere acción inmediata.
+- `ban_risk` — Detector cruzó threshold. Preventivo de strike.
+- `outgoing_expired` — Mensaje en outbox no entregado. Notificar al agente.
+- `logged_out` — Sesión inválida. Necesita re-pairing.
+- `spam_blocked` — Bloqueo spamguard. El usuario debe verlo (contador).
+- `backend_restarting` — Aviso pre-shutdown. El agente debe verlo.
+
+**Eventos NO críticos** (sin retry, solo intento inicial):
+
+- `qr_generated` — Se re-emite cada 20s naturalmente.
+- `paired` / `connected` / `reconnected` — Tu sistema puede deducirlo
+  del próximo evento.
+- `unreachable` / `disconnected` — Los re-emite WhatsApp cuando vuelva.
+- `backend_started` — Si tu orquestador está caído cuando arranca
+  qrsgen, perdértelo no rompe nada.
+
+**Métrica**: `qrsgen_lifecycle_webhook_retries_total{event,outcome}`
+con `outcome` ∈ {`success`, `exhausted`}. Para alertas Prometheus:
+
+```promql
+# Algún evento crítico llegó a agotarse — el orquestador está caído
+# desde hace al menos 5 minutos.
+increase(qrsgen_lifecycle_webhook_retries_total{outcome="exhausted"}[10m]) > 0
+```
+
+### ¿Por qué no persistir en DB como hace el outbox?
+
+Trade-off considerado. Los lifecycle events son **idempotentes** desde
+el punto de vista del agente humano (un `strike` notificado dos veces
+es OK), y la mayoría se re-emite naturalmente cuando la conexión
+vuelve. Persistir + drainer añadía complejidad por poco beneficio
+real. Si en producción vemos pérdida real, se reconsidera.
+
 Ver [docs/api/lifecycle-webhooks.md](../api/lifecycle-webhooks.md) para
 el catálogo completo y el shape del payload.
 

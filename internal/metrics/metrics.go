@@ -35,6 +35,14 @@ var (
 		Help: "Errores al despachar mensajes.",
 	}, []string{"direction", "instance", "kind"})
 
+	// LifecycleWebhookRetries: cuenta reintentos de webhooks lifecycle críticos.
+	// outcome: "success" si el reintento entregó, "exhausted" si se acabaron los
+	// attempts y el mensaje se descartó.
+	LifecycleWebhookRetries = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "qrsgen_lifecycle_webhook_retries_total",
+		Help: "Reintentos de webhooks lifecycle críticos (strike, ban_risk, etc.).",
+	}, []string{"event", "outcome"})
+
 	// ActiveInstances: gauge con nº de instancias en estado "ready" (conectadas).
 	ActiveInstances = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "qrsgen_active_instances",

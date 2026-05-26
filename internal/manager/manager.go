@@ -528,28 +528,11 @@ func (m *Manager) emitLifecycleWebhook(name string, ev wameow.LifecycleEvent, ji
 		"occurred_at": occurredAt.UTC().Format(time.RFC3339),
 	}
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		m.logger.Error("build webhook req failed", "err", err, "url", url)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 10 * time.Second}
-	res, err := client.Do(req)
-	if err != nil {
-		m.logger.Warn("events webhook POST failed", "err", err, "url", url, "event", string(ev))
-		return
-	}
-	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode >= 400 {
-		m.logger.Warn("events webhook returned non-2xx", "status", res.StatusCode, "url", url)
-		return
-	}
+	m.postWebhookWithRetry(name, string(ev), url, body)
 	metrics.LifecycleEvents.WithLabelValues(name, string(ev)).Inc()
 	if m.usage != nil {
 		m.usage.IncLifecycle(name)
 	}
-	m.logger.Info("events webhook sent", "name", name, "event", string(ev), "url", url)
 }
 
 // InboxIDFor devuelve el inbox_id (downstream) asociado a la instancia, o 0 si no hay.
@@ -689,6 +672,88 @@ func (m *Manager) BroadcastBackendRestarting() {
 	}
 }
 
+// criticalLifecycleEvents son los eventos que deben tener retry exponencial
+// porque su pérdida tiene consecuencias operativas reales (estado del agente,
+// facturación, decisiones de pausa de envíos). Los demás (qr_generated,
+// connected, paired) NO se reintentan porque WhatsApp re-emite el estado o
+// son tan frecuentes que la pérdida es irrelevante.
+var criticalLifecycleEvents = map[string]bool{
+	"strike":             true, // WhatsApp baneó/restringió — acción inmediata
+	"ban_risk":           true, // Detector cruzó threshold — preventivo
+	"outgoing_expired":   true, // Mensaje en outbox no entregado — integrator decide
+	"logged_out":         true, // Sesión inválida server-side — re-pairing
+	"spam_blocked":       true, // Bloqueo del spamguard — contador para usuario
+	"backend_restarting": true, // Aviso pre-shutdown — agente debe verlo
+}
+
+// retryBackoffs son los delays para los 3 reintentos en caso de fallo del POST.
+var retryBackoffs = []time.Duration{5 * time.Second, 30 * time.Second, 5 * time.Minute}
+
+// postWebhookOnce hace un POST único y devuelve nil si llegó (2xx) o un error
+// describiendo qué falló. No hace ningún reintento.
+func (m *Manager) postWebhookOnce(url string, body []byte) error {
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build req: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("do: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode >= 400 {
+		return fmt.Errorf("HTTP %d", res.StatusCode)
+	}
+	return nil
+}
+
+// postWebhookWithRetry hace el POST inicial y, si falla y el evento es
+// crítico, reintenta con backoff exponencial en una goroutine separada (para
+// no bloquear el emisor). Útil para eventos que NO deben perderse silenciosamente
+// cuando el orquestador está caído.
+//
+// El primer intento es síncrono. Los reintentos son async.
+func (m *Manager) postWebhookWithRetry(name string, event string, url string, body []byte) {
+	err := m.postWebhookOnce(url, body)
+	if err == nil {
+		return
+	}
+	if !criticalLifecycleEvents[event] {
+		m.logger.Warn("webhook POST failed (no retry, non-critical event)",
+			"name", name, "event", event, "url", url, "err", err)
+		return
+	}
+	// Critical event — async retry with exponential backoff.
+	go m.retryWebhookLoop(name, event, url, body, err)
+}
+
+// retryWebhookLoop ejecuta los reintentos según retryBackoffs.
+func (m *Manager) retryWebhookLoop(name, event, url string, body []byte, lastErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Error("panic in retryWebhookLoop", "panic", fmt.Sprintf("%v", r))
+		}
+	}()
+	for i, delay := range retryBackoffs {
+		m.logger.Warn("lifecycle webhook retry scheduled",
+			"name", name, "event", event, "attempt", i+1, "delay", delay, "last_err", lastErr.Error())
+		time.Sleep(delay)
+		if err := m.postWebhookOnce(url, body); err != nil {
+			lastErr = err
+			continue
+		}
+		metrics.LifecycleWebhookRetries.WithLabelValues(event, "success").Inc()
+		m.logger.Info("lifecycle webhook retry succeeded",
+			"name", name, "event", event, "attempt", i+1)
+		return
+	}
+	metrics.LifecycleWebhookRetries.WithLabelValues(event, "exhausted").Inc()
+	m.logger.Error("lifecycle webhook exhausted retries — event dropped",
+		"name", name, "event", event, "last_err", lastErr.Error())
+}
+
 // emitCustomWebhook variante de emitLifecycleWebhook que acepta extras.
 func (m *Manager) emitCustomWebhook(name string, ev wameow.LifecycleEvent, extras map[string]any, occurredAt time.Time) {
 	defer func() {
@@ -712,27 +777,14 @@ func (m *Manager) emitCustomWebhook(name string, ev wameow.LifecycleEvent, extra
 		payload[k] = v
 	}
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 10 * time.Second}
-	res, err := client.Do(req)
-	if err != nil {
-		m.logger.Warn("custom webhook POST failed", "err", err, "event", string(ev))
-		return
-	}
-	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode >= 400 {
-		m.logger.Warn("custom webhook non-2xx", "status", res.StatusCode, "event", string(ev))
-		return
-	}
+	m.postWebhookWithRetry(name, string(ev), url, body)
+	// Las métricas y usage se cuentan en el emit (no en el retry success):
+	// representan "qrsgen intentó emitir el evento", no "el orquestador lo
+	// recibió".
 	metrics.LifecycleEvents.WithLabelValues(name, string(ev)).Inc()
 	if m.usage != nil {
 		m.usage.IncLifecycle(name)
 	}
-	m.logger.Info("custom webhook sent", "name", name, "event", string(ev))
 }
 
 // Get devuelve la instancia activa por nombre.

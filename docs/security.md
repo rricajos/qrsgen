@@ -70,6 +70,29 @@ Sin cert pinning explícito, un atacante con root del VPS podría inyectar un CA
 
 Mejora futura: cert pinning en whatsmeow para defender ante CA root compromise (alto esfuerzo).
 
+## Capa 4 — Container hardening (read-only rootfs)
+
+El stack arranca qrsgen con `read_only: true` y un tmpfs montado en `/tmp`
+(64 MB). El binario no escribe a disco — toda la persistencia vive en
+Postgres. Cualquier escritura inesperada al filesystem es un indicio
+inmediato de compromiso.
+
+```yaml
+read_only: true
+volumes:
+  - type: tmpfs
+    target: /tmp
+    tmpfs:
+      size: 67108864
+```
+
+Combinado con la imagen distroless (sin shell ni paquetes auxiliares) y el
+`USER nonroot:nonroot`, la superficie de un RCE queda reducida a:
+- No puede instalar herramientas (rootfs read-only, sin gestor de paquetes).
+- No puede persistir un implante (sólo /tmp escribible, se vacía con cada
+  redeploy, además limitado a 64 MB).
+- No puede escalar a root (nonroot user, sin capabilities adicionales).
+
 ## Credenciales en n8n
 
 Los workflows n8n usan **n8n Credentials** (no hardcode en JSON):

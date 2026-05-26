@@ -65,6 +65,18 @@ services:
 
       NODE_ENV: "production"
 
+    # Hardening: container ejecuta con rootfs read-only + tmpfs en /tmp.
+    # El binario no escribe a disco — sólo Postgres y memoria. Cualquier
+    # intento de modificar el fs sería un indicio de compromiso.
+    # Nota Swarm: `tmpfs:` se ignora en `docker stack`; usamos volumes type=tmpfs
+    # para que funcione tanto en compose standalone como en Swarm.
+    read_only: true
+    volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 67108864   # 64 MB
+
     networks:
       conexianet:
         aliases:

@@ -162,3 +162,39 @@ parciales NO abortan la operación.
 Estado rico de todas las instancias en una sola request. Equivalente a
 hacer `/api/instances/:name` por cada nombre en `/api/instances` pero en
 una sola consulta.
+
+## Glosario
+
+**Instancia**: una sesión WhatsApp dentro del proceso qrsgen. Cada
+instancia tiene su propio WebSocket contra Meta, sus propios buffers en
+memoria y su fila en `bridge_instance`.
+
+**JID** (JabberID): identificador interno de WhatsApp. Para un número de
+teléfono normal es `<phone>@s.whatsapp.net`. Para cuentas anónimas
+Multi-Device es `<id>@lid`. qrsgen lo guarda tras el primer pairing.
+
+**LID** (Linked Identifier): identificador anónimo que WhatsApp asigna
+a clientes Multi-Device. Coexiste con el JID PN (phone-number) tradicional.
+
+**Phone (E.164)**: número de teléfono en formato internacional sin
+prefijo `+` (ej. `34650367855`). qrsgen lo extrae del JID PN cuando está
+disponible.
+
+**owner_tag**: string libre del integrador para mapear instancias a
+tenants/clientes. qrsgen lo pasa por los reportes de uso pero nunca lo
+interpreta semánticamente.
+
+**Inbox ID**: identificador numérico opcional que qrsgen propaga al
+downstream. Útil cuando el sistema downstream organiza conversaciones por
+"inbox" (ej. Chatwoot, Help Scout).
+
+**Spamguard**: filtro interno que detecta cuando un mismo mensaje se
+intenta enviar dos veces al mismo destinatario consecutivamente. Se
+activa con `spamguard_enabled: true`.
+
+**Idempotencia (en POST /api/instances)**: si llamas con un `name` que
+ya existe, qrsgen no crea una nueva — devuelve la existente con su
+estado actual.
+
+**Bulk**: operación que procesa varias instancias en una sola request,
+para evitar latencias acumuladas en provisioning masivo.

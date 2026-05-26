@@ -164,3 +164,47 @@ Plus métricas estándar Go runtime (`go_*`, `process_*`).
 
 Asset estático (ej. avatar genérico). Útil si el downstream necesita
 descargar un PNG por URL para asociar a un contacto sintético.
+
+## Glosario
+
+**Outbox**: cola persistida en Postgres donde qrsgen guarda outgoings
+no entregables al instante. Cada fila tiene `status` (pending / sent /
+expired / failed), `attempts`, `expires_at`.
+
+**BanWatcher score**: número entre 0 y 1 que resume las tres señales
+(velocity / diversity / delivery_ratio). Niveles cualitativos: `ok`,
+`low`, `moderate`, `high`.
+
+**Velocity**: mensajes saliente por unidad de tiempo. Si supera el
+threshold se considera spam-like.
+
+**Diversity**: número de destinatarios únicos por unidad de tiempo.
+Outreach masivo dispara esta señal.
+
+**Delivery ratio**: fracción de envíos exitosos sobre intentos totales.
+Si WhatsApp rechaza muchos, este ratio baja → near-ban.
+
+**Rising-edge alert**: alerta que se emite una sola vez al cruzar un
+threshold (no se repite hasta que se limpia y vuelve a cruzar). Evita
+ruido en el panel del agente.
+
+**Usage tracking**: contadores diarios persistidos en
+`bridge_usage_daily` (in/out + lifecycle + spamguard). Flushea cada 60s
+desde memoria.
+
+**Owner tag aggregate**: agregado mensual del usage agrupando por
+`owner_tag` para facturación multi-tenant.
+
+**Audit log inmutable**: tabla `bridge_audit_log` con triggers en
+Postgres que rechazan UPDATE/DELETE. Solo permite INSERT. Útil para
+forensics y compliance.
+
+**Prometheus scrape**: técnica donde Prometheus pide periódicamente las
+métricas a un endpoint HTTP (típicamente `/metrics`). qrsgen lo expone
+sin auth porque las métricas son operacionales, no PII.
+
+**Counter** (Prometheus): métrica que solo aumenta (mensajes totales,
+errores). Para tasas se calcula `rate(counter[5m])`.
+
+**Gauge** (Prometheus): métrica que sube y baja (instancias activas).
+Refleja un valor instantáneo.

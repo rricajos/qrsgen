@@ -53,7 +53,12 @@ markdown_extensions:
       alternate_style: true
 
 nav:
-  - Home: index.md
+  - Home:
+      - index.md
+      - Características: home/features.md
+      - Por dónde empezar: home/getting-started.md
+      - Estado del proyecto: home/status.md
+      - Licencia y avisos: home/legal.md
   - Architecture:
       - architecture/index.md
       - Bootstrap: architecture/bootstrap.md

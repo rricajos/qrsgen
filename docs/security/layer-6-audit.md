@@ -57,3 +57,44 @@ docker exec postgres psql -U postgres -d bridge \
 - Para evidence en juicio se debería **firmar cada entrada** y/o
   shipearla a un syslog inmutable (CloudWatch Logs, Loki con immutable
   retention). Pendiente.
+
+## Glosario
+
+**Audit log**: registro cronológico inmutable de operaciones relevantes
+del sistema. Pensado para forensics, compliance y auditoría.
+
+**Append-only**: tabla/storage donde solo se permiten INSERTs. Las
+filas existentes no se pueden modificar ni borrar. qrsgen lo garantiza
+a nivel DB con triggers.
+
+**Trigger (PL/pgSQL)**: función almacenada en Postgres que se ejecuta
+automáticamente ante INSERT/UPDATE/DELETE. qrsgen los usa para forzar
+inmutabilidad.
+
+**PL/pgSQL**: lenguaje procedural de Postgres para escribir triggers,
+funciones y procedimientos almacenados.
+
+**RAISE EXCEPTION**: instrucción PL/pgSQL que aborta la operación
+actual con un mensaje de error. Los triggers de qrsgen la usan para
+rechazar UPDATE/DELETE.
+
+**Inmutabilidad a nivel DB**: la garantía se aplica antes de que
+cualquier app pueda interferir. Una app comprometida no puede rewriter
+filas sin permisos especiales sobre Postgres.
+
+**DBA**: rol con permisos administrativos completos sobre la DB.
+Suficiente para drop triggers + tampering — pero requiere acceso
+explícito a las credenciales de DBA.
+
+**Tamper-evident**: propiedad donde cualquier modificación es
+detectable. qrsgen va un paso más allá — es tamper-resistant (no solo
+se detecta, se previene).
+
+**Audit entry firmada**: extensión donde cada fila lleva una firma
+HMAC del actor. Permite detectar incluso modificaciones desde DBA.
+Pendiente en qrsgen.
+
+**Syslog inmutable**: servicio de logs externo con retención forzosa
+(no se pueden borrar). Útil para compliance — la app no puede
+manipular el log post-hoc. Ejemplos: CloudWatch Logs con retention,
+Loki con immutable mode.

@@ -34,3 +34,30 @@ verificarla**.
 - [Credenciales en orquestadores externos](credentials.md)
 - [Observabilidad y logs](observability.md)
 - [Mejoras pendientes](pending.md)
+
+## Glosario
+
+**Defense-in-depth**: estrategia de seguridad donde se aplican varias
+capas independientes. Ninguna por sí sola es perfecta, pero juntas
+hacen muy difícil el compromiso completo.
+
+**Modelo de amenaza** (threat model): análisis sistemático de qué
+ataques son realistas contra un sistema y qué defensas tiene contra
+cada uno.
+
+**Vector de ataque**: vía concreta por la que un atacante puede causar
+daño (acceso lateral en LAN, RCE en el proceso, MITM en red, etc.).
+
+**Compromiso lateral**: cuando un atacante ya está dentro del overlay
+(porque comprometió otro container) e intenta moverse hacia qrsgen.
+
+**RCE** (Remote Code Execution): vulnerabilidad que permite a un
+atacante ejecutar código arbitrario en el proceso víctima. La worst-case
+en seguridad de aplicaciones.
+
+**MITM** (Man In The Middle): ataque donde el atacante se interpone
+entre dos partes y lee/modifica el tráfico. TLS lo previene cuando el
+cert es válido.
+
+**Mitigar**: reducir el impacto o la probabilidad de un vector. No
+elimina el riesgo, pero lo hace mucho menos práctico.

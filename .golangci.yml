@@ -16,6 +16,7 @@ linters:
     - unused         # vars/funcs sin uso
     - bodyclose      # http response body close
     - gosec          # vulnerabilidades de seguridad
+    - errorlint      # wrapping de errors (%w), errors.Is/As, sentinel comparisons
 
   settings:
     staticcheck:
@@ -38,5 +39,4 @@ linters:
 
 # Notas:
 # - misspell deshabilitado: comentarios en español/catalán flagean falsos positivos
-# - errorlint deshabilitado: 4 issues legacy, fix en otro PR
 # - SA1019 excluido: deprecación de APIs whatsmeow (DownloadAny, waProto.Message)

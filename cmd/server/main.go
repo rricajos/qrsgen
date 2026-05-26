@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -253,7 +254,7 @@ func main() {
 	api.GET("/instances/:name", func(c echo.Context) error {
 		name := c.Param("name")
 		st, err := mgr.Status(c.Request().Context(), name)
-		if err == manager.ErrNotFound {
+		if errors.Is(err, manager.ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
 		}
 		if err != nil {
@@ -320,10 +321,10 @@ func main() {
 		defer cancel()
 		st, err := mgr.WaitReady(waitCtx, name)
 		if err != nil {
-			if err == manager.ErrNotFound {
+			if errors.Is(err, manager.ErrNotFound) {
 				return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
 			}
-			if err == context.DeadlineExceeded {
+			if errors.Is(err, context.DeadlineExceeded) {
 				current, _ := mgr.Status(c.Request().Context(), name)
 				return c.JSON(http.StatusRequestTimeout, map[string]any{
 					"error": "timeout waiting for ready",
@@ -339,7 +340,7 @@ func main() {
 	// POST /api/instances/:name/refresh-qr — fuerza nuevo canal QR si la sesión expiró.
 	api.POST("/instances/:name/refresh-qr", func(c echo.Context) error {
 		if err := mgr.RefreshQR(c.Request().Context(), c.Param("name")); err != nil {
-			if err == manager.ErrNotFound {
+			if errors.Is(err, manager.ErrNotFound) {
 				return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
 			}
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -394,7 +395,7 @@ func main() {
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Port)
-		if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
+		if err := e.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("http server", "err", err)
 			cancel()
 		}

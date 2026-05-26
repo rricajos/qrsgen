@@ -87,3 +87,34 @@ Tu volumen está cerca del threshold. **Reduce ritmo de envíos**:
 
 Cuando se aclare (5-10 min sin nuevos triggers), el level baja
 automáticamente.
+
+## Glosario
+
+**202 queued**: respuesta del endpoint `/webhook` cuando la instancia
+está disconnected. qrsgen encoló el mensaje en el outbox y lo entregará
+al volver (TTL 5 min). NO es un error.
+
+**503 queue full**: respuesta cuando el outbox de la instancia llegó a
+`MaxQueueDepth` (200 default). Significa que la instancia lleva mucho
+rato caída sin que nadie la rescate.
+
+**Error al enviar**: típicamente lo que el panel del downstream muestra
+cuando un POST a qrsgen falló (TCP refused durante restart, HMAC
+mismatch, etc.). Cosmético si el mensaje sí se entregó.
+
+**Disconnected vs logged_out**: `disconnected` = sesión cayó pero se
+puede recuperar; `logged_out` = sesión invalidada server-side, hay que
+re-parear.
+
+**Grace period**: tiempo de espera silencioso tras un evento antes de
+emitir su pill. 60s para `unreachable`, 5s para `reconnected`.
+
+**Ban-risk level: high**: los thresholds (velocity/diversity/delivery)
+están cruzados sostenidamente. Riesgo inminente de strike.
+
+**Reducir ritmo**: pausar workflows masivos, espaciar más los envíos
+(2-3s entre mensajes), evitar nuevos JIDs hasta que el level baje.
+
+**Cosmético (error)**: el sistema reporta error pero el mensaje sí se
+entregó correctamente. Frecuente con notas privadas que el downstream
+intenta dispatch erróneamente.

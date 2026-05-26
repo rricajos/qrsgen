@@ -45,3 +45,39 @@ Runbook de restore completo:
 Los backups están **en el mismo VPS**. Si el VPS se quema, se pierden.
 Para producción crítica, configura un `ExecStartPost=` en el `.service`
 que pushee el dump a S3/Backblaze/Wasabi.
+
+## Glosario
+
+**Backup**: copia de seguridad de los datos. Para qrsgen son dumps
+periódicos de la base de datos `bridge`.
+
+**pg_dump**: utilidad oficial de Postgres para exportar una base de
+datos a un fichero. qrsgen usa el formato custom `-Fc` (binario,
+comprimido).
+
+**Custom format (`-Fc`)**: formato binario de pg_dump que permite
+restore selectivo (solo una tabla, solo el schema, etc.) y es mucho
+más rápido que SQL plano.
+
+**systemd timer**: equivalente moderno a cron en Linux con journald.
+Lanza un `.service` en horario calendario. qrsgen lo usa para backup
+diario a las 03:00.
+
+**Retención**: política sobre cuánto tiempo mantener cada backup
+generado. qrsgen tiene 7 días daily + 4 semanas weekly (rotación
+dominical) configurables vía drop-in.
+
+**Off-site backup**: copia almacenada en una infraestructura distinta
+al servidor primario. Protege contra pérdida del VPS entero (fuego,
+borrado accidental por el provider, etc.).
+
+**Drop-in**: archivo `.conf` en `/etc/systemd/system/<unit>.d/` que
+extiende o modifica una unit systemd sin tocar el archivo original.
+Útil para personalizar `ExecStartPost=`.
+
+**ExecStartPost**: hook de systemd que ejecuta un comando después de
+que el `ExecStart` principal termine con éxito. Aquí pushea el dump a
+S3/Backblaze/Wasabi.
+
+**Restore selectivo**: capacidad de restaurar solo una tabla o un
+schema concreto del backup. Requiere formato custom (`-Fc`).

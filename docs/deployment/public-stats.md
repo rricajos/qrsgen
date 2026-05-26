@@ -139,3 +139,43 @@ curl -sS http://qrsgen:3100/api/public/stats
   exposición: el siguiente request al endpoint devuelve 403.
 - Rate limit en Traefik (10 req/s) evita scraping abusivo. El payload es
   ~200 bytes — barato pero no infinito.
+
+## Glosario
+
+**Endpoint público**: HTTP endpoint accesible desde internet (no solo
+desde la overlay LAN). qrsgen tiene uno opt-in para telemetría.
+
+**Opt-in**: feature desactivada por default. Hay que activarla
+explícitamente (env var = true).
+
+**CORS** (Cross-Origin Resource Sharing): mecanismo HTTP que permite a
+una página web hacer requests a otro dominio. qrsgen emite el header
+`Access-Control-Allow-Origin` cuando se le configura.
+
+**Origin**: el `scheme://host:port` desde donde se sirve una página web.
+El navegador lo manda en cada request cross-origin para que el servidor
+decida si autorizarla.
+
+**Preflight (CORS)**: petición OPTIONS que el navegador hace antes de
+una request cross-origin para preguntar si el servidor la acepta. qrsgen
+responde con headers Access-Control-* apropiados.
+
+**Reverse proxy**: servidor (Traefik, nginx, Caddy) que recibe requests
+externas y las enruta a backends internos. Termina TLS y aplica
+middlewares.
+
+**Traefik labels**: anotaciones en el compose que Traefik lee
+automáticamente para descubrir qué containers exponer y bajo qué reglas.
+
+**certresolver**: configuración de Traefik que pide certificados TLS a
+Let's Encrypt automáticamente para cada nuevo Host.
+
+**Host rule**: regla de routing de Traefik que matchea por hostname
+(`Host(\`telemetry.qrsgen.ricajos.dev\`)`).
+
+**Path rule**: regla que matchea por path URL
+(`Path(\`/api/public/stats\`)`). qrsgen lo combina con la Host rule
+para exponer solo ese endpoint, no toda la API.
+
+**Rate limit (Traefik middleware)**: middleware que limita requests por
+segundo por cliente. Defensa contra scraping y DDoS ligeros.

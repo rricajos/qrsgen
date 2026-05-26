@@ -2,7 +2,11 @@
 # Provisioning end-to-end con curl puro.
 #
 # Uso:
-#   QRSGEN_TOKEN=... ./provision.sh SAT-XXX
+#   QRSGEN_TOKEN=... ./provision.sh whatsapp-main
+#
+# El nombre de la instancia es libre y suele coincidir con el nombre del
+# canal/inbox en el downstream (e.g. "whatsapp-main", "whatsapp-sales",
+# "support-eu"). Las llamadas posteriores lo referencian en la URL.
 #
 # Lo que hace:
 #   1. Crea una instancia con tu nombre

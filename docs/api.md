@@ -29,7 +29,7 @@ Crea/reusa una instancia.
 
 ```json
 {
-  "name": "SAT-ALBERT",
+  "name": "whatsapp-main",
   "events_webhook_url": "https://workflows.example.com/webhook/qrsgen-events",
   "inbox_id": 90
 }
@@ -55,7 +55,7 @@ Respuesta incluye el estado actual + config spamguard.
 Lista todas las instancias en memoria con estado simple.
 
 ```json
-[{"name":"SAT-ALBERT","state":"ready","jid":"34650367855:28@s.whatsapp.net"}]
+[{"name":"whatsapp-main","state":"ready","jid":"34650367855:28@s.whatsapp.net"}]
 ```
 
 Side-effect: actualiza gauges Prometheus `qrsgen_active_instances` + `qrsgen_total_instances`.
@@ -66,7 +66,7 @@ Estado rico para orquestadores (n8n, etc.).
 
 ```json
 {
-  "name": "SAT-ALBERT",
+  "name": "whatsapp-main",
   "state": "ready",
   "jid": "34650367855:28@s.whatsapp.net",
   "phone": "34650367855",
@@ -108,7 +108,7 @@ Para la instancia y borra `bridge_instance` row.
 ### `POST /api/instances/bulk`
 
 ```json
-{"names":["SAT-ALBERT","SAT-MARC"]}
+{"names":["whatsapp-main","whatsapp-sales"]}
 ```
 
 Crea/reusa varias. Idempotente.

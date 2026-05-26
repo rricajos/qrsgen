@@ -43,7 +43,12 @@
 
     async function fetchOnce() {
       try {
-        const res = await fetch(endpoint, { cache: "no-store" });
+        // AbortController con timeout 3s — si el endpoint no responde
+        // rápido (DNS no existe, server caído), no bloqueamos al user.
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(endpoint, { cache: "no-store", signal: controller.signal });
+        clearTimeout(tid);
         if (!res.ok) throw new Error("HTTP " + res.status);
         const d = await res.json();
         setVal("stat-connected", d.instances_connected ?? "—");

@@ -1,11 +1,5 @@
 # Limitaciones conocidas
 
-- **Único downstream por proceso**: `DOWNSTREAM_BASE_URL` y
-  `DOWNSTREAM_API_TOKEN` son globales. Para servir varios downstream
-  distintos desde un solo qrsgen habría que enrutar por `owner_tag` y
-  mantener un mapa de clientes HTTP. Workaround actual: un proceso
-  qrsgen por downstream, todos apuntando al mismo Postgres (separan
-  namespaces por nombres de instancia).
 - **LID twin del cliente**: el dedup limpia lo que sincronizamos
   downstream, pero el destinatario sigue recibiendo 2 mensajes si
   WhatsApp ya hizo dispatch dual. Se resolvería migrando a Cloud API
@@ -31,7 +25,10 @@ implementa actualmente y que es visible (no un bug oculto). Documentada
 para que el integrador la conozca al evaluar el sistema.
 
 **Multi-downstream**: capacidad de servir varios destinos downstream
-desde un mismo proceso. NO soportado — `DOWNSTREAM_*` vars son globales.
+desde un mismo proceso. Soportado desde v0.24.0 vía `bridge_tenant` y
+los endpoints `/api/tenants/*` (ver
+[API → Tenants](../api/tenants.md)). `DOWNSTREAM_*` siguen actuando
+como fallback global.
 
 **LID twin**: cuando WhatsApp Multi-Device emite el mismo mensaje desde
 un cliente tanto vía JID PN como JID LID, generando duplicados.

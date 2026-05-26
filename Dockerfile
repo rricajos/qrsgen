@@ -12,4 +12,6 @@ COPY --from=build /out/qrsgen /app/qrsgen
 COPY --from=build /src/assets /app/assets
 EXPOSE 3100
 USER nonroot:nonroot
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["/app/qrsgen", "-healthcheck"]
 ENTRYPOINT ["/app/qrsgen"]

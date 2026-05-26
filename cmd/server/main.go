@@ -27,6 +27,16 @@ import (
 )
 
 func main() {
+	// -healthcheck: hace un GET corto contra /api/health del propio binario
+	// (a través de 127.0.0.1:PORT) y exitea 0 si HTTP 200, 1 en cualquier otro caso.
+	// Pensado para HEALTHCHECK del Dockerfile sin tener que instalar curl en distroless.
+	for _, a := range os.Args[1:] {
+		if a == "-healthcheck" || a == "--healthcheck" {
+			runHealthcheck()
+			return
+		}
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
@@ -449,5 +459,26 @@ func (s spamguardAdapter) IsSpamguardEnabled(ctx context.Context, instance strin
 
 func (s spamguardAdapter) EmitLifecycle(name, event string, extras map[string]any) {
 	s.mgr.EmitCustomLifecycle(name, event, extras)
+}
+
+// runHealthcheck pings /api/health on localhost:$PORT (default 3100) and exits
+// 0 if 200 OK, 1 otherwise. Designed for Docker HEALTHCHECK on distroless.
+func runHealthcheck() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3100"
+	}
+	url := "http://127.0.0.1:" + port + "/api/health"
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "healthcheck: %v\n", err)
+		os.Exit(1)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "healthcheck: status %d\n", resp.StatusCode)
+		os.Exit(1)
+	}
 }
 

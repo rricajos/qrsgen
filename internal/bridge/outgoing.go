@@ -69,14 +69,21 @@ type UsageRecorder interface {
 	IncLifecycle(instance string)
 }
 
+// BanwatchRecorder es la interfaz mínima que outgoing usa para alimentar el
+// detector de ban-risk. Se inyecta como setter — si nil, no-op.
+type BanwatchRecorder interface {
+	Record(instance, jid string, success bool)
+}
+
 type Outgoing struct {
-	sender  Sender
-	ds      *downstream.Client
-	dedup   *Deduper
-	sg      SpamguardProvider
-	tracker *SpamguardTracker
-	logger  *slog.Logger
-	usage   UsageRecorder
+	sender   Sender
+	ds       *downstream.Client
+	dedup    *Deduper
+	sg       SpamguardProvider
+	tracker  *SpamguardTracker
+	logger   *slog.Logger
+	usage    UsageRecorder
+	banwatch BanwatchRecorder
 }
 
 func NewOutgoing(sender Sender, ds *downstream.Client, dedup *Deduper, sg SpamguardProvider, tracker *SpamguardTracker, logger *slog.Logger) *Outgoing {
@@ -86,6 +93,15 @@ func NewOutgoing(sender Sender, ds *downstream.Client, dedup *Deduper, sg Spamgu
 // SetUsage attaches a usage recorder for counter increments. Safe to call once
 // during bootstrap. Pass nil to disable.
 func (o *Outgoing) SetUsage(u UsageRecorder) { o.usage = u }
+
+// SetBanwatch attaches the ban-risk recorder. Pass nil to disable.
+func (o *Outgoing) SetBanwatch(b BanwatchRecorder) { o.banwatch = b }
+
+func (o *Outgoing) recordBanwatch(instance, jid string, success bool) {
+	if o.banwatch != nil {
+		o.banwatch.Record(instance, jid, success)
+	}
+}
 
 func (o *Outgoing) incUsageOut(instance string) {
 	if o.usage != nil {
@@ -205,11 +221,13 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 			waID, err := o.sender.SendMedia(ctx, instance, remoteJid, att.FileType, mimetype, filename, capForThis, data)
 			if err != nil {
 				metrics.MessageDispatchErrors.WithLabelValues("out", instance, "send_media").Inc()
+				o.recordBanwatch(instance, remoteJid, false)
 				o.logger.Error("send media failed", "err", err, "att_id", att.ID, "kind", att.FileType)
 				continue
 			}
 			metrics.MessagesTotal.WithLabelValues("out", instance).Inc()
 			o.incUsageOut(instance)
+			o.recordBanwatch(instance, remoteJid, true)
 			o.logger.Info("sent outgoing media to whatsapp",
 				"instance", instance, "remoteJid", remoteJid,
 				"kind", att.FileType, "mime", mimetype, "size", len(data), "waID", waID)
@@ -234,10 +252,12 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 	waID, err := o.sender.SendText(ctx, instance, remoteJid, p.Content)
 	if err != nil {
 		metrics.MessageDispatchErrors.WithLabelValues("out", instance, "send_text").Inc()
+		o.recordBanwatch(instance, remoteJid, false)
 		return err
 	}
 	metrics.MessagesTotal.WithLabelValues("out", instance).Inc()
 	o.incUsageOut(instance)
+	o.recordBanwatch(instance, remoteJid, true)
 	o.logger.Info("sent outgoing to whatsapp", "instance", instance, "remoteJid", remoteJid, "waID", waID)
 
 	if p.ID > 0 && p.Conversation != nil {

@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rricajos/qrsgen/internal/banwatch"
 	"github.com/rricajos/qrsgen/internal/bridge"
 	"github.com/rricajos/qrsgen/internal/downstream"
 	"github.com/rricajos/qrsgen/internal/config"
@@ -133,6 +134,10 @@ func main() {
 	outgoing.SetUsage(usageTracker)
 	incoming.SetUsage(usageTracker)
 	mgr.SetUsage(usageTracker)
+
+	banWatcher := banwatch.New(banwatch.DefaultConfig(), spamguardAdapter{mgr: mgr}, logger)
+	banWatcher.Start(ctx, 30*time.Second)
+	outgoing.SetBanwatch(banWatcher)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -324,6 +329,14 @@ func main() {
 			"to":       to,
 			"rows":     rows,
 		})
+	})
+
+	// GET /api/instances/:name/ban-risk
+	// Snapshot del detector de ban-risk para una instancia (velocity/diversity/
+	// delivery_ratio + score + alerts activas). Útil para que el integrador
+	// reduzca el ritmo antes de que WhatsApp tome acciones.
+	api.GET("/instances/:name/ban-risk", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, banWatcher.Snapshot(c.Param("name")))
 	})
 
 	// GET /api/usage?from=YYYY-MM-DD&to=YYYY-MM-DD

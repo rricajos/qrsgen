@@ -49,12 +49,13 @@
         setVal("stat-connected", d.instances_connected ?? "—");
         setVal("stat-scanned", (d.qrs_scanned_total ?? 0).toLocaleString());
         setVal("stat-active", d.installations_active ?? "—");
+        setVal("stat-installs-total", (d.installations_total ?? 0).toLocaleString());
         setVal("stat-total", d.instances_total ?? "—");
         setVal("stat-in", (d.messages_in_total ?? 0).toLocaleString());
         setVal("stat-out", (d.messages_out_total ?? 0).toLocaleString());
         setUI(true, true);
       } catch (err) {
-        ["stat-connected", "stat-scanned", "stat-active",
+        ["stat-connected", "stat-scanned", "stat-active", "stat-installs-total",
          "stat-total", "stat-in", "stat-out"].forEach(id => setVal(id, "—"));
         setUI(true, false);
       }

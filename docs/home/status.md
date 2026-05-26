@@ -25,8 +25,12 @@ pausar/reanudar el polling con el botón.
     <div class="stat-label">Instalaciones activas</div>
   </div>
   <div class="stat-card">
+    <div class="stat-value" id="stat-installs-total">—</div>
+    <div class="stat-label">Instalaciones totales (histórico)</div>
+  </div>
+  <div class="stat-card">
     <div class="stat-value" id="stat-total">—</div>
-    <div class="stat-label">Instalaciones totales</div>
+    <div class="stat-label">Instancias en memoria</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" id="stat-in">—</div>
@@ -48,9 +52,10 @@ pausar/reanudar el polling con el botón.
 | Card | Significado |
 |---|---|
 | **QRs conectados** | Instancias en estado `ready` / `connected` **ahora mismo**. Snapshot live. |
-| **QRs escaneados** | Total acumulado histórico de pairings exitosos. Sobrevive a borrar instancias (sale del audit log). |
+| **QRs escaneados** | Total acumulado histórico de pairings exitosos. Cuenta `instance.paired` events en `bridge_audit_log`. Incluye re-pairings. |
 | **Instalaciones activas** | Instancias en DB con `jid` configurado (alguna vez se pareron y siguen registradas). |
-| **Instalaciones totales** | Total de instancias registradas en el proceso, incluyendo las que están en `qr_pending` o `disconnected`. |
+| **Instalaciones totales (histórico)** | Cuántas instalaciones han existido **alguna vez** — incluye las ya borradas. Sobrevive a DELETE porque sale del audit log append-only. |
+| **Instancias en memoria** | Total de instancias gestionadas por el proceso ahora mismo (incluye `qr_pending`, `disconnected`). Snapshot live. |
 | **Mensajes recibidos / enviados** | All-time totals agregados desde `bridge_usage_daily`. |
 
 ## ¿Cómo activar la telemetría en mi instalación?

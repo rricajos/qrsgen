@@ -63,7 +63,7 @@ Tu sistema (n8n, app custom, CRM, etc.)
 ## Integración
 
 qrsgen es agnóstico del downstream. Como referencia,
-[`docs/n8n-example.md`](docs/n8n-example.md) muestra cómo orquestar el
+[`docs/integrations/n8n.md`](docs/integrations/n8n.md) muestra cómo orquestar el
 flujo con [n8n](https://n8n.io/), pero cualquier otro stack (Zapier, Make,
 Temporal, app web propia, scripts) funciona igual — la integración es
 HTTP estándar.
@@ -79,12 +79,12 @@ En producción con 4+ instancias activas. Tag estable más reciente: ver
 Toda la documentación está en https://rricajos.github.io/qrsgen/ y en
 [`docs/`](docs/):
 
-- [Architecture](docs/architecture.md) — capas, flujos, persistencia, concurrencia.
-- [API](docs/api.md) — endpoints, payloads, lifecycle webhooks, ejemplos curl.
-- [Deployment](docs/deployment.md) — stack swarm + portabilidad multi-VPS.
-- [Security](docs/security.md) — 7 capas (Bearer / HMAC / firewall / TLS / hardening / audit / backups).
-- [Operations](docs/operations.md) — runbook, métricas, troubleshooting.
-- [n8n example](docs/n8n-example.md) — receta de integración end-to-end.
+- [Architecture](docs/architecture/) — capas, flujos, persistencia, concurrencia.
+- [API](docs/api/) — endpoints, payloads, lifecycle webhooks, ejemplos curl.
+- [Deployment](docs/deployment/) — stack swarm + portabilidad multi-VPS + Traefik.
+- [Security](docs/security/) — 7 capas (Bearer / HMAC / firewall / TLS / hardening / audit / backups).
+- [Operations](docs/operations/) — runbook, métricas, troubleshooting.
+- [Integrations](docs/integrations/) — recetas para n8n, Python, etc.
 - [Backup runbook](ops/backup/README.md) — install, restore, drop-in config.
 
 ## Stack técnico

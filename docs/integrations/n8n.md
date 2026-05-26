@@ -111,7 +111,7 @@ Body:
 
 El endpoint `/webhook` está exento del Bearer token (es el entrypoint del
 downstream). Para autenticación dedicada, activa
-`WEBHOOK_HMAC_SECRET` (ver [Security capa 2](security/layer-2-hmac.md)).
+`WEBHOOK_HMAC_SECRET` (ver [Security capa 2](../security/layer-2-hmac.md)).
 
 #### Manejar el `202 queued`
 
@@ -289,7 +289,7 @@ modificado en tránsito.
 
 **Lifecycle event**: notificación HTTP que qrsgen POSTea cuando ocurre
 algo en una instancia (`connected`, `qr_generated`, `ban_risk`, etc.).
-Ver el [catálogo completo](api/lifecycle-webhooks.md).
+Ver el [catálogo completo](../api/lifecycle-webhooks.md).
 
 **Outbox queue**: cola persistida donde qrsgen mete los mensajes outgoing
 cuando la instancia está desconectada, para reentregarlos al volver.

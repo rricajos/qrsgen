@@ -105,3 +105,30 @@ flowchart LR
 - [Concurrencia](concurrency.md) — mutexes + goroutines + shutdown.
 - [Multi-instance routing](multi-instance.md) — cómo se enruta por nombre.
 - [Limitaciones conocidas](limitations.md) — lo que aún no es robusto.
+
+## Glosario
+
+**Bridge**: programa intermediario entre dos protocolos. qrsgen traduce
+entre el protocolo binario WhatsApp Web y HTTP REST.
+
+**Multi-Device**: protocolo de WhatsApp que permite varios clientes
+vinculados al mismo número (hasta 4 dispositivos + el principal).
+
+**Overlay LAN**: red privada virtual entre containers de un mismo
+Docker Swarm. Los servicios se ven entre sí por nombre sin pasar por
+internet.
+
+**Composition root**: punto único del programa donde se construyen e
+inyectan todas las dependencias entre módulos. En qrsgen es `main.go`.
+
+**WebSocket**: protocolo de conexión TCP persistente bidireccional sobre
+HTTP/TLS. qrsgen mantiene uno por instancia contra los servidores de
+Meta.
+
+**Outbound (conexión)**: el cliente inicia la conexión TCP hacia el
+servidor. Permitido por NAT/firewall sin necesidad de IP pública.
+Patrón opuesto a "inbound" (servidor escuchando un puerto abierto).
+
+**NAT stateful**: tipo de NAT que recuerda conexiones establecidas y
+permite tráfico de respuesta sin necesidad de port-forwarding. Es lo
+estándar en routers domésticos y firewalls de VPS.

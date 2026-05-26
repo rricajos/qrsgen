@@ -61,3 +61,46 @@ Downtime efectivo del WebSocket: ~10-15 segundos (más con
 `order: stop-first` del compose, diseñado así para evitar JID
 conflicts). Mensajes outgoing que llegan durante esa ventana se encolan
 en el outbox y se entregan al volver.
+
+## Glosario
+
+**Goroutine**: unidad de concurrencia en Go. Más ligera que un thread
+de OS — un proceso puede tener miles. qrsgen las usa para WebSockets,
+loops de mantenimiento y webhooks async.
+
+**Mutex** (Mutual Exclusion): primitiva que protege acceso concurrente
+a estructuras compartidas. Solo una goroutine puede tener el lock a
+la vez.
+
+**RWMutex** (Read-Write Mutex): variante del mutex que permite varios
+lectores concurrentes pero un solo escritor. Más eficiente cuando las
+lecturas dominan (`manager.mu`).
+
+**pgxpool**: pool de conexiones Postgres thread-safe nativamente. Cada
+goroutine pide una conexión, hace su query y la devuelve.
+
+**Fire-and-forget**: patrón donde se lanza una operación async y no se
+espera resultado. qrsgen emite lifecycle webhooks así para no bloquear
+si el integrador tarda.
+
+**SIGTERM**: señal Unix que pide a un proceso que se cierre limpiamente
+(en contraste con SIGKILL, que lo mata inmediatamente). Docker envía
+SIGTERM al actualizar/parar containers.
+
+**signal.NotifyContext**: helper Go que crea un context cancelable
+cuando llega una señal específica. qrsgen lo usa para orquestar el
+graceful shutdown.
+
+**Graceful shutdown**: secuencia ordenada para cerrar el proceso sin
+perder datos. qrsgen emite `backend_restarting`, espera 12s, cierra el
+HTTP server, cierra los WebSockets, hace flush final del usage tracker
+y sale.
+
+**stop-first (update_config)**: política Docker Swarm donde el
+container viejo se detiene antes de arrancar el nuevo. Evita
+condiciones de carrera (dos containers compitiendo por la misma sesión
+WhatsApp). Tradeoff: ~15s de downtime por deploy.
+
+**JID conflict**: situación donde WhatsApp ve dos clientes intentando
+usar la misma sesión simultáneamente, y desconecta ambos por seguridad.
+Lo previenes con stop-first.

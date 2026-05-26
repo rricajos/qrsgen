@@ -22,3 +22,36 @@
 10. Tras 8s, `BroadcastBackendStarted()` emite `backend_started` por
     instancia.
 11. Echo HTTP server arranca en `:3100`.
+
+## Glosario
+
+**Bootstrap**: secuencia de arranque del proceso, donde se inicializan
+todos los recursos (DB, schemas, container whatsmeow, goroutines) antes
+de aceptar tráfico HTTP.
+
+**`pgxpool`**: pool de conexiones Postgres para Go (de la librería pgx).
+Reusa conexiones TCP en lugar de abrir una nueva por query, lo que es
+mucho más rápido.
+
+**EnsureSchema**: convención del proyecto donde cada paquete tiene una
+función que crea sus tablas/índices con `IF NOT EXISTS`. Idempotente:
+seguro de ejecutar en cada boot.
+
+**Container whatsmeow**: instancia del `sqlstore.Container` de
+whatsmeow que gestiona las tablas `whatsmeow_*` (sesiones, claves
+criptográficas, etc.).
+
+**Migración idempotente**: cambio de schema (CREATE / ALTER) que se
+puede ejecutar múltiples veces sin efectos secundarios. Permite
+relanzar el bootstrap sin riesgo.
+
+**Bootstrap window**: ventana de 15 s al arrancar durante la cual qrsgen
+suprime los webhooks `connected` (avalancha de reconexión). En su lugar
+emite un único `backend_started` por instancia al cumplir 8 s post-boot.
+
+**Goroutine**: hilo ligero gestionado por el runtime de Go. qrsgen
+arranca varias goroutines de larga duración para drainer del outbox,
+flush del usage tracker, evaluator del banwatch, etc.
+
+**Echo HTTP server**: framework HTTP de Go que qrsgen usa para servir
+`/api/*`. Maneja routing, middleware y JSON binding.

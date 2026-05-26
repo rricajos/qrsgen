@@ -52,3 +52,50 @@ Para que el panel del agente no se inunde de notificaciones espurias:
 
 Ver [docs/api/lifecycle-webhooks.md](../api/lifecycle-webhooks.md) para
 el catálogo completo y el shape del payload.
+
+## Glosario
+
+**Lifecycle**: ciclo de vida de la conexión WhatsApp. Va de
+`qr_pending` → `paired` → `connected` → ... → `disconnected` /
+`logged_out`. qrsgen emite un evento en cada transición relevante.
+
+**events.PairSuccess**: evento de la librería whatsmeow que se emite
+cuando un usuario escanea el QR exitosamente. qrsgen lo mapea a
+`EventPaired`.
+
+**events.Connected**: evento de whatsmeow que indica que el WebSocket
+contra Meta está activo y la sesión es válida.
+
+**events.Disconnected**: evento de whatsmeow cuando se cae el WebSocket.
+qrsgen aplica un grace period de 60s antes de emitir `unreachable` para
+filtrar blips cortos.
+
+**events.LoggedOut**: evento de whatsmeow cuando WhatsApp invalida la
+sesión server-side. Hace falta nuevo QR; la fila bridge_instance se
+preserva pero su jid pasa a NULL.
+
+**events.TemporaryBan**: WhatsApp aplica una restricción temporal a la
+sesión (anti-spam, comportamiento sospechoso). qrsgen lo eleva como
+evento `strike`.
+
+**events.ConnectFailure 4xx**: respuesta HTTP 4xx desde Meta durante el
+handshake. Indica que el cliente está rechazado a nivel servidor.
+También se mapea a `strike`.
+
+**listenQR (qrChan)**: canal Go por el que whatsmeow emite los códigos
+QR sucesivos. qrsgen lo escucha y emite `EventQRGenerated` por cada uno.
+
+**Grace period**: tiempo de espera silencioso tras un evento antes de
+emitir el webhook al integrador. Filtra blips transitorios.
+
+**Stabilize delay**: tras un `unreachable`, qrsgen espera 5s de
+conexión estable antes de emitir `reconnected`. Evita flapping si la
+red está inestable.
+
+**Custom event**: evento que NO viene de whatsmeow sino que qrsgen
+inventa internamente (`spam_blocked`, `ban_risk`, `outgoing_expired`,
+`backend_restarting`, `backend_started`).
+
+**Bootstrap window suppression**: durante los primeros 15s tras arrancar,
+qrsgen no emite `connected` events (evita avalancha tras restart).
+Sustituido por un único `backend_started` a los 8s.

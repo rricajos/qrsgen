@@ -130,16 +130,41 @@ tiene triggers que rechazan UPDATE/DELETE — inmutable a nivel DB.
 
 ## `GET /api/health`
 
-Liveness check. Sin auth.
+Liveness + readiness check. Sin auth. Pensado tanto para Docker
+HEALTHCHECK como para Prometheus / scraping de status.
 
 ```json
 {
   "status": "ok",
-  "instances": [{"name":"whatsapp-main","state":"ready","jid":"..."}],
   "version": "0.23.0",
-  "ts": "2026-05-26T11:30:00Z"
+  "ts": "2026-05-26T11:30:00Z",
+  "uptime_seconds": 12345,
+  "checks": {
+    "db": {"ok": true, "latency_ms": 4},
+    "instances_connected": 4,
+    "instances_total": 4,
+    "outbox_pending": 0
+  },
+  "instances": [{"name":"whatsapp-main","state":"ready","jid":"..."}]
 }
 ```
+
+Códigos:
+
+- `200 OK` cuando todo está sano (`status: "ok"`).
+- `503 Service Unavailable` cuando la DB no responde en 2 s
+  (`status: "degraded"`). Docker considera el container unhealthy y
+  Swarm puede reiniciarlo según política.
+
+Campos:
+
+| Campo | Significado |
+|---|---|
+| `status` | `ok` o `degraded`. |
+| `uptime_seconds` | Segundos desde que el binario arrancó. Útil para detectar restart loops. |
+| `checks.db.ok` | `true` si Postgres respondió `Ping` en < 2 s. |
+| `checks.db.latency_ms` | Tiempo que tardó el ping. > 100 ms sostenido = problema. |
+| `checks.outbox_pending` | Mensajes en outbox pendientes de entregar globalmente. Alerta si crece. |
 
 ---
 

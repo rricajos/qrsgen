@@ -43,6 +43,14 @@ type Manager struct {
 	reconMu            sync.Mutex
 	disconnectNotified map[string]bool
 
+	// pendingUnreachable: per-instance flag — true entre un Disconnected y
+	// la decisión final de emitir o no `unreachable` (grace 60s).
+	// Si Connected llega antes de que se emita, blip silencioso: ni
+	// `unreachable`, ni `reconnected`. Mantiene el panel limpio cuando
+	// hay micro-blips de red (lo normal).
+	unreachMu          sync.Mutex
+	pendingUnreachable map[string]bool
+
 	// bootstrapWindowUntil: durante el arranque suprimimos los webhooks de
 	// Connected/Reconnected (ruido — n8n los renderizaría como pills por inbox
 	// cada vez que arranca qrsgen). En su lugar emitimos UN backend_started
@@ -63,6 +71,7 @@ func New(ctx context.Context, dsn string, pool *pgxpool.Pool, logger *slog.Logge
 		onMsg:              onMsg,
 		waiters:            map[string][]chan struct{}{},
 		disconnectNotified: map[string]bool{},
+		pendingUnreachable: map[string]bool{},
 	}
 	return m, nil
 }
@@ -294,20 +303,40 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 	}
 	m.logger.Info("lifecycle", "name", name, "event", string(ev), "jid", jid)
 
-	// Para EventDisconnected: emite Unreachable inmediato (sin grace) y luego
-	// programa Disconnected diferido con 2-min grace (solo si sigue caído).
-	// Para EventConnected: si flag disconnectNotified está set → convertimos a
-	// Reconnected (el agente sabe que volvió tras una caída notificada).
+	// Para EventDisconnected: marca pendingUnreachable y programa la decisión
+	// con 60s de grace. Si reconecta antes de eso → silencio total. Si sigue
+	// caído tras 60s → emite unreachable y se cuenta para reconnect/disconnect
+	// posteriores.
+	// Para EventConnected:
+	//   - bootstrap window: suprimido (avalancha de arranque)
+	//   - disconnectNotified set → emite reconnected (limpia flag)
+	//   - pendingUnreachable set → blip resuelto, silencio (limpia flag)
+	//   - default → emite connected (primer conexión real)
 	if ev == wameow.EventDisconnected {
-		go m.emitLifecycleWebhook(name, wameow.EventUnreachable, jid, now)
+		m.unreachMu.Lock()
+		m.pendingUnreachable[name] = true
+		m.unreachMu.Unlock()
+		go m.emitUnreachableAfterGrace(name, jid, now)
 		go m.emitLifecycleWebhook(name, wameow.EventDisconnected, jid, now)
 		return
 	}
 	if ev == wameow.EventConnected {
-		// Durante la ventana de bootstrap suprimimos para evitar avalancha.
-		// El backend_started que se emite tras Bootstrap ya cubre este caso.
 		if m.inBootstrapWindow() {
 			m.logger.Debug("connected suppressed during bootstrap window", "name", name)
+			return
+		}
+		// Blip puntual: si tenemos pendingUnreachable activo significa que
+		// nunca llegamos a notificar el problema → tampoco notificamos la
+		// recuperación. Panel queda limpio.
+		m.unreachMu.Lock()
+		blipResolved := m.pendingUnreachable[name]
+		if blipResolved {
+			delete(m.pendingUnreachable, name)
+		}
+		m.unreachMu.Unlock()
+		if blipResolved {
+			m.logger.Info("brief blip resolved within grace, silent",
+				"name", name)
 			return
 		}
 		m.reconMu.Lock()
@@ -322,6 +351,40 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 		}
 	}
 	go m.emitLifecycleWebhook(name, ev, jid, now)
+}
+
+// emitUnreachableAfterGrace espera la ventana de grace antes de decidir si
+// emite el evento unreachable. Si la instancia reconectó durante la espera
+// (pendingUnreachable se limpió desde el handler de Connected), no emite nada.
+const unreachableGraceSeconds = 60
+
+func (m *Manager) emitUnreachableAfterGrace(name, jid string, occurredAt time.Time) {
+	time.Sleep(unreachableGraceSeconds * time.Second)
+	// Check if instance recovered while we were waiting
+	conn, ok := m.Get(name)
+	if !ok {
+		// instance was removed entirely
+		m.unreachMu.Lock()
+		delete(m.pendingUnreachable, name)
+		m.unreachMu.Unlock()
+		return
+	}
+	if conn.IsConnected() {
+		// Recovered before grace expired → silent (the Connected handler
+		// will / has already cleared the flag).
+		return
+	}
+	// Still down → claim the pending slot and emit unreachable
+	m.unreachMu.Lock()
+	stillPending := m.pendingUnreachable[name]
+	delete(m.pendingUnreachable, name)
+	m.unreachMu.Unlock()
+	if !stillPending {
+		// Race: pending was cleared (probably by a Connected that arrived
+		// between our IsConnected check and the lock). Stay silent.
+		return
+	}
+	m.emitLifecycleWebhook(name, wameow.EventUnreachable, jid, occurredAt)
 }
 
 // emitLifecycleWebhook dispara el HTTP POST al events_webhook_url configurado

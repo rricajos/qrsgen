@@ -33,17 +33,17 @@ Tu webhook endpoint
 
 ## Otras secciones
 
-- **[Arquitectura](architecture/)** — flujos internos, tablas Postgres,
+- **[Arquitectura](architecture/index.md)** — flujos internos, tablas Postgres,
   composición del binario.
-- **[API](api/)** — endpoints, payloads, lifecycle webhooks, recetas
+- **[API](api/index.md)** — endpoints, payloads, lifecycle webhooks, recetas
   curl.
-- **[Deployment](deployment/)** — stack swarm, env vars, telemetría
+- **[Deployment](deployment/index.md)** — stack swarm, env vars, telemetría
   pública, multi-VPS.
-- **[Security](security/)** — siete capas (Bearer / HMAC / firewall /
+- **[Security](security/index.md)** — siete capas (Bearer / HMAC / firewall /
   TLS / hardening / audit / backups).
-- **[Operations](operations/)** — runbook diario, troubleshooting,
+- **[Operations](operations/index.md)** — runbook diario, troubleshooting,
   alerting.
-- **[Integrations](integrations/)** — recetas para n8n, Python, etc.
+- **[Integrations](integrations/index.md)** — recetas para n8n, Python, etc.
 
 ## Glosario
 

@@ -57,3 +57,39 @@ pausar/reanudar el polling con el botón.
 
 La telemetría está apagada por defecto. Para activarla, sigue
 [Deployment · Telemetría pública](../deployment/public-stats.md).
+
+## Glosario
+
+**Snapshot live**: foto del estado actual del sistema (instancias
+conectadas en este momento), distinto de los counters históricos
+acumulados.
+
+**Counter histórico**: contador que solo crece. Para ver tasas en
+tiempo se calcula la derivada (`rate()` en PromQL).
+
+**QR conectado**: instancia en estado `ready` o `connected` ahora
+mismo. Snapshot live.
+
+**QR escaneado**: pairing exitoso histórico. qrsgen cuenta filas
+`action='instance.paired'` en `bridge_audit_log` — sobrevive a borrar
+instancias.
+
+**Instalación activa**: instancia con `jid` configurado en
+`bridge_instance` (alguna vez se pareó y sigue registrada).
+
+**Instalación total**: cualquier instancia registrada en el proceso,
+incluyendo las que aún están en `qr_pending` sin escanear.
+
+**Polling**: técnica donde el cliente hace requests periódicas para
+obtener datos actualizados. Las cards usan polling cada 10 s.
+
+**Endpoint público**: HTTP endpoint accesible desde internet (no solo
+desde la overlay LAN). qrsgen tiene uno opt-in para telemetría
+agregada.
+
+**Opt-in**: feature desactivada por default. Hay que activarla
+explícitamente (env var).
+
+**LocalStorage**: API del navegador para guardar datos persistentes
+en el cliente. Las cards lo usan para recordar si el visitante eligió
+ver telemetría o no.

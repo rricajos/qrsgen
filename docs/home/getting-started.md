@@ -16,11 +16,11 @@ Después, lee:
   eventos que tu sistema debe recibir.
 
 Si usas n8n o Python, hay recetas listas en
-[Integrations](../integrations/).
+[Integrations](../integrations/index.md).
 
 ## Quiero entender cómo funciona internamente
 
-→ [Arquitectura](../architecture/) cubre los flujos, las tablas y la
+→ [Arquitectura](../architecture/index.md) cubre los flujos, las tablas y la
 concurrencia.
 
 Empieza por el [overview](../architecture/index.md), después
@@ -31,7 +31,7 @@ arranque, y luego los flujos
 
 ## Quiero desplegarlo
 
-→ [Deployment](../deployment/) con la opción que prefieras:
+→ [Deployment](../deployment/index.md) con la opción que prefieras:
 
 - [Imagen GHCR pre-built](../deployment/images.md) (recomendado).
 - [Build local desde el repo](../deployment/images.md).
@@ -43,7 +43,7 @@ expón la [telemetría pública](../deployment/public-stats.md).
 
 ## Quiero operarlo en producción
 
-→ [Operations](../operations/) tiene el runbook completo:
+→ [Operations](../operations/index.md) tiene el runbook completo:
 
 - [Diagnóstico rápido](../operations/diagnostics.md) — health,
   instances, mensajes, ban-risk.
@@ -56,6 +56,28 @@ expón la [telemetría pública](../deployment/public-stats.md).
 
 ## Quiero entender el modelo de seguridad
 
-→ [Security](../security/) describe las 7 capas con su modelo de
+→ [Security](../security/index.md) describe las 7 capas con su modelo de
 amenaza, configuración y verificación. Empieza por el
 [overview](../security/index.md).
+
+## Glosario
+
+**Integrar**: conectar qrsgen a tu sistema externo (orquestador, app,
+CRM) mediante su API HTTP.
+
+**Quickstart**: receta corta para arrancar de cero. La de qrsgen va
+desde provision hasta el primer mensaje en 5 pasos.
+
+**Lifecycle webhook**: callback HTTP que tu sistema recibe cuando algo
+relevante ocurre en una instancia. Configurable per-instancia vía
+`events_webhook_url`.
+
+**Stack swarm**: forma de despliegue de qrsgen basada en Docker Swarm
+con `docker-compose.yml`. Es el modo de referencia.
+
+**Runbook**: documento operativo con procedimientos paso a paso para
+operar el sistema en producción.
+
+**Modelo de amenaza**: análisis de qué ataques son realistas y cómo
+los mitiga el sistema. qrsgen lo documenta como 7 capas
+defense-in-depth.

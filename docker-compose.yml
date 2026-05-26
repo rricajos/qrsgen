@@ -74,7 +74,7 @@ services:
         max_attempts: 0
       update_config:
         parallelism: 1
-        order: start-first
+        order: stop-first
         delay: 5s
         monitor: 5s
         failure_action: pause

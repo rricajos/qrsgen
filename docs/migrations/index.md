@@ -52,14 +52,21 @@ Cualquier migración entre clientes Multi-Device tiene esta restricción.
 
 ## Por origen
 
-- [**Evolution API**](from-evolution-api.md) — el más común
-  (PHP/Laravel + Postgres, popular en LATAM).
+- [**Evolution API**](from-evolution-api.md) — el más común en
+  comunidad open-source. TypeScript / Express / Prisma sobre Postgres
+  o MySQL; backend WhatsApp basado en Baileys. Origen y tracción
+  fuerte en LATAM (especialmente Brasil).
 - [**whatsapp-web.js**](from-whatsapp-web-js.md) — librería Node.js
-  con LocalAuth en filesystem.
-- [**Baileys / WPPConnect**](from-baileys.md) — TypeScript, SQLite o
-  filesystem.
-- [**SaaS (Whapi.cloud, MaytAPI, etc.)**](from-saas.md) — sin acceso a
-  DB; solo API.
+  que controla un Chromium headless via Puppeteer. Estado en
+  filesystem (`.wwebjs_auth/`) o store remoto (MongoDB).
+- [**Baileys / WPPConnect**](from-baileys.md) — librería TypeScript
+  que habla el protocolo WhatsApp Web directamente (sin browser).
+  Estado en filesystem multi-archivo.
+- [**SaaS — overview**](from-saas.md) — qué obtienes y qué pierdes al
+  pasar de un SaaS de pago a self-host. Sin acceso a DB del provider;
+  solo a su API.
+  - [**Whapi.cloud**](from-whapi.md) — popular en EU/US.
+  - [**MaytAPI**](from-maytapi.md) — popular en LATAM.
 
 ## Migración inversa (cómo salir de qrsgen)
 

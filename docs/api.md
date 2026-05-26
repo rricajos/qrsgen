@@ -31,9 +31,15 @@ Crea/reusa una instancia.
 {
   "name": "whatsapp-main",
   "events_webhook_url": "https://workflows.example.com/webhook/qrsgen-events",
-  "inbox_id": 90
+  "inbox_id": 90,
+  "owner_tag": "tenant-acme"
 }
 ```
+
+`owner_tag` (opcional) es un string libre que el integrador usa para
+correlacionar la instancia con su modelo de tenants/facturación.
+qrsgen no lo interpreta; aparece en `GET /api/instances/:name` y en el
+agregado `GET /api/usage/summary`.
 
 ### `PATCH /api/instances/:name`
 
@@ -44,11 +50,13 @@ Actualiza config existente.
   "events_webhook_url": "https://...",
   "inbox_id": 90,
   "spamguard_enabled": true,
-  "last_qr_msg_id": 12345
+  "last_qr_msg_id": 12345,
+  "owner_tag": "tenant-acme"
 }
 ```
 
-Respuesta incluye el estado actual + config spamguard.
+Respuesta incluye el estado actual + config spamguard. Pasar `owner_tag: ""`
+borra el tag previo; omitirlo lo deja intacto.
 
 ### `GET /api/instances`
 
@@ -119,11 +127,110 @@ Estado de todas las instancias en una request.
 
 ### `POST /api/instances/:name/webhook`
 
-**Entrypoint paral downstream**. Sin auth Bearer.
+**Entrypoint paral downstream**. Sin auth Bearer por defecto.
 
 Body: payload del downstream estándar (`{event, message_type, content, attachments, conversation, ...}`).
 
 Procesado por `bridge.Outgoing.HandleFor`.
+
+Si `WEBHOOK_HMAC_SECRET` está configurado en env, qrsgen exige el header
+`X-Qrsgen-Signature: sha256=<hex>` donde `<hex>` es
+`HMAC-SHA256(secret, raw body)`. Mismatches devuelven `401`. Si la env var
+está vacía, el endpoint queda público (backward-compat).
+
+### `GET /api/instances/:name/usage?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Filas diarias en UTC para una instancia con contadores `messages_in`,
+`messages_out`, `spamguard_blocks`, `lifecycle_events`. Default: últimos
+30 días.
+
+```json
+{
+  "instance": "whatsapp-main",
+  "from": "2026-04-26",
+  "to":   "2026-05-26",
+  "rows": [
+    {"instance":"whatsapp-main","day":"2026-05-26","messages_in":24,"messages_out":31,"spamguard_blocks":0,"lifecycle_events":2}
+  ]
+}
+```
+
+### `GET /api/usage?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Igual que el anterior pero para todas las instancias (`rows` ordenado por
+instance, day). Pensado para dashboards / exports.
+
+### `GET /api/usage/summary?from=YYYY-MM&to=YYYY-MM`
+
+Agregado mensual por `(owner_tag, mes)`. Default: últimos 3 meses naturales.
+
+```json
+{
+  "from": "2026-03",
+  "to":   "2026-05",
+  "rows": [
+    {
+      "owner_tag": "tenant-acme",
+      "month": "2026-05",
+      "messages_in": 4821,
+      "messages_out": 5102,
+      "spamguard_blocks": 14,
+      "lifecycle_events": 23,
+      "active_instances": 2
+    },
+    {
+      "owner_tag": "",
+      "month": "2026-05",
+      "messages_in": 18, "messages_out": 22,
+      "spamguard_blocks": 0, "lifecycle_events": 1, "active_instances": 1
+    }
+  ]
+}
+```
+
+Endpoint pensado para billing — el integrador mapea `owner_tag` a su
+tenant y suma los contadores que tarifique.
+
+### `GET /api/instances/:name/ban-risk`
+
+Snapshot del detector proactivo. Útil para que el integrador reduzca
+ritmo antes de que WhatsApp tome medidas.
+
+```json
+{
+  "instance": "whatsapp-main",
+  "velocity_msgs_per_window": 12, "velocity_threshold": 30,
+  "diversity_unique_jids": 8,     "diversity_threshold": 20,
+  "delivery_ratio": 0.97,         "delivery_samples": 30,
+  "delivery_threshold": 0.7,      "delivery_min_samples": 10,
+  "alerts": [],
+  "score": 0.13,
+  "level": "low"
+}
+```
+
+Cuando un signal cruza su threshold, qrsgen emite un evento lifecycle
+`ban_risk` (con el `alert` activo) sólo en el flanco de subida — no se
+re-emite hasta que se haya limpiado.
+
+### `GET /api/audit?instance=&limit=`
+
+Append-only log de operaciones (provision, patch, delete, boot). La tabla
+subyacente tiene triggers que rechazan UPDATE/DELETE; las entradas son
+inmutables a nivel DB. Default: últimas 100 entradas, máximo 500.
+
+```json
+{
+  "entries": [
+    {
+      "id": 412, "ts": "2026-05-26T08:15:33Z",
+      "actor": "api", "action": "instance.patch",
+      "instance": "whatsapp-main", "target": "",
+      "metadata": {"owner_tag_set": true, "spamguard_enabled_set": false}
+    }
+  ]
+}
+```
 
 ### `GET /metrics`
 

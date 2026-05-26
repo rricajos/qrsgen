@@ -16,18 +16,31 @@ Sin auth. Cuando `PUBLIC_STATS_ENABLED=false` (default) devuelve `403`.
 
 ```json
 {
-  "instances_connected": 4,
-  "instances_total": 4,
-  "messages_in_total":  152340,
-  "messages_out_total": 178921,
+  "instances_connected":  4,
+  "instances_total":      4,
+  "installations_active": 4,
+  "qrs_scanned_total":    37,
+  "messages_in_total":    152340,
+  "messages_out_total":   178921,
   "version": "0.23.0",
   "last_updated": "2026-05-26T11:30:00Z"
 }
 ```
 
-Los contadores `messages_*` son **all-time totals** agregados desde
-`bridge_usage_daily`. Si quieres ventanas concretas usa los endpoints
-autenticados `/api/usage` o `/api/usage/summary`.
+Campos:
+
+| Campo | Significado |
+|---|---|
+| `instances_connected` | Cuántas instancias están **ahora mismo** en estado `ready` o `connected` (snapshot live). |
+| `instances_total` | Total de instancias **registradas en el proceso** (incluye `qr_pending`, `disconnected`, etc.). |
+| `installations_active` | Instancias en DB con `jid` configurado — han llegado a parearse al menos una vez y siguen registradas. |
+| `qrs_scanned_total` | Histórico acumulado de pairings exitosos (= veces que un usuario ha escaneado un QR). Cuenta filas en `bridge_audit_log` con `action='instance.paired'`. Sobrevive a borrar instancias. |
+| `messages_in_total` / `messages_out_total` | All-time totals agregados desde `bridge_usage_daily`. |
+| `version` | Tag de release del binario. |
+| `last_updated` | Timestamp UTC de la respuesta. |
+
+Si quieres ventanas concretas (último mes, último día, etc.) usa los
+endpoints autenticados `/api/usage` o `/api/usage/summary`.
 
 ## Habilitar
 

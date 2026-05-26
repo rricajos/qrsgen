@@ -60,6 +60,15 @@ type SpamguardProvider interface {
 	EmitLifecycle(name, event string, extras map[string]any)
 }
 
+// UsageRecorder es la interfaz mínima que outgoing/incoming/manager usan para
+// incrementar contadores. Se inyecta como setter — si nil, no-op.
+type UsageRecorder interface {
+	IncIn(instance string)
+	IncOut(instance string)
+	IncSpamguardBlock(instance string)
+	IncLifecycle(instance string)
+}
+
 type Outgoing struct {
 	sender  Sender
 	ds      *downstream.Client
@@ -67,10 +76,27 @@ type Outgoing struct {
 	sg      SpamguardProvider
 	tracker *SpamguardTracker
 	logger  *slog.Logger
+	usage   UsageRecorder
 }
 
 func NewOutgoing(sender Sender, ds *downstream.Client, dedup *Deduper, sg SpamguardProvider, tracker *SpamguardTracker, logger *slog.Logger) *Outgoing {
 	return &Outgoing{sender: sender, ds: ds, dedup: dedup, sg: sg, tracker: tracker, logger: logger}
+}
+
+// SetUsage attaches a usage recorder for counter increments. Safe to call once
+// during bootstrap. Pass nil to disable.
+func (o *Outgoing) SetUsage(u UsageRecorder) { o.usage = u }
+
+func (o *Outgoing) incUsageOut(instance string) {
+	if o.usage != nil {
+		o.usage.IncOut(instance)
+	}
+}
+
+func (o *Outgoing) incUsageSpamguard(instance string) {
+	if o.usage != nil {
+		o.usage.IncSpamguardBlock(instance)
+	}
 }
 
 // HandleFor procesa el webhook con conocimiento de la instancia destino.
@@ -129,6 +155,7 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 			blocked, count := o.tracker.CheckAndRecord(instance, remoteJid, p.Content)
 			if blocked {
 				metrics.SpamguardBlocks.WithLabelValues(instance).Inc()
+				o.incUsageSpamguard(instance)
 				o.logger.Warn("spamguard blocked outgoing dup",
 					"instance", instance, "remoteJid", remoteJid,
 					"msg_id", p.ID, "block_count", count)
@@ -182,6 +209,7 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 				continue
 			}
 			metrics.MessagesTotal.WithLabelValues("out", instance).Inc()
+			o.incUsageOut(instance)
 			o.logger.Info("sent outgoing media to whatsapp",
 				"instance", instance, "remoteJid", remoteJid,
 				"kind", att.FileType, "mime", mimetype, "size", len(data), "waID", waID)
@@ -209,6 +237,7 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 		return err
 	}
 	metrics.MessagesTotal.WithLabelValues("out", instance).Inc()
+	o.incUsageOut(instance)
 	o.logger.Info("sent outgoing to whatsapp", "instance", instance, "remoteJid", remoteJid, "waID", waID)
 
 	if p.ID > 0 && p.Conversation != nil {

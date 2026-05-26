@@ -26,6 +26,7 @@ import (
 	"github.com/rricajos/qrsgen/internal/config"
 	"github.com/rricajos/qrsgen/internal/lib"
 	"github.com/rricajos/qrsgen/internal/manager"
+	"github.com/rricajos/qrsgen/internal/usage"
 	"github.com/rricajos/qrsgen/internal/wameow"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -66,6 +67,12 @@ func main() {
 		logger.Error("ensure schema", "err", err)
 		os.Exit(1)
 	}
+	if err := usage.EnsureSchema(ctx, pool); err != nil {
+		logger.Error("ensure usage schema", "err", err)
+		os.Exit(1)
+	}
+	usageTracker := usage.New(pool, logger)
+	usageTracker.Start(ctx, 60*time.Second)
 
 	cw := downstream.New(cfg.DownstreamBaseURL, cfg.DownstreamAPIToken, cfg.DownstreamAccountID)
 	dedup := bridge.NewDeduper(pool, cfg.InstanceName, cfg.DedupWindowMs, cfg.DedupEnabled)
@@ -123,6 +130,9 @@ func main() {
 
 	sgTracker := bridge.NewSpamguardTracker()
 	outgoing := bridge.NewOutgoing(senderAdapter{mgr: mgr}, cw, dedup, spamguardAdapter{mgr: mgr}, sgTracker, logger)
+	outgoing.SetUsage(usageTracker)
+	incoming.SetUsage(usageTracker)
+	mgr.SetUsage(usageTracker)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -291,10 +301,45 @@ func main() {
 			"paired_at":         st.PairedAt,
 			"ready_at":          st.ReadyAt,
 			"last_event_at":     st.LastEventAt,
+			"owner_tag":         st.OwnerTag,
 			"spamguard_enabled": sgEnabled,
 			"spamguard_blocks":  sgTracker.BlockCount(name),
 		}
 		return c.JSON(http.StatusOK, out)
+	})
+
+	// GET /api/instances/:name/usage?from=YYYY-MM-DD&to=YYYY-MM-DD
+	// Devuelve filas diarias para una instancia. Si from/to no se pasan, default
+	// es últimos 30 días terminando hoy (UTC).
+	api.GET("/instances/:name/usage", func(c echo.Context) error {
+		name := c.Param("name")
+		from, to := parseUsageRange(c)
+		rows, err := usageTracker.Query(c.Request().Context(), name, from, to)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{
+			"instance": name,
+			"from":     from,
+			"to":       to,
+			"rows":     rows,
+		})
+	})
+
+	// GET /api/usage?from=YYYY-MM-DD&to=YYYY-MM-DD
+	// Devuelve filas diarias agregadas por (instance, day), todas las instancias.
+	// Pensado para que el integrador haga billing/reporting.
+	api.GET("/usage", func(c echo.Context) error {
+		from, to := parseUsageRange(c)
+		rows, err := usageTracker.QueryAll(c.Request().Context(), from, to)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{
+			"from": from,
+			"to":   to,
+			"rows": rows,
+		})
 	})
 
 	// POST /api/instances/bulk — crea/reusa varias. Idempotente, errores parciales NO abortan.
@@ -469,6 +514,23 @@ func (s spamguardAdapter) IsSpamguardEnabled(ctx context.Context, instance strin
 
 func (s spamguardAdapter) EmitLifecycle(name, event string, extras map[string]any) {
 	s.mgr.EmitCustomLifecycle(name, event, extras)
+}
+
+// parseUsageRange reads ?from / ?to as YYYY-MM-DD (UTC). Defaults to the last
+// 30 days ending today. Validates loosely — invalid input is replaced by the
+// default rather than returned as 400 (this is a read-only reporting endpoint).
+func parseUsageRange(c echo.Context) (from, to string) {
+	const dayLayout = "2006-01-02"
+	now := time.Now().UTC()
+	from = c.QueryParam("from")
+	to = c.QueryParam("to")
+	if _, err := time.Parse(dayLayout, from); err != nil {
+		from = now.AddDate(0, 0, -30).Format(dayLayout)
+	}
+	if _, err := time.Parse(dayLayout, to); err != nil {
+		to = now.Format(dayLayout)
+	}
+	return from, to
 }
 
 // webhookHMACMiddleware verifies X-Qrsgen-Signature: sha256=<hex> against

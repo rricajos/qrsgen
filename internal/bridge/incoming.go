@@ -24,11 +24,21 @@ type Incoming struct {
 	dedup   *Deduper
 	logger  *slog.Logger
 	resolve InboxResolver
+	usage   UsageRecorder
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
 func NewIncomingDynamic(ds *downstream.Client, dedup *Deduper, logger *slog.Logger, resolve InboxResolver) *Incoming {
 	return &Incoming{ds: ds, dedup: dedup, logger: logger, resolve: resolve}
+}
+
+// SetUsage attaches a usage recorder. Pass nil to disable.
+func (i *Incoming) SetUsage(u UsageRecorder) { i.usage = u }
+
+func (i *Incoming) incUsageIn(instance string) {
+	if i.usage != nil {
+		i.usage.IncIn(instance)
+	}
 }
 
 // resolvedSender captura el shape real del remitente WhatsApp Multi-Device:
@@ -148,6 +158,7 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 	}
 
 	metrics.MessagesTotal.WithLabelValues("in", instance).Inc()
+	i.incUsageIn(instance)
 	i.logger.Info("incoming whatsapp",
 		"instance", instance,
 		"fromMe", fromMe,

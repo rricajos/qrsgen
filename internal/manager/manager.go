@@ -60,7 +60,19 @@ type Manager struct {
 	// cada vez que arranca qrsgen). En su lugar emitimos UN backend_started
 	// por instancia desde main.go cuando Bootstrap termina.
 	bootstrapWindowUntil time.Time
+
+	// usage es el contador opcional. Si nil, los lifecycle events no se cuentan.
+	usage UsageRecorder
 }
+
+// UsageRecorder es la interfaz mínima que el manager usa para incrementar
+// contadores de lifecycle events. Inyectable vía SetUsage; nil → no-op.
+type UsageRecorder interface {
+	IncLifecycle(instance string)
+}
+
+// SetUsage attaches a usage recorder. Pass nil to disable.
+func (m *Manager) SetUsage(u UsageRecorder) { m.usage = u }
 
 func New(ctx context.Context, dsn string, pool *pgxpool.Pool, logger *slog.Logger, onMsg wameow.MessageHandler) (*Manager, error) {
 	container, err := wameow.NewContainer(ctx, dsn)
@@ -516,6 +528,9 @@ func (m *Manager) emitLifecycleWebhook(name string, ev wameow.LifecycleEvent, ji
 		return
 	}
 	metrics.LifecycleEvents.WithLabelValues(name, string(ev)).Inc()
+	if m.usage != nil {
+		m.usage.IncLifecycle(name)
+	}
 	m.logger.Info("events webhook sent", "name", name, "event", string(ev), "url", url)
 }
 
@@ -696,6 +711,9 @@ func (m *Manager) emitCustomWebhook(name string, ev wameow.LifecycleEvent, extra
 		return
 	}
 	metrics.LifecycleEvents.WithLabelValues(name, string(ev)).Inc()
+	if m.usage != nil {
+		m.usage.IncLifecycle(name)
+	}
 	m.logger.Info("custom webhook sent", "name", name, "event", string(ev))
 }
 

@@ -38,6 +38,10 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+// version es el tag de release, inyectado por GoReleaser via
+// `-X main.version={{.Version}}`. En builds locales queda "dev".
+var version = "dev"
+
 func main() {
 	// -healthcheck: hace un GET corto contra /api/health del propio binario
 	// (a través de 127.0.0.1:PORT) y exitea 0 si HTTP 200, 1 en cualquier otro caso.
@@ -274,7 +278,7 @@ func main() {
 
 		return c.JSON(code, map[string]any{
 			"status":  status,
-			"version": "0.23.0",
+			"version": version,
 			"ts":      now.UTC().Format(time.RFC3339),
 			"uptime_seconds": int64(time.Since(processStart).Seconds()),
 			"checks": map[string]any{
@@ -335,15 +339,25 @@ func main() {
 		).Scan(&installationsTotal); err != nil {
 			logger.Warn("public stats: installations total query failed", "err", err)
 		}
+		// Tenants configurados: filas en bridge_tenant. Refleja cuántos clientes
+		// multi-downstream tienen config propia. Si la tabla aún no existe
+		// (deploy nuevo previo a tenant.EnsureSchema), reportamos 0.
+		var tenantsTotal int64
+		if err := pool.QueryRow(c.Request().Context(),
+			`SELECT COUNT(*) FROM bridge_tenant`,
+		).Scan(&tenantsTotal); err != nil {
+			logger.Warn("public stats: tenants total query failed", "err", err)
+		}
 		return c.JSON(http.StatusOK, map[string]any{
 			"instances_connected":  connected,
 			"instances_total":      total,
 			"installations_active": installationsActive,
 			"installations_total":  installationsTotal,
+			"tenants_total":        tenantsTotal,
 			"qrs_scanned_total":    qrsScannedTotal,
 			"messages_in_total":    totals.MessagesIn,
 			"messages_out_total":   totals.MessagesOut,
-			"version":              "0.23.0",
+			"version":              version,
 			"last_updated":         time.Now().UTC().Format(time.RFC3339),
 		})
 	})

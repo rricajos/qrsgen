@@ -4,6 +4,25 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-05-27
+
+Fix de `version` hardcodeada y simetría con multi-downstream en el
+endpoint público.
+
+### Added
+
+- **`tenants_total`** en `/api/public/stats` — cuenta filas en
+  `bridge_tenant`. Completa la familia `instances_total` /
+  `installations_total` / `tenants_total`.
+
+### Fixed
+
+- **`/api/health` y `/api/public/stats` ahora reportan la versión real
+  de cada release**. Antes devolvían `"0.23.0"` hardcoded sin importar
+  el tag. Ahora la inyectamos en build via
+  `-X main.version={{.Version}}` (GoReleaser). Builds locales reportan
+  `"dev"`.
+
 ## [0.24.0] - 2026-05-27
 
 Multi-downstream real: un solo proceso puede servir varios clientes con
@@ -198,7 +217,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.24.1...HEAD
+[0.24.1]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.1
 [0.24.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.0
 [0.23.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.23.0
 [0.21.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.21.0

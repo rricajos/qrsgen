@@ -24,8 +24,8 @@ Sin auth. Cuando `PUBLIC_STATS_ENABLED=false` (default) devuelve `403`.
   "qrs_scanned_total":    42,
   "messages_in_total":    152340,
   "messages_out_total":   178921,
-  "version": "0.24.2",
-  "last_updated": "2026-05-26T11:30:00Z"
+  "version": "0.28.2",
+  "last_updated": "2026-05-27T13:00:00Z"
 }
 ```
 

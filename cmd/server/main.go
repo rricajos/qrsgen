@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/rricajos/qrsgen/internal/audit"
 	"github.com/rricajos/qrsgen/internal/banwatch"
 	"github.com/rricajos/qrsgen/internal/bridge"
@@ -35,8 +37,6 @@ import (
 	"github.com/rricajos/qrsgen/internal/tenant"
 	"github.com/rricajos/qrsgen/internal/usage"
 	"github.com/rricajos/qrsgen/internal/wameow"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
@@ -317,9 +317,9 @@ func main() {
 		}
 
 		return c.JSON(code, map[string]any{
-			"status":  status,
-			"version": version,
-			"ts":      now.UTC().Format(time.RFC3339),
+			"status":         status,
+			"version":        version,
+			"ts":             now.UTC().Format(time.RFC3339),
 			"uptime_seconds": int64(time.Since(processStart).Seconds()),
 			"checks": map[string]any{
 				"db":                  map[string]any{"ok": dbOK, "latency_ms": dbLatencyMs},
@@ -703,9 +703,9 @@ func main() {
 		}
 		dsRegistry.InvalidateTenant(ownerTag)
 		auditLog.Record(c.Request().Context(), "api", "tenant.upsert", "", ownerTag, map[string]any{
-			"downstream_base_url":   req.DownstreamBaseURL,
-			"downstream_account_id": req.DownstreamAccountID,
-			"downstream_inbox_id":   req.DownstreamInboxID,
+			"downstream_base_url":     req.DownstreamBaseURL,
+			"downstream_account_id":   req.DownstreamAccountID,
+			"downstream_inbox_id":     req.DownstreamInboxID,
 			"webhook_hmac_secret_set": req.WebhookHMACSecret != "",
 		})
 		return c.JSON(http.StatusOK, map[string]string{"message": "tenant saved", "owner_tag": ownerTag})
@@ -1143,4 +1143,3 @@ func runHealthcheck() {
 		os.Exit(1)
 	}
 }
-

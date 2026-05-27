@@ -35,12 +35,12 @@ type WebhookAttachment struct {
 
 // WebhookPayload representa el subset del payload del webhook downstream que necesitamos.
 type WebhookPayload struct {
-	Event        string               `json:"event"`
-	ID           int                  `json:"id"`           // message id en eventos message_created
-	MessageType  string               `json:"message_type"` // "incoming" | "outgoing" | "activity" | "template"
-	Private      bool                 `json:"private"`      // notas internas del agente — NO se envían a WhatsApp
-	Content      string               `json:"content"`
-	SourceID     string               `json:"source_id"`
+	Event        string              `json:"event"`
+	ID           int                 `json:"id"`           // message id en eventos message_created
+	MessageType  string              `json:"message_type"` // "incoming" | "outgoing" | "activity" | "template"
+	Private      bool                `json:"private"`      // notas internas del agente — NO se envían a WhatsApp
+	Content      string              `json:"content"`
+	SourceID     string              `json:"source_id"`
 	Attachments  []WebhookAttachment `json:"attachments"`
 	Conversation *struct {
 		ID      int `json:"id"`

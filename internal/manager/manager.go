@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rricajos/qrsgen/internal/metrics"
-	"github.com/rricajos/qrsgen/internal/wameow"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rricajos/qrsgen/internal/metrics"
+	"github.com/rricajos/qrsgen/internal/wameow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
@@ -60,7 +60,7 @@ type Manager struct {
 	// cuando whatsmeow fires EventConnected múltiples veces sin un
 	// EventDisconnected intermedio (re-handshake, session renewal).
 	// Se limpia en disconnect / logged_out / al emitir unreachable.
-	connEmitMu      sync.Mutex
+	connEmitMu       sync.Mutex
 	connectedEmitted map[string]bool
 
 	// bootstrapWindowUntil: durante el arranque suprimimos los webhooks de

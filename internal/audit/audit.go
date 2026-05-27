@@ -127,8 +127,8 @@ func (l *Logger) QueryFiltered(ctx context.Context, instance, ownerTag string, l
 		FROM bridge_audit_log
 	`
 	var (
-		query  string
-		args   []any
+		query   string
+		args    []any
 		clauses []string
 	)
 	if instance != "" {

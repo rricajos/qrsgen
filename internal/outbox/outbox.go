@@ -491,10 +491,10 @@ func (o *Outbox) Depth(ctx context.Context, instance string) (int, error) {
 
 // Stats represents counters useful for ops dashboards.
 type Stats struct {
-	Pending  int `json:"pending"`
-	Sent     int `json:"sent"`
-	Expired  int `json:"expired"`
-	Failed   int `json:"failed"`
+	Pending int `json:"pending"`
+	Sent    int `json:"sent"`
+	Expired int `json:"expired"`
+	Failed  int `json:"failed"`
 }
 
 // Stats counts each status for an instance (or globally when instance is "").

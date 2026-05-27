@@ -26,8 +26,12 @@ Imagen final ~25 MB.
 Para deploys sin Docker (raros pero posibles):
 
 ```bash
+# Ejemplo con un tag concreto. Mira la última release en
+# https://github.com/rricajos/qrsgen/releases/latest si necesitas
+# saber qué versión es la actual.
+TAG=v0.28.2
 curl -L -o qrsgen.tar.gz \
-  https://github.com/rricajos/qrsgen/releases/download/v0.23.0-rc1/qrsgen_0.23.0-rc1_linux_amd64.tar.gz
+  "https://github.com/rricajos/qrsgen/releases/download/${TAG}/qrsgen_${TAG#v}_linux_amd64.tar.gz"
 tar xzf qrsgen.tar.gz
 chmod +x qrsgen
 ./qrsgen   # lee env vars; ver tabla en "Variables de entorno"

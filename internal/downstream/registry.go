@@ -64,8 +64,8 @@ type Registry struct {
 	// inconsistencias prolongadas tras cambios PATCH a la instancia.
 	instanceTagTTL time.Duration
 
-	insMu        sync.RWMutex
-	instanceTag  map[string]instanceTagEntry
+	insMu       sync.RWMutex
+	instanceTag map[string]instanceTagEntry
 }
 
 type instanceTagEntry struct {

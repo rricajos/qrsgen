@@ -15,10 +15,10 @@ import (
 )
 
 // Deduper detecta y descarta:
-//   1) El "twin" de un mensaje cuando WhatsApp Server hace dispatch dual
-//      (LID + PN del mismo destinatario) — clave por (instance, jid_user, content_normalized).
-//   2) Reenvíos del MISMO mensaje saliente del downstream (doble-clic del agente o
-//      webhook retry) — vía clave por msg_id (en SeenIncomingMsg).
+//  1. El "twin" de un mensaje cuando WhatsApp Server hace dispatch dual
+//     (LID + PN del mismo destinatario) — clave por (instance, jid_user, content_normalized).
+//  2. Reenvíos del MISMO mensaje saliente del downstream (doble-clic del agente o
+//     webhook retry) — vía clave por msg_id (en SeenIncomingMsg).
 //
 // Limitación de (1): esto solo limpia lo que sincronizamos al downstream. El
 // destinatario sigue recibiendo 2 mensajes si WhatsApp ya hizo dispatch dual.
@@ -39,8 +39,9 @@ func NewDeduper(pool *pgxpool.Pool, _ string, windowMs int, enabled bool) *Dedup
 }
 
 // normalizeJid extrae la parte de usuario del JID, sin device suffix ni server.
-//   34604021705:92@s.whatsapp.net → 34604021705
-//   41961931190522@lid            → 41961931190522
+//
+//	34604021705:92@s.whatsapp.net → 34604021705
+//	41961931190522@lid            → 41961931190522
 func normalizeJid(jid string) string {
 	user := jid
 	if i := strings.Index(jid, "@"); i >= 0 {

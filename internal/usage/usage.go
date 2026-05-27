@@ -224,13 +224,13 @@ func (t *Tracker) QueryAll(ctx context.Context, from, to string) ([]DailyRow, er
 // and calendar month (UTC). The integrator typically maps owner_tag to its
 // tenant identifier and uses this view for monthly billing.
 type MonthlySummaryRow struct {
-	OwnerTag         string `json:"owner_tag"` // "" for instances without a tag set
-	Month            string `json:"month"`     // YYYY-MM
-	MessagesIn       int64  `json:"messages_in"`
-	MessagesOut      int64  `json:"messages_out"`
-	SpamguardBlocks  int64  `json:"spamguard_blocks"`
-	LifecycleEvents  int64  `json:"lifecycle_events"`
-	ActiveInstances  int    `json:"active_instances"`
+	OwnerTag        string `json:"owner_tag"` // "" for instances without a tag set
+	Month           string `json:"month"`     // YYYY-MM
+	MessagesIn      int64  `json:"messages_in"`
+	MessagesOut     int64  `json:"messages_out"`
+	SpamguardBlocks int64  `json:"spamguard_blocks"`
+	LifecycleEvents int64  `json:"lifecycle_events"`
+	ActiveInstances int    `json:"active_instances"`
 }
 
 // Totals aggregates messages_in / messages_out across all instances and all

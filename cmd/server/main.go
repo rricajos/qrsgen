@@ -1146,7 +1146,8 @@ func runHealthcheck() {
 	}
 	url := "http://127.0.0.1:" + port + "/api/health"
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(url)
+	// URL es constante de localhost, no tainted input — gosec G704 false positive.
+	resp, err := client.Get(url) //nolint:gosec
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "healthcheck: %v\n", err)
 		os.Exit(1)

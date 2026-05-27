@@ -476,19 +476,6 @@ func (o *Outbox) emitFailed(instance string, id int64, lastErr string) {
 		"instance", instance, "queue_id", id, "last_error", lastErr)
 }
 
-// Depth reports the current pending count for an instance. Cheap query —
-// safe to call from HTTP handlers if a snapshot is needed.
-func (o *Outbox) Depth(ctx context.Context, instance string) (int, error) {
-	var n int
-	if err := o.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM bridge_outgoing_queue WHERE instance=$1 AND status='pending'`,
-		instance,
-	).Scan(&n); err != nil {
-		return 0, err
-	}
-	return n, nil
-}
-
 // Stats represents counters useful for ops dashboards.
 type Stats struct {
 	Pending int `json:"pending"`

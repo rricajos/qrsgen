@@ -359,7 +359,9 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 		if prev > 0 {
 			extras["last_qr_msg_id"] = prev
 		}
-		go m.emitCustomWebhook(name, ev, extras, now)
+		// Fire-and-forget: el ctx del callsite no es relevante porque el webhook
+		// vive más allá del frame (retry exponencial). gosec G118 false positive.
+		go m.emitCustomWebhook(name, ev, extras, now) //nolint:gosec
 		return
 	case wameow.EventPaired:
 		query = `UPDATE bridge_instance SET jid=$2, paired_at=COALESCE(paired_at, $3), last_event_at=$3 WHERE name=$1`
@@ -420,8 +422,9 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 		m.connEmitMu.Lock()
 		delete(m.connectedEmitted, name)
 		m.connEmitMu.Unlock()
-		go m.emitUnreachableAfterGrace(name, jid, now)
-		go m.emitLifecycleWebhook(name, wameow.EventDisconnected, jid, now)
+		// Both goroutines outlive the callsite ctx by design. gosec G118 false positives.
+		go m.emitUnreachableAfterGrace(name, jid, now)            //nolint:gosec
+		go m.emitLifecycleWebhook(name, wameow.EventDisconnected, jid, now) //nolint:gosec
 		return
 	}
 	if ev == wameow.EventLoggedOut {
@@ -493,7 +496,7 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 			return
 		}
 	}
-	go m.emitLifecycleWebhook(name, ev, jid, now)
+	go m.emitLifecycleWebhook(name, ev, jid, now) //nolint:gosec
 }
 
 // emitReconnectedAfterStabilize espera 5s para confirmar que la reconexión es

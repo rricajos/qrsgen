@@ -139,7 +139,9 @@ func (t *Tracker) IncLifecycle(instance string) {
 // every interval. Returns immediately. The goroutine exits when ctx is done,
 // flushing one last time.
 func (t *Tracker) Start(ctx context.Context, interval time.Duration) {
-	go t.loop(ctx, interval)
+	// loop uses ctx for its own lifecycle — gosec G118 false positive
+	// (the goroutine IS request-scoped to the bootstrap ctx).
+	go t.loop(ctx, interval) //nolint:gosec
 }
 
 func (t *Tracker) loop(ctx context.Context, interval time.Duration) {

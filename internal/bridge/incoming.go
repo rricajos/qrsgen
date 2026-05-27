@@ -162,7 +162,7 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 		contactName = msg.Info.PushName
 	}
 
-	metrics.MessagesTotal.WithLabelValues("in", instance).Inc()
+	metrics.MessagesTotal.WithLabelValues("in", instance, i.ds.OwnerTagFor(ctx, instance)).Inc()
 	i.incUsageIn(instance)
 	i.logger.Info("incoming whatsapp",
 		"instance", instance,

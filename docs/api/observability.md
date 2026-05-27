@@ -99,15 +99,17 @@ los counters que tarifique.
 
 ---
 
-## `GET /api/audit?instance=&limit=`
+## `GET /api/audit?instance=&owner_tag=&limit=`
 
 Append-only log de operaciones (`instance.create / patch / delete`,
-`outbox.enqueue / expire / failed`, `backend.boot`). La tabla subyacente
-tiene triggers que rechazan UPDATE/DELETE — inmutable a nivel DB.
+`tenant.upsert / delete`, `outbox.enqueue / expire / failed`,
+`backend.boot`). La tabla subyacente tiene triggers que rechazan
+UPDATE/DELETE — inmutable a nivel DB.
 
 | Param | Default | Notas |
 |---|---|---|
 | `instance` | (vacío) | Filtrar por nombre de instancia. |
+| `owner_tag` | (vacío) | Filtrar por tenant: solo entradas de instancias con ese `owner_tag` (desde v0.25.0). Combinable con `instance` (AND lógico). |
 | `limit` | 100 | Máximo 500. |
 
 ```json
@@ -174,14 +176,25 @@ Prometheus scrape. Sin auth.
 
 | Métrica | Tipo | Labels | Descripción |
 |---|---|---|---|
-| `qrsgen_messages_total` | counter | `direction`, `instance` | Mensajes procesados (in/out). |
-| `qrsgen_spamguard_blocks_total` | counter | `instance` | Outgoings bloqueados por dup. |
-| `qrsgen_lifecycle_events_total` | counter | `instance`, `event` | Eventos lifecycle emitidos. |
-| `qrsgen_message_dispatch_errors_total` | counter | `direction`, `instance`, `kind` | Fallos de despacho. |
+| `qrsgen_messages_total` | counter | `direction`, `instance`, `owner_tag` | Mensajes procesados (in/out). |
+| `qrsgen_spamguard_blocks_total` | counter | `instance`, `owner_tag` | Outgoings bloqueados por dup. |
+| `qrsgen_lifecycle_events_total` | counter | `instance`, `event`, `owner_tag` | Eventos lifecycle emitidos. |
+| `qrsgen_message_dispatch_errors_total` | counter | `direction`, `instance`, `kind`, `owner_tag` | Fallos de despacho. |
+| `qrsgen_lifecycle_webhook_retries_total` | counter | `event`, `outcome` | Reintentos de webhooks críticos. |
 | `qrsgen_active_instances` | gauge | – | Instancias en `connected` o `ready`. |
 | `qrsgen_total_instances` | gauge | – | Total gestionadas. |
 
 Plus métricas estándar Go runtime (`go_*`, `process_*`).
+
+El label `owner_tag` (desde v0.25.0) permite separar métricas por
+tenant en Grafana. Para instancias sin tenant configurado el label
+sale vacío. Queries que no filtran por `owner_tag` siguen funcionando
+(Prometheus agrega naturalmente al sumar). Ejemplo de query
+multi-tenant:
+
+```promql
+sum by (owner_tag) (rate(qrsgen_messages_total{direction="out"}[5m]))
+```
 
 ---
 

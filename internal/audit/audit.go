@@ -107,6 +107,14 @@ func (l *Logger) Record(ctx context.Context, actor, action, instance, target str
 // capped at 500 to keep responses small; pagination via since is left for
 // callers that need it.
 func (l *Logger) Query(ctx context.Context, instance string, limit int) ([]Entry, error) {
+	return l.QueryFiltered(ctx, instance, "", limit)
+}
+
+// QueryFiltered es como Query pero acepta `ownerTag` opcional para limitar
+// entradas a las instancias de un tenant concreto (vía JOIN/subquery sobre
+// bridge_instance.owner_tag). Si ambos filtros se pasan, se aplican en AND.
+// Si ninguno, todas las entradas.
+func (l *Logger) QueryFiltered(ctx context.Context, instance, ownerTag string, limit int) ([]Entry, error) {
 	if l == nil || l.pool == nil {
 		return nil, fmt.Errorf("audit logger not configured")
 	}
@@ -119,16 +127,28 @@ func (l *Logger) Query(ctx context.Context, instance string, limit int) ([]Entry
 		FROM bridge_audit_log
 	`
 	var (
-		query string
-		args  []any
+		query  string
+		args   []any
+		clauses []string
 	)
 	if instance != "" {
-		query = base + ` WHERE instance=$1 ORDER BY id DESC LIMIT $2`
-		args = []any{instance, limit}
-	} else {
-		query = base + ` ORDER BY id DESC LIMIT $1`
-		args = []any{limit}
+		clauses = append(clauses, fmt.Sprintf("instance=$%d", len(args)+1))
+		args = append(args, instance)
 	}
+	if ownerTag != "" {
+		// Subquery: solo entradas de instancias con ese owner_tag.
+		clauses = append(clauses, fmt.Sprintf("instance IN (SELECT name FROM bridge_instance WHERE owner_tag=$%d)", len(args)+1))
+		args = append(args, ownerTag)
+	}
+	query = base
+	if len(clauses) > 0 {
+		query += " WHERE " + clauses[0]
+		for _, c := range clauses[1:] {
+			query += " AND " + c
+		}
+	}
+	query += fmt.Sprintf(" ORDER BY id DESC LIMIT $%d", len(args)+1)
+	args = append(args, limit)
 	r, err := rows(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query audit: %w", err)

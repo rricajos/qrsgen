@@ -75,6 +75,10 @@ type Manager struct {
 	// audit es el logger opcional para eventos lifecycle. Si nil, no se
 	// registran transiciones (paired / logged_out / strike) en el audit log.
 	audit AuditRecorder
+
+	// ownerTagResolver es opcional. Si nil, las métricas con label
+	// `owner_tag` lo dejan vacío. Inyectado en main.go con el Registry.
+	ownerTagResolver OwnerTagResolver
 }
 
 // UsageRecorder es la interfaz mínima que el manager usa para incrementar
@@ -94,6 +98,27 @@ type AuditRecorder interface {
 
 // SetAudit attaches an audit recorder. Pass nil to disable.
 func (m *Manager) SetAudit(a AuditRecorder) { m.audit = a }
+
+// OwnerTagResolver es la interfaz mínima que el manager usa para obtener
+// el owner_tag de una instancia (label per-tenant en métricas Prometheus).
+// Implementada por `downstream.Router` (Registry + Client). Inyectable
+// vía SetOwnerTagResolver; si nil, el label sale como "".
+type OwnerTagResolver interface {
+	OwnerTagFor(ctx context.Context, instance string) string
+}
+
+// SetOwnerTagResolver attaches a resolver for owner_tag lookups. Pass nil to disable.
+func (m *Manager) SetOwnerTagResolver(r OwnerTagResolver) { m.ownerTagResolver = r }
+
+// ownerTag devuelve el owner_tag o "" si no hay resolver / instancia.
+func (m *Manager) ownerTag(name string) string {
+	if m.ownerTagResolver == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return m.ownerTagResolver.OwnerTagFor(ctx, name)
+}
 
 func New(ctx context.Context, dsn string, pool *pgxpool.Pool, logger *slog.Logger, onMsg wameow.MessageHandler) (*Manager, error) {
 	container, err := wameow.NewContainer(ctx, dsn)
@@ -577,7 +602,7 @@ func (m *Manager) emitLifecycleWebhook(name string, ev wameow.LifecycleEvent, ji
 	}
 	body, _ := json.Marshal(payload)
 	m.postWebhookWithRetry(name, string(ev), url, body)
-	metrics.LifecycleEvents.WithLabelValues(name, string(ev)).Inc()
+	metrics.LifecycleEvents.WithLabelValues(name, string(ev), m.ownerTag(name)).Inc()
 	if m.usage != nil {
 		m.usage.IncLifecycle(name)
 	}
@@ -845,7 +870,7 @@ func (m *Manager) emitCustomWebhook(name string, ev wameow.LifecycleEvent, extra
 	// Las métricas y usage se cuentan en el emit (no en el retry success):
 	// representan "qrsgen intentó emitir el evento", no "el orquestador lo
 	// recibió".
-	metrics.LifecycleEvents.WithLabelValues(name, string(ev)).Inc()
+	metrics.LifecycleEvents.WithLabelValues(name, string(ev), m.ownerTag(name)).Inc()
 	if m.usage != nil {
 		m.usage.IncLifecycle(name)
 	}

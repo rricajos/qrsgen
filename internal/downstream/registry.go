@@ -17,12 +17,31 @@ import (
 // implementan, así que el callsite no necesita saber cuál es.
 type Router interface {
 	For(ctx context.Context, instance string) *Client
+	// OwnerTagFor devuelve el owner_tag asociado a esta instancia, o ""
+	// si no tiene tenant configurado (single-downstream, instance sin
+	// owner_tag, o tenant aún no mapeado). Cacheado con TTL en Registry.
+	OwnerTagFor(ctx context.Context, instance string) string
 }
 
 // For implementación trivial para single-downstream: el cliente se
 // devuelve a sí mismo. Permite que código que ya tenía un `*Client`
 // directo siga funcionando sin cambios al adoptar la interface Router.
 func (c *Client) For(_ context.Context, _ string) *Client { return c }
+
+// OwnerTagFor single-downstream: devuelve "" siempre. No hay tenants
+// configurados, todo va al cliente global.
+func (c *Client) OwnerTagFor(_ context.Context, _ string) string { return "" }
+
+// OwnerTagFor devuelve el owner_tag cacheado de una instancia, o "" si
+// no tiene. Idéntico al lookup interno que `For` usa para route — lo
+// exponemos como método público para que los callsites de métricas
+// puedan etiquetar contadores por tenant sin volver a hacer la query.
+func (r *Registry) OwnerTagFor(ctx context.Context, instance string) string {
+	if r == nil {
+		return ""
+	}
+	return r.ownerTagFor(ctx, instance)
+}
 
 // Registry resuelve el `*Client` adecuado para una instancia dada,
 // considerando su `owner_tag` y el mapeo en bridge_tenant. Si la

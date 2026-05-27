@@ -175,6 +175,7 @@ func main() {
 	incoming.SetUsage(usageTracker)
 	mgr.SetUsage(usageTracker)
 	mgr.SetAudit(auditLog)
+	mgr.SetOwnerTagResolver(dsRegistry)
 
 	banWatcher := banwatch.New(banwatch.DefaultConfig(), spamguardAdapter{mgr: mgr}, logger)
 	banWatcher.Start(ctx, 30*time.Second)
@@ -545,7 +546,8 @@ func main() {
 				limit = n
 			}
 		}
-		entries, err := auditLog.Query(c.Request().Context(), c.QueryParam("instance"), limit)
+		entries, err := auditLog.QueryFiltered(c.Request().Context(),
+			c.QueryParam("instance"), c.QueryParam("owner_tag"), limit)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}

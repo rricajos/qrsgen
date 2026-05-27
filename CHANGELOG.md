@@ -4,6 +4,37 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-05-27
+
+Observabilidad per-tenant: cuando un proceso qrsgen sirve varios
+clientes vía `owner_tag`, ahora puedes separar métricas y entradas de
+audit por tenant sin tener que cruzar contra DB.
+
+### Added
+
+- **Label `owner_tag`** en los counters Prometheus per-instance:
+  `qrsgen_messages_total`, `qrsgen_spamguard_blocks_total`,
+  `qrsgen_lifecycle_events_total`, `qrsgen_message_dispatch_errors_total`.
+  Vacío para instancias sin tenant configurado. Las queries existentes
+  sin filtrar por `owner_tag` siguen funcionando (Prometheus agrega).
+- **`Router.OwnerTagFor(ctx, instance)`** nuevo método en la interfaz —
+  `*Client` devuelve `""` (single-downstream), `*Registry` resuelve
+  desde el cache TTL existente. Permite a callsites de métricas
+  etiquetar sin nuevos lookups DB.
+- **`GET /api/audit?owner_tag=tenant-acme`** — filtro nuevo en el
+  endpoint de audit. Subquery sobre `bridge_instance.owner_tag`. Si se
+  combina con `?instance=X` el AND es lógico. Sin filtro = todo.
+  Permite que un admin de tenant solo vea sus entradas sin acceso al
+  resto del audit log.
+
+### Changed
+
+- `audit.Logger.Query` mantiene firma original; nueva `QueryFiltered`
+  acepta el segundo filtro opcional. `Query` delega en `QueryFiltered`
+  con `ownerTag=""` para backward compat.
+- Manager expone `SetOwnerTagResolver(r)` para inyectar el `Registry`
+  (o cualquier impl de la interface). Sin él, el label sale como `""`.
+
 ## [0.24.2] - 2026-05-27
 
 Bug fix de "🎉 espurio" + robustez en `backend_started` + cache 30s
@@ -247,7 +278,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.24.2...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.25.0
 [0.24.2]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.2
 [0.24.1]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.1
 [0.24.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.0

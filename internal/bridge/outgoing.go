@@ -182,7 +182,7 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 		if o.sg.IsSpamguardEnabled(ctx, instance) {
 			blocked, count := o.tracker.CheckAndRecord(instance, remoteJid, p.Content)
 			if blocked {
-				metrics.SpamguardBlocks.WithLabelValues(instance).Inc()
+				metrics.SpamguardBlocks.WithLabelValues(instance, o.ds.OwnerTagFor(ctx, instance)).Inc()
 				o.incUsageSpamguard(instance)
 				o.logger.Warn("spamguard blocked outgoing dup",
 					"instance", instance, "remoteJid", remoteJid,
@@ -233,13 +233,14 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 				capForThis = caption
 			}
 			waID, err := o.sender.SendMedia(ctx, instance, remoteJid, att.FileType, mimetype, filename, capForThis, data)
+			tag := o.ds.OwnerTagFor(ctx, instance)
 			if err != nil {
-				metrics.MessageDispatchErrors.WithLabelValues("out", instance, "send_media").Inc()
+				metrics.MessageDispatchErrors.WithLabelValues("out", instance, "send_media", tag).Inc()
 				o.recordBanwatch(instance, remoteJid, false)
 				o.logger.Error("send media failed", "err", err, "att_id", att.ID, "kind", att.FileType)
 				continue
 			}
-			metrics.MessagesTotal.WithLabelValues("out", instance).Inc()
+			metrics.MessagesTotal.WithLabelValues("out", instance, tag).Inc()
 			o.incUsageOut(instance)
 			o.recordBanwatch(instance, remoteJid, true)
 			o.logger.Info("sent outgoing media to whatsapp",
@@ -264,12 +265,13 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 	}
 
 	waID, err := o.sender.SendText(ctx, instance, remoteJid, p.Content)
+	tag := o.ds.OwnerTagFor(ctx, instance)
 	if err != nil {
-		metrics.MessageDispatchErrors.WithLabelValues("out", instance, "send_text").Inc()
+		metrics.MessageDispatchErrors.WithLabelValues("out", instance, "send_text", tag).Inc()
 		o.recordBanwatch(instance, remoteJid, false)
 		return err
 	}
-	metrics.MessagesTotal.WithLabelValues("out", instance).Inc()
+	metrics.MessagesTotal.WithLabelValues("out", instance, tag).Inc()
 	o.incUsageOut(instance)
 	o.recordBanwatch(instance, remoteJid, true)
 	o.logger.Info("sent outgoing to whatsapp", "instance", instance, "remoteJid", remoteJid, "waID", waID)

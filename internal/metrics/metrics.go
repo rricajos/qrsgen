@@ -11,29 +11,31 @@ var (
 	// MessagesTotal contabiliza cada mensaje que pasa por el bridge.
 	// direction: "in" (recibido de WhatsApp y propagado a downstream) o
 	//            "out" (enviado a WhatsApp desde downstream).
+	// owner_tag: tenant correlator si la instancia lo tiene; "" para
+	// single-downstream o instancias sin tenant configurado.
 	MessagesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "qrsgen_messages_total",
 		Help: "Total de mensajes procesados por el bridge.",
-	}, []string{"direction", "instance"})
+	}, []string{"direction", "instance", "owner_tag"})
 
 	// SpamguardBlocks: nº de outgoings bloqueados por la política last-2.
 	SpamguardBlocks = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "qrsgen_spamguard_blocks_total",
 		Help: "Mensajes salientes bloqueados por el filtro spamguard.",
-	}, []string{"instance"})
+	}, []string{"instance", "owner_tag"})
 
 	// LifecycleEvents: transiciones emitidas al webhook (connected, qr_generated, etc.)
 	LifecycleEvents = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "qrsgen_lifecycle_events_total",
 		Help: "Eventos de ciclo de vida emitidos por instancia.",
-	}, []string{"instance", "event"})
+	}, []string{"instance", "event", "owner_tag"})
 
 	// MessageDispatchErrors: fallos al despachar mensajes (incoming downstream POST,
 	// outgoing whatsmeow SendText, etc.). Útil para alertas.
 	MessageDispatchErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "qrsgen_message_dispatch_errors_total",
 		Help: "Errores al despachar mensajes.",
-	}, []string{"direction", "instance", "kind"})
+	}, []string{"direction", "instance", "kind", "owner_tag"})
 
 	// LifecycleWebhookRetries: cuenta reintentos de webhooks lifecycle críticos.
 	// outcome: "success" si el reintento entregó, "exhausted" si se acabaron los

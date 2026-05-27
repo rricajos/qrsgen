@@ -40,3 +40,30 @@ func TestRegistry_For_EmptyInstance_UsesFallback(t *testing.T) {
 		t.Errorf("empty instance should fall back to global, got %p (want %p)", got, fallback)
 	}
 }
+
+// OwnerTagFor en *Client siempre devuelve "" (single-downstream sin tenants).
+func TestClient_OwnerTagFor_AlwaysEmpty(t *testing.T) {
+	c := New("http://example.test", "tok", 1)
+	if got := c.OwnerTagFor(context.Background(), "any"); got != "" {
+		t.Errorf("Client.OwnerTagFor should always be empty, got %q", got)
+	}
+}
+
+// OwnerTagFor en *Registry con nil receiver devuelve "" (defensa).
+func TestRegistry_OwnerTagFor_NilReceiver(t *testing.T) {
+	var r *Registry
+	if got := r.OwnerTagFor(context.Background(), "instance"); got != "" {
+		t.Errorf("nil Registry.OwnerTagFor should be empty, got %q", got)
+	}
+}
+
+// OwnerTagFor en *Registry con instance vacío devuelve "" (vía ownerTagFor interno).
+func TestRegistry_OwnerTagFor_EmptyInstance(t *testing.T) {
+	r := &Registry{
+		clients:     map[string]*Client{},
+		instanceTag: map[string]instanceTagEntry{},
+	}
+	if got := r.OwnerTagFor(context.Background(), ""); got != "" {
+		t.Errorf("OwnerTagFor with empty instance should be empty, got %q", got)
+	}
+}

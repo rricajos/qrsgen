@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -107,17 +108,21 @@ func (d *Deduper) ShouldDrop(ctx context.Context, instance, remoteJid, content s
 	return false, nil
 }
 
-// SpamguardTracker mantiene en memoria el historial de los últimos 2 mensajes
-// salientes por (instance, jid_user) y un contador acumulado de bloqueos por
-// instancia. Política: si el contenido del nuevo outgoing coincide con
-// CUALQUIERA de los 2 hashes guardados → bloquea.
+// SpamguardTracker mantiene el historial de los últimos 2 mensajes salientes
+// por (instance, jid_user) y un contador acumulado de bloqueos por instancia.
+// Política: si el contenido del nuevo outgoing coincide con CUALQUIERA de los
+// 2 hashes guardados → bloquea.
 //
-// Lifetime: in-memory; se resetea al reiniciar qrsgen. El contador (n) sirve
-// como "número de bloqueos en esta sesión" visible al agente vía evento.
+// Desde v0.28.0, el estado se persiste en `bridge_spamguard_recent` +
+// `bridge_spamguard_counter` (vía SetPool) — sobrevive a restarts. Sin pool,
+// el comportamiento sigue siendo in-memory only (compat con tests).
 type SpamguardTracker struct {
 	mu      sync.Mutex
 	history map[string][2]string // key="instance|jidUser" → [latest, prev]
 	counter map[string]int       // key=instance → bloqueos acumulados
+
+	pool   *pgxpool.Pool
+	logger *slog.Logger
 }
 
 func NewSpamguardTracker() *SpamguardTracker {
@@ -125,6 +130,88 @@ func NewSpamguardTracker() *SpamguardTracker {
 		history: map[string][2]string{},
 		counter: map[string]int{},
 	}
+}
+
+// SetPool activa persistencia en DB. Llamar a Warmup() después para cargar
+// estado existente. logger puede ser nil.
+func (t *SpamguardTracker) SetPool(pool *pgxpool.Pool, logger *slog.Logger) {
+	t.pool = pool
+	t.logger = logger
+}
+
+// EnsureSpamguardSchema crea las tablas de persistencia. Idempotente.
+func EnsureSpamguardSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS bridge_spamguard_recent (
+			instance     TEXT NOT NULL,
+			jid_user     TEXT NOT NULL,
+			hash_latest  TEXT NOT NULL,
+			hash_prev    TEXT NOT NULL DEFAULT '',
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (instance, jid_user)
+		)`,
+		`CREATE INDEX IF NOT EXISTS bridge_spamguard_recent_updated_idx
+		 ON bridge_spamguard_recent (updated_at)`,
+		`CREATE TABLE IF NOT EXISTS bridge_spamguard_counter (
+			instance     TEXT PRIMARY KEY,
+			count        BIGINT NOT NULL DEFAULT 0,
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+	}
+	for _, s := range stmts {
+		if _, err := pool.Exec(ctx, s); err != nil {
+			return fmt.Errorf("spamguard schema: %w", err)
+		}
+	}
+	return nil
+}
+
+// Warmup carga el historial reciente y los contadores en memoria. Llamar al
+// boot tras SetPool. Solo carga filas con updated_at < 1h (older rows are
+// considered stale — la ventana de relevancia es corta para spamguard).
+func (t *SpamguardTracker) Warmup(ctx context.Context) error {
+	if t.pool == nil {
+		return nil
+	}
+	rows, err := t.pool.Query(ctx, `
+		SELECT instance, jid_user, hash_latest, hash_prev
+		FROM bridge_spamguard_recent
+		WHERE updated_at > NOW() - INTERVAL '1 hour'
+	`)
+	if err != nil {
+		return fmt.Errorf("warmup history: %w", err)
+	}
+	defer rows.Close()
+	t.mu.Lock()
+	for rows.Next() {
+		var inst, jid, latest, prev string
+		if err := rows.Scan(&inst, &jid, &latest, &prev); err != nil {
+			t.mu.Unlock()
+			return fmt.Errorf("scan history: %w", err)
+		}
+		t.history[inst+"|"+jid] = [2]string{latest, prev}
+	}
+	t.mu.Unlock()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	crows, err := t.pool.Query(ctx, `SELECT instance, count FROM bridge_spamguard_counter`)
+	if err != nil {
+		return fmt.Errorf("warmup counter: %w", err)
+	}
+	defer crows.Close()
+	t.mu.Lock()
+	for crows.Next() {
+		var inst string
+		var n int64
+		if err := crows.Scan(&inst, &n); err != nil {
+			t.mu.Unlock()
+			return fmt.Errorf("scan counter: %w", err)
+		}
+		t.counter[inst] = int(n)
+	}
+	t.mu.Unlock()
+	return crows.Err()
 }
 
 // BlockCount lectura del contador acumulado de bloqueos para una instancia.
@@ -149,17 +236,87 @@ func (t *SpamguardTracker) CheckAndRecord(instance, jid, content string) (blocke
 	jidUser := normalizeJid(jid)
 	key := instance + "|" + jidUser
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	var newHist [2]string
+	var blockedOut bool
 	if h, ok := t.history[key]; ok {
 		if h[0] == hash || h[1] == hash {
 			t.counter[instance]++
-			return true, t.counter[instance]
+			blockedOut = true
+			newHist = h // no shift en bloqueo
+		} else {
+			newHist = [2]string{hash, h[0]}
+			t.history[key] = newHist
 		}
-		t.history[key] = [2]string{hash, h[0]}
 	} else {
-		t.history[key] = [2]string{hash, ""}
+		newHist = [2]string{hash, ""}
+		t.history[key] = newHist
 	}
-	return false, t.counter[instance]
+	cnt := t.counter[instance]
+	t.mu.Unlock()
+	// Persistir best-effort. Hot path tolera fallos (in-memory ya correcto).
+	if t.pool != nil {
+		if blockedOut {
+			t.persistCounter(instance, cnt)
+		} else {
+			t.persistHistory(instance, jidUser, newHist[0], newHist[1])
+		}
+	}
+	return blockedOut, cnt
+}
+
+// persistHistory hace UPSERT del par (latest, prev) para (instance, jid_user).
+// Best-effort: errores se loggean y se ignoran (en memoria ya es correcto).
+func (t *SpamguardTracker) persistHistory(instance, jidUser, latest, prev string) {
+	if t.pool == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := t.pool.Exec(ctx, `
+		INSERT INTO bridge_spamguard_recent (instance, jid_user, hash_latest, hash_prev, updated_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (instance, jid_user) DO UPDATE SET
+			hash_latest = EXCLUDED.hash_latest,
+			hash_prev   = EXCLUDED.hash_prev,
+			updated_at  = NOW()
+	`, instance, jidUser, latest, prev)
+	if err != nil && t.logger != nil {
+		t.logger.Warn("spamguard persist history", "instance", instance, "err", err)
+	}
+}
+
+// persistCounter actualiza el contador acumulado para una instancia.
+func (t *SpamguardTracker) persistCounter(instance string, count int) {
+	if t.pool == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := t.pool.Exec(ctx, `
+		INSERT INTO bridge_spamguard_counter (instance, count, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (instance) DO UPDATE SET
+			count      = EXCLUDED.count,
+			updated_at = NOW()
+	`, instance, int64(count))
+	if err != nil && t.logger != nil {
+		t.logger.Warn("spamguard persist counter", "instance", instance, "err", err)
+	}
+}
+
+// CleanupOldRecent elimina filas más viejas que `keep`. Llamar periódicamente
+// (cron) para mantener la tabla acotada. Borrar > 1h es seguro: la ventana de
+// dedup spamguard es de 2 últimos mensajes; tras 1h sin mensajes no es
+// realista re-disparar el bloqueo.
+func (t *SpamguardTracker) CleanupOldRecent(ctx context.Context, keep time.Duration) error {
+	if t.pool == nil {
+		return nil
+	}
+	_, err := t.pool.Exec(ctx,
+		`DELETE FROM bridge_spamguard_recent WHERE updated_at < NOW() - $1::interval`,
+		fmt.Sprintf("%d seconds", int(keep.Seconds())),
+	)
+	return err
 }
 
 // SeenIncomingMsg devuelve true si el msgID ya fue procesado en la

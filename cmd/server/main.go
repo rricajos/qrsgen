@@ -170,6 +170,32 @@ func main() {
 	defer mgr.Shutdown()
 
 	sgTracker := bridge.NewSpamguardTracker()
+	// Spamguard persistence (v0.28.0): historial sobrevive a restart.
+	if err := bridge.EnsureSpamguardSchema(ctx, pool); err != nil {
+		logger.Error("spamguard schema", "err", err)
+		os.Exit(1)
+	}
+	sgTracker.SetPool(pool, logger)
+	if err := sgTracker.Warmup(ctx); err != nil {
+		logger.Warn("spamguard warmup (continuando con cache vacío)", "err", err)
+	}
+	// Cleanup cron: cada 30 min borra filas con updated_at > 1h.
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				if err := sgTracker.CleanupOldRecent(cleanCtx, time.Hour); err != nil {
+					logger.Warn("spamguard cleanup", "err", err)
+				}
+				cancel()
+			}
+		}
+	}()
 	outgoing := bridge.NewOutgoing(senderAdapter{mgr: mgr}, dsRegistry, dedup, spamguardAdapter{mgr: mgr}, sgTracker, logger)
 	outgoing.SetUsage(usageTracker)
 	incoming.SetUsage(usageTracker)

@@ -4,6 +4,34 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-05-27
+
+Spamguard persistence: cierra la known limitation de v0.21.0 sobre
+contadores in-memory que se perdían en restarts.
+
+### Added
+
+- **`SpamguardTracker` persistido en DB** (vía `SetPool` + `Warmup`).
+  Nuevas tablas `bridge_spamguard_recent` (last-2 hashes per
+  instance+jid_user) y `bridge_spamguard_counter` (counter acumulado
+  per instance). El bloqueo dup sobrevive a restarts: un agente que
+  intente enviar el mismo mensaje justo después de un deploy sigue
+  siendo bloqueado.
+- **Cleanup cron** (cada 30 min) que purga `bridge_spamguard_recent`
+  con `updated_at > 1h`. La ventana de relevancia del spamguard es
+  corta — más viejo que 1h sin actividad ya no es spam realista.
+
+### Changed
+
+- `SpamguardTracker.CheckAndRecord` ahora hace best-effort UPSERT
+  tras cada decisión (in-memory cambia primero; DB después). Hot path
+  tolera fallos DB sin bloquear el flow.
+
+### Known limitations resueltas
+
+- ✅ v0.21.0: "Spamguard counter in-memory: se resetea en cada
+  restart" — hecho en v0.28.0.
+
 ## [0.27.0] - 2026-05-27
 
 Outbox encryption at-rest: cierra una known limitation pendiente desde
@@ -339,7 +367,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.0
 [0.27.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.27.0
 [0.26.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.26.0
 [0.25.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.25.0

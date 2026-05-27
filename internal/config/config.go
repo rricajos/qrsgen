@@ -52,6 +52,13 @@ type Config struct {
 	// del endpoint público. Default vacío → sin CORS (otros origins no pueden
 	// fetch via JS). Ejemplo: "https://rricajos.github.io".
 	PublicStatsAllowOrigin string `env:"PUBLIC_STATS_ALLOW_ORIGIN"`
+
+	// OutboxEncryptionKey es una key AES-256 (32 bytes) codificada en base64
+	// estándar. Si está set, qrsgen cifra cada payload nuevo del outbox con
+	// AES-GCM al persistirlo en `bridge_outgoing_queue`. Filas pre-encryption
+	// (sin nonce) siguen entregándose en claro — backward compat. Si vacío
+	// (default) no se cifra. Desde v0.27.0.
+	OutboxEncryptionKey string `env:"OUTBOX_ENCRYPTION_KEY"`
 }
 
 func Load() (Config, error) {

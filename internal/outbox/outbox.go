@@ -83,6 +83,12 @@ type Outbox struct {
 	audit     AuditRecorder
 	logger    *slog.Logger
 
+	// encryptionKey opcional (AES-256). Si len==32, Enqueue cifra los payloads
+	// nuevos con AES-GCM y persiste `nonce` + `payload_enc`. DrainOnce/ExpireOnce
+	// descifran las filas que tienen nonce no-NULL; las legacy con nonce NULL
+	// se entregan tal cual (backward compat).
+	encryptionKey []byte
+
 	// metrics hooks — left as plain func to keep the package decoupled from
 	// the concrete prometheus types. Set by main.go after construction.
 	onEnqueue func(instance string)
@@ -92,6 +98,20 @@ type Outbox struct {
 	depthFn   func(instance string, depth int)
 
 	mu sync.Mutex
+}
+
+// SetEncryptionKey activa cifrado AES-GCM de payloads nuevos. La key debe
+// tener EncryptionKeySize bytes; pasar nil/empty para opt-out.
+func (o *Outbox) SetEncryptionKey(key []byte) error {
+	if len(key) == 0 {
+		o.encryptionKey = nil
+		return nil
+	}
+	if len(key) != EncryptionKeySize {
+		return fmt.Errorf("outbox: encryption key must be %d bytes, got %d", EncryptionKeySize, len(key))
+	}
+	o.encryptionKey = key
+	return nil
 }
 
 // EnqueueResult is what callers get back when an item lands in the queue.
@@ -122,6 +142,16 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		 ON bridge_outgoing_queue (instance, id) WHERE status = 'pending'`,
 		`CREATE INDEX IF NOT EXISTS bridge_outgoing_queue_expires_idx
 		 ON bridge_outgoing_queue (expires_at) WHERE status = 'pending'`,
+		// v0.27 — payload encryption opt-in:
+		// `nonce IS NULL` → payload en claro (filas legacy, compat).
+		// `nonce IS NOT NULL` → payload cifrado con AES-256-GCM; nonce
+		// es el de 12 bytes random usado para esa fila.
+		// `payload` cambia de JSONB → BYTEA porque ciphertext binario.
+		// Para no romper filas existentes JSONB seguimos aceptándolas
+		// (driver pgx maneja JSONB como bytes en read), pero las nuevas
+		// son BYTEA via columna paralela `payload_enc` solo si key set.
+		`ALTER TABLE bridge_outgoing_queue ADD COLUMN IF NOT EXISTS nonce BYTEA`,
+		`ALTER TABLE bridge_outgoing_queue ADD COLUMN IF NOT EXISTS payload_enc BYTEA`,
 	}
 	for _, s := range stmts {
 		if _, err := pool.Exec(ctx, s); err != nil {
@@ -187,12 +217,29 @@ func (o *Outbox) Enqueue(ctx context.Context, instance, remoteJID string, payloa
 
 	expiresAt := time.Now().Add(o.cfg.TTL)
 	var id int64
-	if err := o.pool.QueryRow(ctx, `
-		INSERT INTO bridge_outgoing_queue (instance, remote_jid, payload, expires_at)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id
-	`, instance, remoteJID, []byte(payload), expiresAt).Scan(&id); err != nil {
-		return EnqueueResult{}, fmt.Errorf("insert outbox: %w", err)
+	if len(o.encryptionKey) == EncryptionKeySize {
+		// Cifrar: persistimos en payload_enc + nonce. El campo payload
+		// (JSONB legacy) lo dejamos con un JSON null para satisfacer NOT NULL.
+		ct, nonce, err := sealPayload(o.encryptionKey, []byte(payload))
+		if err != nil {
+			return EnqueueResult{}, fmt.Errorf("seal payload: %w", err)
+		}
+		if err := o.pool.QueryRow(ctx, `
+			INSERT INTO bridge_outgoing_queue (instance, remote_jid, payload, payload_enc, nonce, expires_at)
+			VALUES ($1, $2, 'null'::jsonb, $3, $4, $5)
+			RETURNING id
+		`, instance, remoteJID, ct, nonce, expiresAt).Scan(&id); err != nil {
+			return EnqueueResult{}, fmt.Errorf("insert outbox (encrypted): %w", err)
+		}
+	} else {
+		// Sin key → backward compat (payload JSONB en claro).
+		if err := o.pool.QueryRow(ctx, `
+			INSERT INTO bridge_outgoing_queue (instance, remote_jid, payload, expires_at)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id
+		`, instance, remoteJID, []byte(payload), expiresAt).Scan(&id); err != nil {
+			return EnqueueResult{}, fmt.Errorf("insert outbox: %w", err)
+		}
 	}
 
 	if o.onEnqueue != nil {
@@ -255,7 +302,7 @@ func (o *Outbox) DrainOnce(ctx context.Context) error {
 	defer o.mu.Unlock()
 
 	rows, err := o.pool.Query(ctx, `
-		SELECT id, instance, remote_jid, payload, attempts
+		SELECT id, instance, remote_jid, payload, payload_enc, nonce, attempts
 		FROM bridge_outgoing_queue
 		WHERE status='pending'
 		ORDER BY id ASC
@@ -275,9 +322,21 @@ func (o *Outbox) DrainOnce(ctx context.Context) error {
 	var batch []item
 	for rows.Next() {
 		var it item
-		if err := rows.Scan(&it.id, &it.instance, &it.remoteJID, &it.payload, &it.attempts); err != nil {
+		var payloadJSONB, payloadEnc, nonce []byte
+		if err := rows.Scan(&it.id, &it.instance, &it.remoteJID, &payloadJSONB, &payloadEnc, &nonce, &it.attempts); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan: %w", err)
+		}
+		// Si la fila tiene nonce, viene cifrada; sino, payload JSONB es plaintext.
+		if len(nonce) > 0 {
+			pt, err := openPayload(o.encryptionKey, payloadEnc, nonce)
+			if err != nil {
+				rows.Close()
+				return fmt.Errorf("decrypt outbox id=%d: %w", it.id, err)
+			}
+			it.payload = pt
+		} else {
+			it.payload = payloadJSONB
 		}
 		batch = append(batch, it)
 	}
@@ -337,7 +396,7 @@ func (o *Outbox) DrainOnce(ctx context.Context) error {
 // emits an outgoing_expired lifecycle event with a preview.
 func (o *Outbox) ExpireOnce(ctx context.Context) error {
 	rows, err := o.pool.Query(ctx, `
-		SELECT id, instance, remote_jid, payload
+		SELECT id, instance, remote_jid, payload, payload_enc, nonce
 		FROM bridge_outgoing_queue
 		WHERE status='pending' AND expires_at < NOW()
 		ORDER BY id ASC
@@ -355,9 +414,23 @@ func (o *Outbox) ExpireOnce(ctx context.Context) error {
 	var batch []item
 	for rows.Next() {
 		var it item
-		if err := rows.Scan(&it.id, &it.instance, &it.remoteJID, &it.payload); err != nil {
+		var payloadJSONB, payloadEnc, nonce []byte
+		if err := rows.Scan(&it.id, &it.instance, &it.remoteJID, &payloadJSONB, &payloadEnc, &nonce); err != nil {
 			rows.Close()
 			return err
+		}
+		// Para preview necesitamos descifrar si la fila viene cifrada. Si
+		// el descifrado falla, dejamos el preview vacío y seguimos — no
+		// queremos bloquear la expiración por un error de cripto.
+		if len(nonce) > 0 {
+			if pt, err := openPayload(o.encryptionKey, payloadEnc, nonce); err == nil {
+				it.payload = pt
+			} else {
+				o.logger.Warn("expire decrypt failed (preview unavailable)", "id", it.id, "err", err)
+				it.payload = nil
+			}
+		} else {
+			it.payload = payloadJSONB
 		}
 		batch = append(batch, it)
 	}

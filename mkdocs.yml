@@ -100,6 +100,7 @@ nav:
       - Capa 1 — Bearer auth: security/layer-1-bearer.md
       - Capa 2 — HMAC webhook: security/layer-2-hmac.md
       - Capa 3 — Egress firewall: security/layer-3-firewall.md
+      - Outbox encryption: security/outbox-encryption.md
       - Capa 4 — TLS WhatsApp: security/layer-4-tls.md
       - Capa 5 — Container hardening: security/layer-5-hardening.md
       - Capa 6 — Audit log: security/layer-6-audit.md

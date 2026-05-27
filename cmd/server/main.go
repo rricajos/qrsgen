@@ -186,6 +186,18 @@ func main() {
 		os.Exit(1)
 	}
 	outboxQueue := outbox.New(outbox.DefaultConfig(), pool, outgoing, mgr, spamguardAdapter{mgr: mgr}, auditLog, logger)
+	if cfg.OutboxEncryptionKey != "" {
+		key, err := outbox.DecodeEncryptionKey(cfg.OutboxEncryptionKey)
+		if err != nil {
+			logger.Error("outbox encryption key", "err", err)
+			os.Exit(1)
+		}
+		if err := outboxQueue.SetEncryptionKey(key); err != nil {
+			logger.Error("outbox set key", "err", err)
+			os.Exit(1)
+		}
+		logger.Info("outbox encryption enabled (AES-256-GCM)")
+	}
 	outboxQueue.Start(ctx)
 
 	e := echo.New()

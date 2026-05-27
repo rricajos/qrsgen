@@ -4,6 +4,37 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-05-27
+
+Outbox encryption at-rest: cierra una known limitation pendiente desde
+v0.23.0. Opt-in vía env, backward compatible.
+
+### Added
+
+- **AES-256-GCM encryption** opcional para payloads en
+  `bridge_outgoing_queue`. Activar con `OUTBOX_ENCRYPTION_KEY` (32
+  bytes en base64). Si vacío → no cifra (compat). Las filas cifradas
+  llevan `nonce IS NOT NULL`; las legacy `nonce IS NULL` se entregan
+  en claro (backward compat durante migración).
+- Nuevo helper `internal/outbox/crypto.go` con `sealPayload` /
+  `openPayload` + `DecodeEncryptionKey` que valida tamaño.
+- Schema migration idempotente: añade `payload_enc BYTEA` y `nonce
+  BYTEA` a `bridge_outgoing_queue`.
+- Doc `docs/security/outbox-encryption.md` con setup, rotación y qué
+  vector cubre (DBA compromise / dump de Postgres).
+
+### Changed
+
+- `outbox.Outbox` añade `SetEncryptionKey([]byte)` setter. Si la key
+  está set, `Enqueue` cifra y persiste en `payload_enc + nonce`;
+  `DrainOnce` / `ExpireOnce` descifran al leer.
+
+### Known limitations (v0.27.0)
+
+- Rotación segura requiere drenar el outbox antes de cambiar la key.
+  Rotación dual-key sin pausa queda para futuras versiones.
+- Cifrado per-tenant (KEK + DEKs) queda para v0.28+.
+
 ## [0.26.0] - 2026-05-27
 
 Tenant config completeness: `PATCH` parcial + HMAC per-tenant para
@@ -308,7 +339,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.27.0
 [0.26.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.26.0
 [0.25.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.25.0
 [0.24.2]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.2

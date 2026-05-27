@@ -7,7 +7,15 @@
 | Cert pinning whatsmeow | Vector #3 con CA root compromise | Alto |
 | Rate-limiting de `/api/*` | Vector #1 abuso intra-LAN | Bajo |
 | eBPF observability (Falco / Tetragon) | Detección de comportamiento anómalo | Alto |
-| Multi-downstream con HMAC por tenant | Aislamiento entre clientes (multi-tenant real) | Medio |
+| HMAC del webhook entrante per-tenant | Aislamiento de credenciales en multi-downstream | Medio |
+| Outbox encryption per-tenant | Payloads en cola no legibles para DBA | Medio |
+| Spamguard persistido en DB | Counter sobrevive a restart | Bajo |
+
+Notas: **multi-downstream** (servir varios downstreams desde un proceso)
+ya está implementado desde v0.24.0 — ver
+[arquitectura](../architecture/multi-instance.md). Lo que sigue pendiente
+del modelo multi-tenant "serio" es el aislamiento de credenciales (HMAC
++ outbox encryption) por tenant.
 
 ## Glosario
 

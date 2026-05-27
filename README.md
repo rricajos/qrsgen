@@ -44,6 +44,12 @@ Tu sistema (n8n, app custom, CRM, etc.)
 
 - **Multi-instancia real**: un binario gestiona N números, cada uno con
   su WebSocket contra Meta.
+- **Multi-tenant / multi-downstream**: cada instancia puede llevar un
+  `owner_tag` que la mapea a un downstream propio (URL/token/account)
+  vía la tabla `bridge_tenant`. Un solo proceso qrsgen puede servir
+  varios clientes con destinos distintos. `/api/tenants/*` para CRUD.
+  Si no hay tenant configurado, fallback al `DOWNSTREAM_*` del env
+  (backward compat single-tenant).
 - **HTTP-first**: cualquier sistema que hable HTTP integra sin SDK.
 - **Persistencia robusta**: sesiones whatsmeow en Postgres → restarts no
   requieren reescanear QR.

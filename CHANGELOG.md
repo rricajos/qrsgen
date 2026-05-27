@@ -4,6 +4,12 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-05-27
+
+Multi-downstream real: un solo proceso puede servir varios clientes con
+config downstream propia por `owner_tag`, manteniendo backward compat
+total con el fallback `DOWNSTREAM_*` del env.
+
 ### Added
 
 - **Multi-downstream real** (`internal/tenant` + `internal/downstream/registry.go`):
@@ -192,6 +198,7 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.24.0...HEAD
+[0.24.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.0
 [0.23.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.23.0
 [0.21.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.21.0

@@ -57,4 +57,12 @@ var (
 		Name: "qrsgen_total_instances",
 		Help: "Número total de instancias gestionadas.",
 	})
+
+	// VersionInfo: gauge fijo a 1 con el tag del binario como label. Estándar
+	// "info metric" — los dashboards lo joinean para mostrar versión activa.
+	// Ejemplo PromQL: `qrsgen_version_info{version="0.28.2"}`.
+	VersionInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "qrsgen_version_info",
+		Help: "Versión del binario qrsgen (gauge fijo a 1 con label version).",
+	}, []string{"version"})
 )

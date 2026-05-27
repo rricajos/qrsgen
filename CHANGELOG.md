@@ -4,6 +4,38 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.28.2] - 2026-05-27
+
+Tres pulidos observables: una race real arreglada + métrica de versión
++ UX del key cifrado.
+
+### Fixed
+
+- **Race "Error al enviar" en body de `backend_started`** tras deploy.
+  Síntoma observable: pill verde OK + body en rojo justo después. Causa:
+  el broadcast se disparaba antes de que el HTTP server del nuevo
+  container estuviera accept-ready, así que el dispatch de vuelta de
+  Chatwoot al webhook hit connection-refused. Fix: el broadcast ahora
+  hace polling al `/api/health` propio (timeout 5s) antes de emitir,
+  garantizando que estamos aceptando POSTs.
+
+### Added
+
+- **`qrsgen_version_info{version="X.Y.Z"} 1`** — nueva métrica
+  Prometheus (info-style gauge fijo a 1) para que dashboards Grafana
+  hagan join contra otras series y muestren la versión activa de
+  qrsgen. Estándar de ops desde Prometheus 2.x.
+
+### Changed
+
+- **`OUTBOX_ENCRYPTION_KEY`** ahora acepta también base64 URL-safe (con
+  o sin padding), no solo el estándar. Soluciona friction cuando la
+  key viene de un secret manager (Vault, GitHub Actions) que normaliza
+  a URL-safe. Tests añadidos para las 4 variantes.
+- **Sample defaults** del repo (`docker-compose.yml` + `.env.example`)
+  bumped de `0.19.1` (estancado meses) a `0.28.1`. Sin impacto en
+  binarios — solo template files para nuevos integradores.
+
 ## [0.28.1] - 2026-05-27
 
 Cleanup pass post-marathon: cabos sueltos de v0.27 + v0.28, sin
@@ -399,7 +431,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.1...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.2...HEAD
+[0.28.2]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.2
 [0.28.1]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.1
 [0.28.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.0
 [0.27.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.27.0

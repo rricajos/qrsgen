@@ -30,6 +30,7 @@ import (
 	"github.com/rricajos/qrsgen/internal/downstream"
 	"github.com/rricajos/qrsgen/internal/lib"
 	"github.com/rricajos/qrsgen/internal/manager"
+	"github.com/rricajos/qrsgen/internal/metrics"
 	"github.com/rricajos/qrsgen/internal/outbox"
 	"github.com/rricajos/qrsgen/internal/tenant"
 	"github.com/rricajos/qrsgen/internal/usage"
@@ -155,11 +156,9 @@ func main() {
 	if err := mgr.Bootstrap(ctx); err != nil {
 		logger.Error("bootstrap", "err", err)
 	}
-	// Anuncia backend_started a cada QR-X conv tras un breve delay (dejamos que
-	// las conexiones whatsmeow se estabilicen para reportar `connected: true`).
-	// BroadcastBackendStarted ahora espera a state=ready por instancia (timeout 20s)
-	// antes de emitir, así que no necesitamos el pre-sleep de 8s aquí.
-	go mgr.BroadcastBackendStarted()
+	// `BroadcastBackendStarted` se dispara MÁS ABAJO, después de que el HTTP
+	// server esté listening, para evitar la race en la que Chatwoot trata de
+	// dispatchar el body del pill antes de que aceptemos POSTs (failed body).
 
 	// auto-crear la instancia por defecto si no existía. Idempotente.
 	if cfg.InstanceName != "" {
@@ -203,6 +202,7 @@ func main() {
 	mgr.SetAudit(auditLog)
 	mgr.SetOwnerTagResolver(dsRegistry)
 	mgr.SetVersion(version)
+	metrics.VersionInfo.WithLabelValues(version).Set(1)
 
 	banWatcher := banwatch.New(banwatch.DefaultConfig(), spamguardAdapter{mgr: mgr}, logger)
 	banWatcher.Start(ctx, 30*time.Second)
@@ -938,6 +938,17 @@ func main() {
 		}
 	}()
 
+	// Una vez el HTTP server está listening, anunciamos backend_started. Esto
+	// evita el "Error al enviar" rojo en el body del pill: Chatwoot dispara
+	// el webhook de vuelta al instante, y necesita encontrar qrsgen escuchando.
+	go func() {
+		if !waitForHTTPReady(ctx, cfg.Port, 5*time.Second) {
+			logger.Warn("backend_started broadcast skipped: HTTP server not ready in time")
+			return
+		}
+		mgr.BroadcastBackendStarted()
+	}()
+
 	logger.Info("qrsgen ready", "port", cfg.Port)
 	<-ctx.Done()
 
@@ -1087,6 +1098,33 @@ func webhookHMACMiddleware(globalSecret string, lookup tenantHMACSecretLookup, l
 
 // runHealthcheck pings /api/health on localhost:$PORT (default 3100) and exits
 // 0 if 200 OK, 1 otherwise. Designed for Docker HEALTHCHECK on distroless.
+// waitForHTTPReady hace polling al /api/health propio hasta que responda
+// (200 ó 503 — ambos significan que el server está aceptando POSTs) o se
+// agote el timeout. Devuelve false si ctx cancela o timeout expira.
+//
+// Usado tras arrancar `e.Start()` para asegurar que estamos accept-ready
+// antes de emitir backend_started.
+func waitForHTTPReady(ctx context.Context, port int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/health", port)
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return false
+		}
+		resp, err := client.Get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+			// 200 = sano, 503 = DB degradada pero HTTP server vivo. Ambos OK.
+			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusServiceUnavailable {
+				return true
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
+}
+
 func runHealthcheck() {
 	port := os.Getenv("PORT")
 	if port == "" {

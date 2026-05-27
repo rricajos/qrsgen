@@ -183,6 +183,7 @@ Prometheus scrape. Sin auth.
 | `qrsgen_lifecycle_webhook_retries_total` | counter | `event`, `outcome` | Reintentos de webhooks críticos. |
 | `qrsgen_active_instances` | gauge | – | Instancias en `connected` o `ready`. |
 | `qrsgen_total_instances` | gauge | – | Total gestionadas. |
+| `qrsgen_version_info` | gauge (info) | `version` | Fijo a 1; permite join en Grafana para mostrar versión activa. Desde v0.28.2. |
 
 Plus métricas estándar Go runtime (`go_*`, `process_*`).
 

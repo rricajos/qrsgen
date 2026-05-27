@@ -35,6 +35,33 @@ func TestDecodeEncryptionKey_Empty(t *testing.T) {
 	}
 }
 
+func TestDecodeEncryptionKey_URLSafe(t *testing.T) {
+	// Generar key con bytes que produzcan diferentes encodings entre std/url.
+	raw := []byte{
+		0xfb, 0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9,
+		0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf2, 0xf1,
+		0xf0, 0xef, 0xee, 0xed, 0xec, 0xeb, 0xea, 0xe9,
+		0xe8, 0xe7, 0xe6, 0xe5, 0xe4, 0xe3, 0xe2, 0xe1,
+	}
+	urlSafe := base64.URLEncoding.EncodeToString(raw)
+	out, err := DecodeEncryptionKey(urlSafe)
+	if err != nil {
+		t.Fatalf("URL-safe should decode: %v", err)
+	}
+	if !bytes.Equal(out, raw) {
+		t.Errorf("URL-safe round-trip mismatch")
+	}
+	// Sin padding
+	rawURL := base64.RawURLEncoding.EncodeToString(raw)
+	out, err = DecodeEncryptionKey(rawURL)
+	if err != nil {
+		t.Fatalf("RawURL should decode: %v", err)
+	}
+	if !bytes.Equal(out, raw) {
+		t.Errorf("RawURL round-trip mismatch")
+	}
+}
+
 func TestDecodeEncryptionKey_WrongSize(t *testing.T) {
 	// 16 bytes is wrong (AES-256 expects 32).
 	bad := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0}, 16))

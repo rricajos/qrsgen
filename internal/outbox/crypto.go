@@ -12,20 +12,35 @@ import (
 // EncryptionKeySize es el tamaño esperado de la key AES-GCM en bytes.
 const EncryptionKeySize = 32 // AES-256
 
-// DecodeEncryptionKey decodifica una key base64 estándar. Verifica longitud.
+// DecodeEncryptionKey decodifica una key base64. Acepta tanto base64 estándar
+// (`+/=`) como URL-safe (`-_=`), con o sin padding — habitual cuando la key
+// viene de un secret manager (Vault, GitHub Actions, etc) que normaliza a
+// URL-safe. Verifica longitud final = EncryptionKeySize.
+//
 // Devuelve nil + nil error cuando el input es vacío (sin cifrado opt-out).
 func DecodeEncryptionKey(b64 string) ([]byte, error) {
 	if b64 == "" {
 		return nil, nil
 	}
-	raw, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return nil, fmt.Errorf("outbox key: base64 decode: %w", err)
+	// Probar 4 variantes: {std, url} × {padded, raw}.
+	encodings := []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
 	}
-	if len(raw) != EncryptionKeySize {
-		return nil, fmt.Errorf("outbox key: want %d bytes after decode, got %d", EncryptionKeySize, len(raw))
+	var lastErr error
+	for _, enc := range encodings {
+		raw, err := enc.DecodeString(b64)
+		if err == nil {
+			if len(raw) != EncryptionKeySize {
+				return nil, fmt.Errorf("outbox key: want %d bytes after decode, got %d", EncryptionKeySize, len(raw))
+			}
+			return raw, nil
+		}
+		lastErr = err
 	}
-	return raw, nil
+	return nil, fmt.Errorf("outbox key: base64 decode (probados std/url, padded/raw): %w", lastErr)
 }
 
 // sealPayload cifra `plaintext` con AES-256-GCM. Devuelve ciphertext + nonce

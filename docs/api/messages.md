@@ -71,6 +71,21 @@ El outbox reintentará cada 5s mientras la instancia no esté conectada.
 A los 5 min (TTL default), el mensaje expira y se emite el evento
 lifecycle `outgoing_expired`.
 
+**422 — spamguard bloqueó el outgoing como duplicado** (desde v0.28.4):
+```json
+{
+  "status": "blocked",
+  "reason": "spamguard: duplicate of one of the 2 most recent outgoings to this contact"
+}
+```
+
+Chatwoot (y cualquier downstream `api_channel` que respete el contrato)
+marca entonces el mensaje como `failed` (icono rojo). El agente sabe al
+instante que su outgoing no se entregó. En paralelo, qrsgen emite el
+evento lifecycle `spam_blocked` con `msg_id`, `conv_id`, `remote_jid`,
+`preview` y `count` — útil para que el orquestador linkee al mensaje
+desde su panel de ops.
+
 **Otros códigos:**
 
 - `400` — JSON inválido.
@@ -88,8 +103,9 @@ de ellos hace **no-op** (devuelve 200 sin enviar):
 - `source_id` empieza con `"WAID:"` (echo del propio mensaje saliente).
 - `conversation.meta.sender.identifier` empieza con `"qrsgen-qr-"`
   (contacto sintético del propio bridge — panel de ops).
-- Spamguard activado + contenido duplicado de los últimos 2 enviados a ese
-  JID → no-op + evento `spam_blocked`.
+- Spamguard activado + contenido duplicado de los últimos 2 enviados a
+  ese JID → 422 + evento `spam_blocked`. **Desde v0.28.4 devuelve 422
+  en lugar de 200 silencioso**, así Chatwoot lo marca como failed.
 
 ## Glosario
 

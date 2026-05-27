@@ -143,15 +143,14 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		`CREATE INDEX IF NOT EXISTS bridge_outgoing_queue_expires_idx
 		 ON bridge_outgoing_queue (expires_at) WHERE status = 'pending'`,
 		// v0.27 — payload encryption opt-in:
-		// `nonce IS NULL` → payload en claro (filas legacy, compat).
-		// `nonce IS NOT NULL` → payload cifrado con AES-256-GCM; nonce
-		// es el de 12 bytes random usado para esa fila.
-		// `payload` cambia de JSONB → BYTEA porque ciphertext binario.
-		// Para no romper filas existentes JSONB seguimos aceptándolas
-		// (driver pgx maneja JSONB como bytes en read), pero las nuevas
-		// son BYTEA via columna paralela `payload_enc` solo si key set.
+		// `nonce IS NULL` → payload (JSONB) en claro (filas legacy, compat).
+		// `nonce IS NOT NULL` → payload_enc (bytea ciphertext AES-256-GCM)
+		// + nonce (12 bytes); el JSONB payload puede ser NULL.
 		`ALTER TABLE bridge_outgoing_queue ADD COLUMN IF NOT EXISTS nonce BYTEA`,
 		`ALTER TABLE bridge_outgoing_queue ADD COLUMN IF NOT EXISTS payload_enc BYTEA`,
+		// v0.28.1 — permitir NULL en payload cuando la fila está cifrada,
+		// en vez del placeholder 'null'::jsonb del v0.27.
+		`ALTER TABLE bridge_outgoing_queue ALTER COLUMN payload DROP NOT NULL`,
 	}
 	for _, s := range stmts {
 		if _, err := pool.Exec(ctx, s); err != nil {
@@ -219,14 +218,14 @@ func (o *Outbox) Enqueue(ctx context.Context, instance, remoteJID string, payloa
 	var id int64
 	if len(o.encryptionKey) == EncryptionKeySize {
 		// Cifrar: persistimos en payload_enc + nonce. El campo payload
-		// (JSONB legacy) lo dejamos con un JSON null para satisfacer NOT NULL.
+		// (JSONB) queda NULL — desde v0.28.1 la columna lo permite.
 		ct, nonce, err := sealPayload(o.encryptionKey, []byte(payload))
 		if err != nil {
 			return EnqueueResult{}, fmt.Errorf("seal payload: %w", err)
 		}
 		if err := o.pool.QueryRow(ctx, `
-			INSERT INTO bridge_outgoing_queue (instance, remote_jid, payload, payload_enc, nonce, expires_at)
-			VALUES ($1, $2, 'null'::jsonb, $3, $4, $5)
+			INSERT INTO bridge_outgoing_queue (instance, remote_jid, payload_enc, nonce, expires_at)
+			VALUES ($1, $2, $3, $4, $5)
 			RETURNING id
 		`, instance, remoteJID, ct, nonce, expiresAt).Scan(&id); err != nil {
 			return EnqueueResult{}, fmt.Errorf("insert outbox (encrypted): %w", err)

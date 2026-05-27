@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -229,7 +230,7 @@ func (r *Resolver) Patch(ctx context.Context, ownerTag string, fields map[string
 		RETURNING owner_tag, downstream_base_url, downstream_api_token,
 		          downstream_account_id, downstream_inbox_id,
 		          created_at, updated_at, COALESCE(webhook_hmac_secret, '')
-	`, joinComma(sets), len(args))
+	`, strings.Join(sets, ", "), len(args))
 	var loaded Config
 	err := r.pool.QueryRow(ctx, query, args...).Scan(
 		&loaded.OwnerTag, &loaded.DownstreamBaseURL, &loaded.DownstreamAPIToken,
@@ -245,17 +246,6 @@ func (r *Resolver) Patch(ctx context.Context, ownerTag string, fields map[string
 	r.cache[ownerTag] = &loaded
 	r.mu.Unlock()
 	return &loaded, nil
-}
-
-func joinComma(parts []string) string {
-	out := ""
-	for i, p := range parts {
-		if i > 0 {
-			out += ", "
-		}
-		out += p
-	}
-	return out
 }
 
 // Delete remueve el tenant. Invalida el cache.

@@ -4,6 +4,38 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-05-27
+
+Cleanup pass post-marathon: cabos sueltos de v0.27 + v0.28, sin
+nuevas features. Incluye un nuevo campo `version` en lifecycle events
+(útil para integradores que quieran mostrar el tag del binario al
+usuario, e.g. "QRsGEN v0.28.1 operativo").
+
+### Added
+
+- **`version` en el payload de todos los lifecycle events**:
+  emitidos vía `emitLifecycleWebhook` y `emitCustomWebhook`. Inyectado
+  por `mgr.SetVersion(version)` desde main. El integrador puede
+  renderizar el tag en sus mensajes (e.g. el bot Omnia ahora muestra
+  "QRsGEN vX.X.X" en los pills de backend_started / backend_restarting).
+
+### Changed
+
+- **Outbox schema**: `payload` (JSONB) ahora NULLable. La migración v0.27
+  insertaba `'null'::jsonb` como placeholder cuando había cifrado; ahora
+  va NULL real. Migración idempotente (ALTER COLUMN DROP NOT NULL).
+- **`tenant.Resolver.Patch`** usa `strings.Join` en vez del helper local
+  `joinComma` que reinventaba la rueda. Sin cambio funcional.
+
+### Fixed
+
+- **`docs/deployment/env-vars.md`**: faltaba `OUTBOX_ENCRYPTION_KEY`
+  (introducido en v0.27.0). Default de `QRSGEN_VERSION` actualizado
+  (era `0.23.0-rc1` desde hace meses).
+- **`docs/security/outbox-encryption.md`**: la nota sobre KEK/DEKs
+  decía "considerado para v0.28+" pero v0.28 ya salió sin eso;
+  cambiado a "futuras versiones".
+
 ## [0.28.0] - 2026-05-27
 
 Spamguard persistence: cierra la known limitation de v0.21.0 sobre
@@ -367,7 +399,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.1...HEAD
+[0.28.1]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.1
 [0.28.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.0
 [0.27.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.27.0
 [0.26.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.26.0

@@ -79,7 +79,16 @@ type Manager struct {
 	// ownerTagResolver es opcional. Si nil, las métricas con label
 	// `owner_tag` lo dejan vacío. Inyectado en main.go con el Registry.
 	ownerTagResolver OwnerTagResolver
+
+	// version es el tag del binario qrsgen (inyectado vía SetVersion desde
+	// main). Se incluye en cada payload lifecycle para que el orquestador
+	// pueda mostrar "QRsGEN vX.X.X" en sus mensajes. Si vacío, no se añade.
+	version string
 }
+
+// SetVersion attaches the running qrsgen version to lifecycle event payloads.
+// Pass "" to omit. Default is empty (events go out without the field).
+func (m *Manager) SetVersion(v string) { m.version = v }
 
 // UsageRecorder es la interfaz mínima que el manager usa para incrementar
 // contadores de lifecycle events. Inyectable vía SetUsage; nil → no-op.
@@ -600,6 +609,9 @@ func (m *Manager) emitLifecycleWebhook(name string, ev wameow.LifecycleEvent, ji
 		"jid":         jid,
 		"occurred_at": occurredAt.UTC().Format(time.RFC3339),
 	}
+	if m.version != "" {
+		payload["version"] = m.version
+	}
 	body, _ := json.Marshal(payload)
 	m.postWebhookWithRetry(name, string(ev), url, body)
 	metrics.LifecycleEvents.WithLabelValues(name, string(ev), m.ownerTag(name)).Inc()
@@ -861,6 +873,9 @@ func (m *Manager) emitCustomWebhook(name string, ev wameow.LifecycleEvent, extra
 		"instance":    name,
 		"event":       string(ev),
 		"occurred_at": occurredAt.UTC().Format(time.RFC3339),
+	}
+	if m.version != "" {
+		payload["version"] = m.version
 	}
 	for k, v := range extras {
 		payload[k] = v

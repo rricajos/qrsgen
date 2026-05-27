@@ -92,7 +92,7 @@ Reusar un nonce con la misma key compromete la confidencialidad.
 **At-rest encryption**: cifrado de datos persistidos en disco/DB.
 Diferente de "in-flight" (TLS) y "in-use" (memoria del proceso).
 
-**KEK / DEK** (no usado en v0.27.0): patrón two-tier donde una Key
+**KEK / DEK** (no usado en v0.27.x): patrón two-tier donde una Key
 Encryption Key cifra Data Encryption Keys per-tenant. Permite rotar
-DEKs sin re-encriptar todo. Considerado para v0.28+ junto con cifrado
-per-tenant.
+DEKs sin re-encriptar todo. Considerado para futuras versiones junto
+con cifrado per-tenant.

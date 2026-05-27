@@ -202,6 +202,7 @@ func main() {
 	mgr.SetUsage(usageTracker)
 	mgr.SetAudit(auditLog)
 	mgr.SetOwnerTagResolver(dsRegistry)
+	mgr.SetVersion(version)
 
 	banWatcher := banwatch.New(banwatch.DefaultConfig(), spamguardAdapter{mgr: mgr}, logger)
 	banWatcher.Start(ctx, 30*time.Second)

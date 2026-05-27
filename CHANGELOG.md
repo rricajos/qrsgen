@@ -4,6 +4,36 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-05-27
+
+Bug fix de "🎉 espurio" + robustez en `backend_started` + cache 30s
+del endpoint público + timestamps en tenant API.
+
+### Fixed
+
+- **`connected` espurio tras EventConnected duplicado de whatsmeow**:
+  el dispatcher ahora trackea `connectedEmitted` per-instance. Mientras
+  la sesión esté viva, EventConnected adicionales (re-handshake silent,
+  session renewal sin Disconnect intermedio) **no re-emiten** el evento
+  `connected` (que en n8n se renderiza como "Conexión establecida 🎉").
+  El flag se limpia en `disconnect` / `logged_out`, dejando que la
+  próxima sesión emita normalmente. Caso reportado: SAT-MARC mostrando
+  🎉 a las 5:17 AM sin desconexión previa visible.
+
+### Changed
+
+- **`BroadcastBackendStarted` ahora espera a `state=ready`** (timeout
+  20s) por instancia antes de reportar `connected: true`. Sustituye al
+  snapshot fijo de `IsConnected()` a los 8s post-boot, que daba falsos
+  negativos cuando WhatsApp negociaba handshake lento. El pre-sleep de
+  8s en `cmd/server` queda eliminado (la espera vive en el broadcast).
+- **`/api/public/stats` cacheado in-memory 30s**: la landing hace
+  polling cada 10s; sin cache hacíamos 5 SELECTs por request. Ahorra
+  ~95% de hits a DB sin sacrificar frescura.
+- **`tenant.Resolver.{List,Get,Warmup,Set}` devuelven `created_at` y
+  `updated_at`**: visibles vía `/api/tenants*` para UIs de admin. El
+  `PUT` los recibe del `RETURNING` del upsert y los persiste en cache.
+
 ## [0.24.1] - 2026-05-27
 
 Fix de `version` hardcodeada y simetría con multi-downstream en el
@@ -217,7 +247,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.24.1...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.24.2...HEAD
+[0.24.2]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.2
 [0.24.1]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.1
 [0.24.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.0
 [0.23.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.23.0

@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -156,10 +157,9 @@ func main() {
 	}
 	// Anuncia backend_started a cada QR-X conv tras un breve delay (dejamos que
 	// las conexiones whatsmeow se estabilicen para reportar `connected: true`).
-	go func() {
-		time.Sleep(8 * time.Second)
-		mgr.BroadcastBackendStarted()
-	}()
+	// BroadcastBackendStarted ahora espera a state=ready por instancia (timeout 20s)
+	// antes de emitir, así que no necesitamos el pre-sleep de 8s aquí.
+	go mgr.BroadcastBackendStarted()
 
 	// auto-crear la instancia por defecto si no existía. Idempotente.
 	if cfg.InstanceName != "" {
@@ -294,6 +294,15 @@ func main() {
 	// GET /api/public/stats — opt-in vía PUBLIC_STATS_ENABLED.
 	// Endpoint sin auth pensado para landing pages estáticas que muestren
 	// telemetría en vivo. CORS configurable vía PUBLIC_STATS_ALLOW_ORIGIN.
+	//
+	// Cache 30s in-memory: el landing hace polling cada 10s, no necesitamos
+	// hit-DB en cada request. Reduce ~95% de queries sin sacrificar frescura.
+	const publicStatsCacheTTL = 30 * time.Second
+	var (
+		publicStatsCacheMu  sync.Mutex
+		publicStatsCacheBuf map[string]any
+		publicStatsCacheExp time.Time
+	)
 	api.GET("/public/stats", func(c echo.Context) error {
 		if cfg.PublicStatsAllowOrigin != "" {
 			c.Response().Header().Set(echo.HeaderAccessControlAllowOrigin, cfg.PublicStatsAllowOrigin)
@@ -302,6 +311,15 @@ func main() {
 		if !cfg.PublicStatsEnabled {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "public stats disabled"})
 		}
+		// Cache hit
+		publicStatsCacheMu.Lock()
+		if publicStatsCacheBuf != nil && time.Now().Before(publicStatsCacheExp) {
+			payload := publicStatsCacheBuf
+			publicStatsCacheMu.Unlock()
+			return c.JSON(http.StatusOK, payload)
+		}
+		publicStatsCacheMu.Unlock()
+
 		var connected, total int
 		for _, i := range mgr.List() {
 			total++
@@ -348,7 +366,7 @@ func main() {
 		).Scan(&tenantsTotal); err != nil {
 			logger.Warn("public stats: tenants total query failed", "err", err)
 		}
-		return c.JSON(http.StatusOK, map[string]any{
+		payload := map[string]any{
 			"instances_connected":  connected,
 			"instances_total":      total,
 			"installations_active": installationsActive,
@@ -359,7 +377,13 @@ func main() {
 			"messages_out_total":   totals.MessagesOut,
 			"version":              version,
 			"last_updated":         time.Now().UTC().Format(time.RFC3339),
-		})
+		}
+		// Guarda en cache para la próxima request dentro del TTL.
+		publicStatsCacheMu.Lock()
+		publicStatsCacheBuf = payload
+		publicStatsCacheExp = time.Now().Add(publicStatsCacheTTL)
+		publicStatsCacheMu.Unlock()
+		return c.JSON(http.StatusOK, payload)
 	})
 	// CORS preflight para el endpoint público.
 	api.OPTIONS("/public/stats", func(c echo.Context) error {

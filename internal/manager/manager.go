@@ -55,6 +55,14 @@ type Manager struct {
 	unreachMu          sync.Mutex
 	pendingUnreachable map[string]bool
 
+	// connectedEmitted: per-instance flag — true si ya emitimos el evento
+	// `connected` para la sesión actual. Evita el bug de "🎉 espurio"
+	// cuando whatsmeow fires EventConnected múltiples veces sin un
+	// EventDisconnected intermedio (re-handshake, session renewal).
+	// Se limpia en disconnect / logged_out / al emitir unreachable.
+	connEmitMu      sync.Mutex
+	connectedEmitted map[string]bool
+
 	// bootstrapWindowUntil: durante el arranque suprimimos los webhooks de
 	// Connected/Reconnected (ruido — n8n los renderizaría como pills por inbox
 	// cada vez que arranca qrsgen). En su lugar emitimos UN backend_started
@@ -102,6 +110,7 @@ func New(ctx context.Context, dsn string, pool *pgxpool.Pool, logger *slog.Logge
 		disconnectNotified: map[string]bool{},
 		pendingReconnected: map[string]bool{},
 		pendingUnreachable: map[string]bool{},
+		connectedEmitted:   map[string]bool{},
 	}
 	return m, nil
 }
@@ -372,13 +381,30 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 		m.reconMu.Lock()
 		delete(m.pendingReconnected, name)
 		m.reconMu.Unlock()
+		// Sesión cae → próximo Connected será una nueva sesión y puede
+		// emitir 'connected'/'reconnected' otra vez según corresponda.
+		m.connEmitMu.Lock()
+		delete(m.connectedEmitted, name)
+		m.connEmitMu.Unlock()
 		go m.emitUnreachableAfterGrace(name, jid, now)
 		go m.emitLifecycleWebhook(name, wameow.EventDisconnected, jid, now)
 		return
 	}
+	if ev == wameow.EventLoggedOut {
+		// LoggedOut también cierra la sesión actual.
+		m.connEmitMu.Lock()
+		delete(m.connectedEmitted, name)
+		m.connEmitMu.Unlock()
+	}
 	if ev == wameow.EventConnected {
 		if m.inBootstrapWindow() {
 			m.logger.Debug("connected suppressed during bootstrap window", "name", name)
+			// El backend_started broadcast (post-bootstrap) será el único
+			// indicador de conexión. Marcamos connectedEmitted para que
+			// subsiguientes EventConnected espurios no emitan 🎉.
+			m.connEmitMu.Lock()
+			m.connectedEmitted[name] = true
+			m.connEmitMu.Unlock()
 			return
 		}
 		// Blip puntual: si tenemos pendingUnreachable activo significa que
@@ -391,6 +417,11 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 		}
 		m.unreachMu.Unlock()
 		if blipResolved {
+			// Sesión recuperada silenciosamente — marcamos conectado para
+			// suprimir EventConnected espurios siguientes.
+			m.connEmitMu.Lock()
+			m.connectedEmitted[name] = true
+			m.connEmitMu.Unlock()
 			m.logger.Info("brief blip resolved within grace, silent",
 				"name", name)
 			return
@@ -407,7 +438,24 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 			// emitimos el evento. Si cae otra vez (flap), el handler de
 			// Disconnected limpia pendingReconnected y este goroutine
 			// silencia.
+			m.connEmitMu.Lock()
+			m.connectedEmitted[name] = true
+			m.connEmitMu.Unlock()
 			go m.emitReconnectedAfterStabilize(name, jid, now)
+			return
+		}
+		// Default → "primer connected" para esta sesión. PERO si ya
+		// emitimos uno (whatsmeow re-handshake / session renewal silent),
+		// lo suprimimos para evitar el "🎉 espurio".
+		m.connEmitMu.Lock()
+		alreadyEmitted := m.connectedEmitted[name]
+		if !alreadyEmitted {
+			m.connectedEmitted[name] = true
+		}
+		m.connEmitMu.Unlock()
+		if alreadyEmitted {
+			m.logger.Info("connected suppressed (already emitted for this session)",
+				"name", name)
 			return
 		}
 	}
@@ -629,18 +677,34 @@ func (m *Manager) EmitCustomLifecycle(name, event string, extras map[string]any)
 // vería el usuario en cada QR-X cuando qrsgen arranca.
 func (m *Manager) BroadcastBackendStarted() {
 	m.mu.RLock()
-	type instInfo struct {
-		name      string
-		connected bool
-	}
-	infos := make([]instInfo, 0, len(m.instances))
-	for n, c := range m.instances {
-		infos = append(infos, instInfo{name: n, connected: c.IsConnected()})
+	names := make([]string, 0, len(m.instances))
+	for n := range m.instances {
+		names = append(names, n)
 	}
 	m.mu.RUnlock()
-	for _, info := range infos {
-		extras := map[string]any{"connected": info.connected}
-		m.emitCustomWebhook(info.name, wameow.LifecycleEvent("backend_started"), extras, time.Now())
+	// Por instancia: esperamos a state=ready con timeout. Si llega → connected:true.
+	// Si timeout sin ready → connected:false. Más fiable que el snapshot fijo
+	// a los 8s post-boot porque WhatsApp handshakes lentos no se reportan como
+	// falsos negativos.
+	const readyTimeout = 20 * time.Second
+	for _, name := range names {
+		conn, ok := m.Get(name)
+		connected := false
+		if ok {
+			if conn.IsConnected() {
+				// Atajo: ya está connected ahora mismo, no esperar.
+				connected = true
+			} else {
+				// Espera bloqueante hasta ready o timeout
+				waitCtx, cancel := context.WithTimeout(context.Background(), readyTimeout)
+				if _, err := m.WaitReady(waitCtx, name); err == nil {
+					connected = true
+				}
+				cancel()
+			}
+		}
+		extras := map[string]any{"connected": connected}
+		m.emitCustomWebhook(name, wameow.LifecycleEvent("backend_started"), extras, time.Now())
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,11 +23,13 @@ import (
 
 // Config describe la configuración downstream de un tenant concreto.
 type Config struct {
-	OwnerTag             string `json:"owner_tag"`
-	DownstreamBaseURL    string `json:"downstream_base_url"`
-	DownstreamAPIToken   string `json:"-"` // nunca se serializa
-	DownstreamAccountID  int    `json:"downstream_account_id"`
-	DownstreamInboxID    int    `json:"downstream_inbox_id,omitempty"`
+	OwnerTag            string    `json:"owner_tag"`
+	DownstreamBaseURL   string    `json:"downstream_base_url"`
+	DownstreamAPIToken  string    `json:"-"` // nunca se serializa
+	DownstreamAccountID int       `json:"downstream_account_id"`
+	DownstreamInboxID   int       `json:"downstream_inbox_id,omitempty"`
+	CreatedAt           time.Time `json:"created_at,omitempty"`
+	UpdatedAt           time.Time `json:"updated_at,omitempty"`
 }
 
 // ErrNotFound se devuelve cuando un owner_tag no existe en bridge_tenant.
@@ -72,7 +75,8 @@ func New(pool *pgxpool.Pool) *Resolver {
 func (r *Resolver) Warmup(ctx context.Context) error {
 	rows, err := r.pool.Query(ctx, `
 		SELECT owner_tag, downstream_base_url, downstream_api_token,
-		       downstream_account_id, downstream_inbox_id
+		       downstream_account_id, downstream_inbox_id,
+		       created_at, updated_at
 		FROM bridge_tenant
 	`)
 	if err != nil {
@@ -83,7 +87,8 @@ func (r *Resolver) Warmup(ctx context.Context) error {
 	for rows.Next() {
 		var c Config
 		if err := rows.Scan(&c.OwnerTag, &c.DownstreamBaseURL, &c.DownstreamAPIToken,
-			&c.DownstreamAccountID, &c.DownstreamInboxID); err != nil {
+			&c.DownstreamAccountID, &c.DownstreamInboxID,
+			&c.CreatedAt, &c.UpdatedAt); err != nil {
 			return fmt.Errorf("scan: %w", err)
 		}
 		loaded[c.OwnerTag] = &c
@@ -110,10 +115,12 @@ func (r *Resolver) Get(ctx context.Context, ownerTag string) (*Config, error) {
 	var loaded Config
 	err := r.pool.QueryRow(ctx, `
 		SELECT owner_tag, downstream_base_url, downstream_api_token,
-		       downstream_account_id, downstream_inbox_id
+		       downstream_account_id, downstream_inbox_id,
+		       created_at, updated_at
 		FROM bridge_tenant WHERE owner_tag=$1
 	`, ownerTag).Scan(&loaded.OwnerTag, &loaded.DownstreamBaseURL,
-		&loaded.DownstreamAPIToken, &loaded.DownstreamAccountID, &loaded.DownstreamInboxID)
+		&loaded.DownstreamAPIToken, &loaded.DownstreamAccountID, &loaded.DownstreamInboxID,
+		&loaded.CreatedAt, &loaded.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -137,7 +144,8 @@ func (r *Resolver) Set(ctx context.Context, c Config) error {
 	if c.DownstreamAccountID == 0 {
 		c.DownstreamAccountID = 1
 	}
-	_, err := r.pool.Exec(ctx, `
+	var createdAt, updatedAt time.Time
+	err := r.pool.QueryRow(ctx, `
 		INSERT INTO bridge_tenant (owner_tag, downstream_base_url, downstream_api_token, downstream_account_id, downstream_inbox_id)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (owner_tag) DO UPDATE SET
@@ -146,10 +154,13 @@ func (r *Resolver) Set(ctx context.Context, c Config) error {
 			downstream_account_id = EXCLUDED.downstream_account_id,
 			downstream_inbox_id   = EXCLUDED.downstream_inbox_id,
 			updated_at            = NOW()
-	`, c.OwnerTag, c.DownstreamBaseURL, c.DownstreamAPIToken, c.DownstreamAccountID, c.DownstreamInboxID)
+		RETURNING created_at, updated_at
+	`, c.OwnerTag, c.DownstreamBaseURL, c.DownstreamAPIToken, c.DownstreamAccountID, c.DownstreamInboxID).Scan(&createdAt, &updatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert tenant: %w", err)
 	}
+	c.CreatedAt = createdAt
+	c.UpdatedAt = updatedAt
 	r.mu.Lock()
 	cp := c
 	r.cache[c.OwnerTag] = &cp
@@ -172,10 +183,11 @@ func (r *Resolver) Delete(ctx context.Context, ownerTag string) error {
 	return nil
 }
 
-// List devuelve todos los tenants. Sin tokens (no se serializan).
+// List devuelve todos los tenants con timestamps. Sin tokens.
 func (r *Resolver) List(ctx context.Context) ([]Config, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT owner_tag, downstream_base_url, downstream_account_id, downstream_inbox_id
+		SELECT owner_tag, downstream_base_url, downstream_account_id,
+		       downstream_inbox_id, created_at, updated_at
 		FROM bridge_tenant ORDER BY owner_tag
 	`)
 	if err != nil {
@@ -186,7 +198,8 @@ func (r *Resolver) List(ctx context.Context) ([]Config, error) {
 	for rows.Next() {
 		var c Config
 		if err := rows.Scan(&c.OwnerTag, &c.DownstreamBaseURL,
-			&c.DownstreamAccountID, &c.DownstreamInboxID); err != nil {
+			&c.DownstreamAccountID, &c.DownstreamInboxID,
+			&c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		out = append(out, c)

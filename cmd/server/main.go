@@ -30,6 +30,7 @@ import (
 	"github.com/rricajos/qrsgen/internal/bridge"
 	"github.com/rricajos/qrsgen/internal/config"
 	"github.com/rricajos/qrsgen/internal/downstream"
+	"github.com/rricajos/qrsgen/internal/errcode"
 	"github.com/rricajos/qrsgen/internal/lib"
 	"github.com/rricajos/qrsgen/internal/manager"
 	"github.com/rricajos/qrsgen/internal/metrics"
@@ -917,13 +918,17 @@ func main() {
 			// failed (icono rojo) en lugar de sent (verde). El agente ve
 			// inmediatamente que su mensaje no se entregó.
 			if errors.Is(err, bridge.ErrSpamguardBlocked) {
-				return c.JSON(http.StatusUnprocessableEntity, map[string]string{
-					"status": "blocked",
-					"reason": "spamguard: duplicate of one of the 2 most recent outgoings to this contact",
+				return c.JSON(http.StatusUnprocessableEntity, map[string]any{
+					"error_code": errcode.SpamguardBlocked,
+					"error":      errcode.HumanText(errcode.SpamguardBlocked),
+					"status":     "blocked",
 				})
 			}
 			logger.Error("outgoing handle failed", "err", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal"})
+			return c.JSON(http.StatusInternalServerError, map[string]any{
+				"error_code": errcode.Internal,
+				"error":      errcode.HumanText(errcode.Internal),
+			})
 		}
 		return c.JSON(http.StatusOK, map[string]string{"status": "sent"})
 	}, webhookHMACMiddleware(cfg.WebhookHMACSecret, func(ctx context.Context, instance string) string {

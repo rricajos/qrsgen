@@ -4,6 +4,35 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.28.5] - 2026-05-27
+
+Public error codes: contrato estable para que integradores pattern-
+matcheen errores programáticamente sin parsear strings.
+
+### Added
+
+- **`internal/errcode/` package** con códigos string públicos del
+  patrón `QRSGEN_<CATEGORY>_<REASON>`. Inicial set: `SpamguardBlocked`,
+  `HMACMismatch`, `PayloadInvalid`, `QueueFull`, `InstanceNotFound`,
+  `TenantNotFound`, `Internal`. `HumanText(code)` devuelve descripción
+  humana en español para mostrar en UI.
+- **Doc nuevo** `docs/api/error-codes.md` con la tabla completa +
+  ejemplos de uso (Python, n8n).
+
+### Changed
+
+- **Respuestas de error ahora incluyen `error_code` + `error`** además
+  de los campos contextuales. Ejemplo para spamguard 422:
+  ```json
+  {
+    "error_code": "QRSGEN_SPAMGUARD_BLOCKED",
+    "error": "Bloqueado por QRsGEN — duplicado...",
+    "status": "blocked"
+  }
+  ```
+  Backward compatible: el HTTP status sigue siendo el mismo, y los
+  campos antiguos (`status`, `reason`) se mantienen donde aplicaba.
+
 ## [0.28.4] - 2026-05-27
 
 Spamguard block ahora se refleja visualmente en el chat del cliente:
@@ -463,7 +492,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.4...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.5...HEAD
+[0.28.5]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.5
 [0.28.4]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.4
 [0.28.3]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.3
 [0.28.2]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.2

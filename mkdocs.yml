@@ -78,6 +78,7 @@ nav:
       - Convenciones: api/conventions.md
       - Instancias: api/instances.md
       - Tenants (multi-downstream): api/tenants.md
+      - Códigos de error: api/error-codes.md
       - QR y ciclo de vida: api/qr-lifecycle.md
       - Mensajes: api/messages.md
       - Observabilidad: api/observability.md

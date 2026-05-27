@@ -4,6 +4,23 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.28.4] - 2026-05-27
+
+Spamguard block ahora se refleja visualmente en el chat del cliente:
+mensaje en rojo en lugar de verde.
+
+### Changed
+
+- **`POST /api/instances/:name/webhook` devuelve HTTP 422** cuando
+  spamguard bloquea un outgoing duplicado. Chatwoot (y cualquier
+  downstream que respete el contrato `api_channel`) marca entonces
+  el mensaje como `failed` (icono rojo) en lugar de `sent` (verde).
+  El agente sabe al instante que su mensaje no se entregó. Antes
+  qrsgen devolvía 200 silenciosamente y el block solo se notificaba
+  vía evento lifecycle externo.
+- Nuevo sentinel error público `bridge.ErrSpamguardBlocked` para que
+  callers puedan distinguir el block del resto de errores.
+
 ## [0.28.3] - 2026-05-27
 
 UX del `spam_blocked` event: contexto para que el integrador pueda
@@ -446,7 +463,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.3...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.4...HEAD
+[0.28.4]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.4
 [0.28.3]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.3
 [0.28.2]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.2
 [0.28.1]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.1

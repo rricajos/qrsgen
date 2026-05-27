@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -10,6 +11,12 @@ import (
 	"github.com/rricajos/qrsgen/internal/downstream"
 	"github.com/rricajos/qrsgen/internal/metrics"
 )
+
+// ErrSpamguardBlocked se devuelve por HandleFor cuando un outgoing fue
+// rechazado por la política spamguard (duplicado back-to-back). El handler
+// HTTP debe traducirlo a 422 para que Chatwoot marque el mensaje como
+// failed (icono rojo) en lugar de sent (verde).
+var ErrSpamguardBlocked = errors.New("spamguard: blocked duplicate outgoing")
 
 // Sender es la interfaz mínima del cliente WhatsApp que usamos para mandar
 // mensajes. Multi-instance: el primer parámetro es el nombre de la instancia.
@@ -205,7 +212,9 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 					extras["conv_id"] = p.Conversation.ID
 				}
 				o.sg.EmitLifecycle(instance, "spam_blocked", extras)
-				return nil
+				// Sentinel error → el handler HTTP devuelve 422 para que
+				// Chatwoot marque el mensaje como failed (icono rojo).
+				return ErrSpamguardBlocked
 			}
 		}
 	}

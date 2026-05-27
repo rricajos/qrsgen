@@ -913,6 +913,15 @@ func main() {
 		}
 
 		if err := outgoing.HandleFor(c.Request().Context(), instance, payload); err != nil {
+			// Spamguard block → 422 para que Chatwoot marque el mensaje como
+			// failed (icono rojo) en lugar de sent (verde). El agente ve
+			// inmediatamente que su mensaje no se entregó.
+			if errors.Is(err, bridge.ErrSpamguardBlocked) {
+				return c.JSON(http.StatusUnprocessableEntity, map[string]string{
+					"status": "blocked",
+					"reason": "spamguard: duplicate of one of the 2 most recent outgoings to this contact",
+				})
+			}
 			logger.Error("outgoing handle failed", "err", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal"})
 		}

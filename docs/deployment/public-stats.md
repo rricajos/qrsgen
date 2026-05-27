@@ -20,13 +20,20 @@ Sin auth. Cuando `PUBLIC_STATS_ENABLED=false` (default) devuelve `403`.
   "instances_total":      4,
   "installations_active": 4,
   "installations_total":  37,
+  "tenants_total":        2,
   "qrs_scanned_total":    42,
   "messages_in_total":    152340,
   "messages_out_total":   178921,
-  "version": "0.23.0",
+  "version": "0.24.2",
   "last_updated": "2026-05-26T11:30:00Z"
 }
 ```
+
+**Cache 30s in-memory** (desde v0.24.2): la landing hace polling cada
+10s; el primer hit dentro de cada ventana de 30s reconstruye el payload
+desde DB, los siguientes ~2 lo sirven cacheados. `last_updated` refleja
+el momento en que se computó el payload, no la request actual — un
+desfase de hasta 30s es esperado y aceptable para una landing.
 
 Las parejas son **live** vs **histórico**:
 
@@ -43,6 +50,7 @@ Campos:
 | `instances_total` | Total de instancias **registradas en el proceso** ahora mismo (incluye `qr_pending`, `disconnected`, etc.). Snapshot live. |
 | `installations_active` | Instancias en DB con `jid` configurado — han llegado a parearse al menos una vez y siguen registradas. |
 | `installations_total` | Histórico acumulado de instancias que han existido en algún momento — incluye las ya borradas via DELETE (sobrevive a borrar porque cuenta entradas distintas en `bridge_audit_log`, que es append-only). |
+| `tenants_total` | Filas en `bridge_tenant` ahora mismo (cuántos clientes multi-downstream tienen config propia). Desde v0.24.1. |
 | `qrs_scanned_total` | Histórico acumulado de pairings exitosos (= veces que un usuario ha escaneado un QR). Cuenta filas en `bridge_audit_log` con `action='instance.paired'`. Incluye re-pairings de una misma instancia. |
 | `messages_in_total` / `messages_out_total` | All-time totals agregados desde `bridge_usage_daily`. |
 | `version` | Tag de release del binario. |

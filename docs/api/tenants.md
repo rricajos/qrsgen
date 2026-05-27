@@ -25,20 +25,27 @@ nunca se devuelve** — solo se escribe.
     "owner_tag": "tenant-acme",
     "downstream_base_url": "https://acme.chatwoot.io",
     "downstream_account_id": 7,
-    "downstream_inbox_id": 12
+    "downstream_inbox_id": 12,
+    "created_at": "2026-05-27T08:21:47.581Z",
+    "updated_at": "2026-05-27T09:14:02.118Z"
   },
   {
     "owner_tag": "tenant-globex",
     "downstream_base_url": "https://globex.example",
     "downstream_account_id": 1,
-    "downstream_inbox_id": 3
+    "downstream_inbox_id": 3,
+    "created_at": "2026-05-22T10:11:30.000Z",
+    "updated_at": "2026-05-22T10:11:30.000Z"
   }
 ]
 ```
 
+Los campos `created_at` y `updated_at` se incluyen desde **v0.24.2**.
+
 ## `GET /api/tenants/:owner_tag`
 
-Detalle de un tenant. Mismo contrato que `GET /api/tenants` — sin token.
+Detalle de un tenant. Mismo contrato que `GET /api/tenants` (sin token,
+con timestamps).
 
 **Códigos posibles:** `200`, `404`, `500`.
 

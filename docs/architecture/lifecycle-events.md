@@ -32,8 +32,13 @@ listenQR(qrChan) "code"    → EventQRGenerated
   `{count, preview}`.
 - `backend_restarting` — emitido por `BroadcastBackendRestarting()` al
   SIGTERM.
-- `backend_started` — emitido por `BroadcastBackendStarted()` tras 8s
-  post-bootstrap.
+- `backend_started` — emitido por `BroadcastBackendStarted()` tras el
+  bootstrap, **esperando por instancia hasta `state=ready` con timeout
+  de 20s** (desde v0.24.2). El flag `connected` del payload refleja si
+  WhatsMeow estableció sesión durante esa ventana — `false` si timeout.
+  Antes era un snapshot fijo de `IsConnected()` a los 8s post-boot, lo
+  cual reportaba falsos negativos cuando WhatsApp negociaba handshake
+  lento.
 - `ban_risk` — emitido por `banwatch.evaluate` cuando un threshold cruza.
 - `outgoing_expired` — emitido por `outbox.expirer` cuando un mensaje
   expira sin entregarse.
@@ -48,7 +53,15 @@ Para que el panel del agente no se inunde de notificaciones espurias:
   esperamos 5s con la conexión estable antes de emitir el evento.
 - **bootstrap window de 15s**: durante el arranque, se suprimen los
   webhooks `connected` de la avalancha de reconexiones. En su lugar,
-  `backend_started` resume el estado a los 8s.
+  `backend_started` resume el estado por instancia esperando hasta
+  `state=ready` (timeout 20s).
+- **`connected` único por sesión** (desde v0.24.2): un flag
+  `connectedEmitted[name]` evita que EventConnected duplicados de
+  whatsmeow (re-handshake silencioso, session renewal sin Disconnect
+  intermedio) re-emitan el pill `connected` ("🎉 espurio"). Se limpia
+  en `disconnect` / `logged_out`, dejando que la siguiente sesión emita
+  normalmente. Casos previos: SAT-MARC mostrando 🎉 sin desconexión
+  visible previa cada vez que WhatsApp renegociaba sesión.
 
 ## Retry exponencial para eventos críticos
 

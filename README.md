@@ -94,6 +94,7 @@ Toda la documentación está en https://rricajos.github.io/qrsgen/ y en
 - [Migrations](docs/migrations/) — venir desde Evolution API / wajs / Baileys / SaaS, o salir de qrsgen.
 - [Backup runbook](ops/backup/README.md) — install, restore, drop-in config.
 - [Migration tools](tools/migrate/) — `bulk-provision.py` / `validate.py` / `export-config.py`.
+- [Examples](examples/) — recetas de integración self-contained: curl, Python (FastAPI), Node, n8n workflows, Grafana dashboard, recipe multi-tenant SaaS.
 
 ## Stack técnico
 

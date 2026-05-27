@@ -1,0 +1,178 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "qrsgen version",
+      "gridPos": {"h": 3, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "qrsgen_version_info",
+          "legendFormat": "{{version}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "none",
+        "textMode": "name",
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Instancias activas",
+      "gridPos": {"h": 3, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {
+          "expr": "qrsgen_active_instances",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Instancias totales",
+      "gridPos": {"h": 3, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "qrsgen_total_instances",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Mensajes por minuto (out)",
+      "gridPos": {"h": 3, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(qrsgen_messages_total{direction=\"out\"}[1m]) * 60)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Mensajes in/out (rate 1m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 3},
+      "targets": [
+        {
+          "expr": "sum by (direction) (rate(qrsgen_messages_total[1m]))",
+          "legendFormat": "{{direction}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Mensajes por tenant (out)",
+      "description": "Requiere v0.25.0+. Si tu deploy no usa multi-tenant, todo aparece bajo owner_tag=\"\".",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 3},
+      "targets": [
+        {
+          "expr": "sum by (owner_tag) (rate(qrsgen_messages_total{direction=\"out\"}[5m]))",
+          "legendFormat": "{{owner_tag}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Lifecycle events (rate 5m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 11},
+      "targets": [
+        {
+          "expr": "sum by (event) (rate(qrsgen_lifecycle_events_total[5m]))",
+          "legendFormat": "{{event}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Spamguard blocks per tenant",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 11},
+      "targets": [
+        {
+          "expr": "sum by (owner_tag) (increase(qrsgen_spamguard_blocks_total[1h]))",
+          "legendFormat": "{{owner_tag}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Dispatch errors por kind",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 19},
+      "targets": [
+        {
+          "expr": "sum by (kind) (rate(qrsgen_message_dispatch_errors_total[5m]))",
+          "legendFormat": "{{kind}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.01},
+              {"color": "red", "value": 0.1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Lifecycle webhook retries (outcome=exhausted indica downstream caído)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 19},
+      "targets": [
+        {
+          "expr": "sum by (event, outcome) (increase(qrsgen_lifecycle_webhook_retries_total[15m]))",
+          "legendFormat": "{{event}} / {{outcome}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["qrsgen", "whatsapp"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "qrsgen overview",
+  "version": 1,
+  "weekStart": ""
+}

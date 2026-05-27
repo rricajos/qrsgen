@@ -51,9 +51,13 @@ con timestamps).
 
 ## `PUT /api/tenants/:owner_tag`
 
-Upsert. Crea si no existe, actualiza in-place si existe. Tras un PUT
-exitoso, qrsgen **invalida el `*Client` cacheado** de ese `owner_tag`,
-por lo que la próxima request usará la nueva config sin restart.
+Upsert con **semántica de replace**: todos los campos del body
+reemplazan los actuales. Campos no enviados se vacían (excepto los
+defaults). Para actualizaciones parciales, usa `PATCH` (más abajo).
+
+Tras un PUT exitoso, qrsgen **invalida el `*Client` cacheado** de ese
+`owner_tag`, por lo que la próxima request usará la nueva config sin
+restart.
 
 **Request:**
 ```json
@@ -61,7 +65,8 @@ por lo que la próxima request usará la nueva config sin restart.
   "downstream_base_url": "https://acme.chatwoot.io",
   "downstream_api_token": "secret-token-here",
   "downstream_account_id": 7,
-  "downstream_inbox_id": 12
+  "downstream_inbox_id": 12,
+  "webhook_hmac_secret": "shared-secret-32+bytes"
 }
 ```
 
@@ -71,6 +76,7 @@ por lo que la próxima request usará la nueva config sin restart.
 | `downstream_api_token` | string | ✓ | API token. Solo de escritura — nunca se devuelve. |
 | `downstream_account_id` | int | – | Default `1`. Cuenta dentro del downstream. |
 | `downstream_inbox_id` | int | – | Default `0`. Si > 0, se prioriza sobre `bridge_instance.inbox_id` y sobre el env `DOWNSTREAM_INBOX_ID`. |
+| `webhook_hmac_secret` | string | – | Solo de escritura. Desde v0.26.0. Si presente, qrsgen lo usa para verificar HMAC de webhooks entrantes para instancias con este `owner_tag`. Si vacío → fallback al `WEBHOOK_HMAC_SECRET` global del env. |
 
 **Response 200:**
 ```json
@@ -81,6 +87,27 @@ por lo que la próxima request usará la nueva config sin restart.
 
 **Audit log**: cada PUT registra una entrada
 `action="tenant.upsert"` con los campos no-secretos (URL/account/inbox).
+
+## `PATCH /api/tenants/:owner_tag`
+
+Update parcial. Solo modifica los campos presentes en el body — el
+resto se preserva. Útil para rotar solo el `webhook_hmac_secret` sin
+tener que reenviar `downstream_api_token`.
+
+**Request (rotar HMAC sin tocar el resto):**
+```json
+{
+  "webhook_hmac_secret": "new-rotated-secret"
+}
+```
+
+Mismas keys aceptadas que en `PUT`. Campos no whitelisteados se
+ignoran. Devuelve `200`, `404` (tenant no existe), `400` (validación).
+Desde v0.26.0.
+
+**Audit log**: cada PATCH registra `action="tenant.patch"` con
+`metadata.fields` listando solo los nombres de campos tocados (no los
+valores — pueden ser secretos).
 
 ## `DELETE /api/tenants/:owner_tag`
 

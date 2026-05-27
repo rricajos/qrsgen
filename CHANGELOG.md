@@ -4,6 +4,36 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-05-27
+
+Tenant config completeness: `PATCH` parcial + HMAC per-tenant para
+aislar credenciales del webhook entrante entre clientes en multi-
+downstream.
+
+### Added
+
+- **`PATCH /api/tenants/:owner_tag`**: update parcial. Solo modifica
+  los campos del body — el resto se preserva. Útil para rotar
+  `webhook_hmac_secret` sin reenviar el `downstream_api_token`. Audit
+  log registra `tenant.patch` con `metadata.fields` (nombres, no
+  valores). Mismas keys whitelisteadas que en PUT.
+- **`bridge_tenant.webhook_hmac_secret`** (nueva columna, migración
+  idempotente). HMAC secret per-tenant write-only — nunca se devuelve
+  en GET (igual que `downstream_api_token`).
+- **HMAC verify per-tenant**: el middleware del webhook entrante
+  resuelve el secret efectivo de la instancia: si su `owner_tag` tiene
+  tenant con `webhook_hmac_secret` set → usa ese; sino → fallback al
+  `WEBHOOK_HMAC_SECRET` global del env; sino → bypass (compat).
+
+### Changed
+
+- `PUT /api/tenants/:owner_tag` ahora acepta `webhook_hmac_secret`.
+  Semántica de **replace**: campos no enviados se vacían (incluido el
+  secret). Para preservar selectivamente, usa PATCH.
+- `tenant.Resolver` añade `Patch(ctx, ownerTag, fields)` con
+  whitelist de campos. Get/List/Warmup/Set actualizados para leer y
+  escribir el nuevo campo (`COALESCE(webhook_hmac_secret, '')`).
+
 ## [0.25.0] - 2026-05-27
 
 Observabilidad per-tenant: cuando un proceso qrsgen sirve varios
@@ -278,7 +308,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.26.0
 [0.25.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.25.0
 [0.24.2]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.2
 [0.24.1]: https://github.com/rricajos/qrsgen/releases/tag/v0.24.1

@@ -33,7 +33,7 @@ func runWebhookMW(t *testing.T, secret string, header, bodyStr string) (status i
 		return c.String(http.StatusOK, string(b))
 	}
 
-	mw := webhookHMACMiddleware(secret, logger)(handler)
+	mw := webhookHMACMiddleware(secret, nil, logger)(handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/instances/x/webhook", bytes.NewBufferString(bodyStr))
 	if header != "" {

@@ -638,7 +638,7 @@ func main() {
 		return c.JSON(http.StatusOK, out)
 	})
 
-	// PUT /api/tenants/:owner_tag — upsert.
+	// PUT /api/tenants/:owner_tag — upsert (replace semantics).
 	api.PUT("/tenants/:owner_tag", func(c echo.Context) error {
 		ownerTag := c.Param("owner_tag")
 		var req struct {
@@ -646,6 +646,7 @@ func main() {
 			DownstreamAPIToken  string `json:"downstream_api_token"`
 			DownstreamAccountID int    `json:"downstream_account_id"`
 			DownstreamInboxID   int    `json:"downstream_inbox_id"`
+			WebhookHMACSecret   string `json:"webhook_hmac_secret"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad json"})
@@ -656,6 +657,7 @@ func main() {
 			DownstreamAPIToken:  req.DownstreamAPIToken,
 			DownstreamAccountID: req.DownstreamAccountID,
 			DownstreamInboxID:   req.DownstreamInboxID,
+			WebhookHMACSecret:   req.WebhookHMACSecret,
 		}
 		if err := tenants.Set(c.Request().Context(), cfg); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -665,8 +667,46 @@ func main() {
 			"downstream_base_url":   req.DownstreamBaseURL,
 			"downstream_account_id": req.DownstreamAccountID,
 			"downstream_inbox_id":   req.DownstreamInboxID,
+			"webhook_hmac_secret_set": req.WebhookHMACSecret != "",
 		})
 		return c.JSON(http.StatusOK, map[string]string{"message": "tenant saved", "owner_tag": ownerTag})
+	})
+
+	// PATCH /api/tenants/:owner_tag — partial update. Solo se modifican los
+	// campos presentes en el body (con valor distinto de "missing").
+	api.PATCH("/tenants/:owner_tag", func(c echo.Context) error {
+		ownerTag := c.Param("owner_tag")
+		raw := map[string]any{}
+		if err := c.Bind(&raw); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad json"})
+		}
+		// Aceptamos solo el subset whitelisteado por Resolver.Patch.
+		fields := map[string]any{}
+		for _, k := range []string{
+			"downstream_base_url", "downstream_api_token",
+			"downstream_account_id", "downstream_inbox_id",
+			"webhook_hmac_secret",
+		} {
+			if v, ok := raw[k]; ok {
+				fields[k] = v
+			}
+		}
+		if _, err := tenants.Patch(c.Request().Context(), ownerTag, fields); err != nil {
+			if errors.Is(err, tenant.ErrNotFound) {
+				return c.JSON(http.StatusNotFound, map[string]string{"error": "tenant not found"})
+			}
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		dsRegistry.InvalidateTenant(ownerTag)
+		// Audit metadata reporta SOLO las keys tocadas (no los valores — pueden ser secretos).
+		touched := make([]string, 0, len(fields))
+		for k := range fields {
+			touched = append(touched, k)
+		}
+		auditLog.Record(c.Request().Context(), "api", "tenant.patch", "", ownerTag, map[string]any{
+			"fields": touched,
+		})
+		return c.JSON(http.StatusOK, map[string]string{"message": "tenant patched", "owner_tag": ownerTag})
 	})
 
 	// DELETE /api/tenants/:owner_tag — instancias con ese owner_tag caen al fallback global.
@@ -838,7 +878,18 @@ func main() {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal"})
 		}
 		return c.JSON(http.StatusOK, map[string]string{"status": "sent"})
-	}, webhookHMACMiddleware(cfg.WebhookHMACSecret, logger))
+	}, webhookHMACMiddleware(cfg.WebhookHMACSecret, func(ctx context.Context, instance string) string {
+		// Lookup per-tenant secret: instance → owner_tag → tenant.WebhookHMACSecret.
+		ownerTag := dsRegistry.OwnerTagFor(ctx, instance)
+		if ownerTag == "" {
+			return ""
+		}
+		cfg, err := tenants.Get(ctx, ownerTag)
+		if err != nil {
+			return ""
+		}
+		return cfg.WebhookHMACSecret
+	}, logger))
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Port)
@@ -932,18 +983,23 @@ func parseMonthRange(c echo.Context) (from, to string) {
 	return from, to
 }
 
+// tenantHMACSecretLookup resuelve el HMAC secret per-tenant para una instancia.
+// Devuelve "" si no hay tenant configurado o no tiene secret propio (el caller
+// debe entonces caer al global).
+type tenantHMACSecretLookup func(ctx context.Context, instance string) string
+
 // webhookHMACMiddleware verifies X-Qrsgen-Signature: sha256=<hex> against
-// HMAC-SHA256(secret, raw body). Returns 401 on mismatch. If secret is empty,
-// the middleware is a no-op (backward-compat).
+// HMAC-SHA256(secret, raw body). Returns 401 on mismatch.
+//
+// Resolución del secret (desde v0.26.0):
+//  1. Si la instancia tiene tenant con `webhook_hmac_secret` set → usa ese.
+//  2. Si no, fallback al `WEBHOOK_HMAC_SECRET` global del env.
+//  3. Si ambos vacíos → middleware no-op (backward compat sin auth).
 //
 // Reads the body once, validates, then restores it so the downstream handler's
 // c.Bind() still works.
-func webhookHMACMiddleware(secret string, logger *slog.Logger) echo.MiddlewareFunc {
+func webhookHMACMiddleware(globalSecret string, lookup tenantHMACSecretLookup, logger *slog.Logger) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		if secret == "" {
-			return next
-		}
-		secretBytes := []byte(secret)
 		return func(c echo.Context) error {
 			body, err := io.ReadAll(c.Request().Body)
 			if err != nil {
@@ -951,10 +1007,24 @@ func webhookHMACMiddleware(secret string, logger *slog.Logger) echo.MiddlewareFu
 			}
 			c.Request().Body = io.NopCloser(bytes.NewBuffer(body))
 
+			// Resolver secret efectivo: per-tenant si existe, fallback global.
+			instance := c.Param("name")
+			secret := ""
+			if lookup != nil {
+				secret = lookup(c.Request().Context(), instance)
+			}
+			if secret == "" {
+				secret = globalSecret
+			}
+			// Si ningún secret está set, dejar pasar (backward compat sin HMAC).
+			if secret == "" {
+				return next(c)
+			}
+
 			sig := c.Request().Header.Get("X-Qrsgen-Signature")
 			const prefix = "sha256="
 			if !strings.HasPrefix(sig, prefix) {
-				logger.Warn("webhook hmac: missing/invalid signature header", "instance", c.Param("name"))
+				logger.Warn("webhook hmac: missing/invalid signature header", "instance", instance)
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing signature"})
 			}
 			gotHex := sig[len(prefix):]
@@ -963,12 +1033,12 @@ func webhookHMACMiddleware(secret string, logger *slog.Logger) echo.MiddlewareFu
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid signature encoding"})
 			}
 
-			mac := hmac.New(sha256.New, secretBytes)
+			mac := hmac.New(sha256.New, []byte(secret))
 			mac.Write(body)
 			expected := mac.Sum(nil)
 
 			if !hmac.Equal(got, expected) {
-				logger.Warn("webhook hmac: signature mismatch", "instance", c.Param("name"))
+				logger.Warn("webhook hmac: signature mismatch", "instance", instance)
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "signature mismatch"})
 			}
 			return next(c)

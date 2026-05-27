@@ -7,16 +7,32 @@ token de la [capa 1](layer-1-bearer.md) (los downstream típicos no firman
 con auth genérica). En su lugar, qrsgen acepta una firma HMAC en un
 header dedicado.
 
-Cuando `WEBHOOK_HMAC_SECRET` está set:
+Formato del header:
 
 ```
 X-Qrsgen-Signature: sha256=<hex>
 
-donde <hex> = HMAC-SHA256(WEBHOOK_HMAC_SECRET, raw_body)
+donde <hex> = HMAC-SHA256(secret, raw_body)
 ```
 
-Mismatches devuelven `401`. Si la env var está vacía, el endpoint queda
-abierto en LAN (backward-compat).
+Mismatches devuelven `401`.
+
+### Resolución del `secret` (desde v0.26.0)
+
+qrsgen elige el secret efectivo por request en este orden:
+
+1. **Per-tenant**: si la instancia (`:name` en la URL) tiene `owner_tag`
+   mapeado a un tenant con `webhook_hmac_secret` configurado en
+   `bridge_tenant` (vía `PUT/PATCH /api/tenants/:owner_tag`), se usa
+   ese secret.
+2. **Fallback global**: si no hay per-tenant, se usa el
+   `WEBHOOK_HMAC_SECRET` del env (compat con el modelo single-tenant).
+3. **Sin HMAC**: si ambos están vacíos, el endpoint queda abierto en
+   LAN (backward-compat para deploys sin firma).
+
+En arquitecturas multi-downstream / SaaS, configura per-tenant para
+aislar credenciales entre clientes — un secret comprometido solo
+afecta a un cliente.
 
 ## Configuración
 

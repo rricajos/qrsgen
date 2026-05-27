@@ -28,6 +28,7 @@ type Config struct {
 	DownstreamAPIToken  string    `json:"-"` // nunca se serializa
 	DownstreamAccountID int       `json:"downstream_account_id"`
 	DownstreamInboxID   int       `json:"downstream_inbox_id,omitempty"`
+	WebhookHMACSecret   string    `json:"-"` // nunca se serializa
 	CreatedAt           time.Time `json:"created_at,omitempty"`
 	UpdatedAt           time.Time `json:"updated_at,omitempty"`
 }
@@ -44,10 +45,10 @@ type Resolver struct {
 	cache map[string]*Config
 }
 
-// EnsureSchema crea la tabla bridge_tenant.
+// EnsureSchema crea la tabla bridge_tenant + aplica migraciones idempotentes.
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS bridge_tenant (
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS bridge_tenant (
 			owner_tag             TEXT PRIMARY KEY,
 			downstream_base_url   TEXT NOT NULL,
 			downstream_api_token  TEXT NOT NULL,
@@ -55,10 +56,15 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 			downstream_inbox_id   INT  NOT NULL DEFAULT 0,
 			created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("tenant schema: %w", err)
+		)`,
+		// v0.26 — HMAC secret per-tenant para verificar webhooks entrantes.
+		// Si NULL/empty → fallback al WEBHOOK_HMAC_SECRET global del env.
+		`ALTER TABLE bridge_tenant ADD COLUMN IF NOT EXISTS webhook_hmac_secret TEXT`,
+	}
+	for _, s := range stmts {
+		if _, err := pool.Exec(ctx, s); err != nil {
+			return fmt.Errorf("tenant schema: %w", err)
+		}
 	}
 	return nil
 }
@@ -76,6 +82,7 @@ func (r *Resolver) Warmup(ctx context.Context) error {
 	rows, err := r.pool.Query(ctx, `
 		SELECT owner_tag, downstream_base_url, downstream_api_token,
 		       downstream_account_id, downstream_inbox_id,
+		       COALESCE(webhook_hmac_secret, ''),
 		       created_at, updated_at
 		FROM bridge_tenant
 	`)
@@ -88,6 +95,7 @@ func (r *Resolver) Warmup(ctx context.Context) error {
 		var c Config
 		if err := rows.Scan(&c.OwnerTag, &c.DownstreamBaseURL, &c.DownstreamAPIToken,
 			&c.DownstreamAccountID, &c.DownstreamInboxID,
+			&c.WebhookHMACSecret,
 			&c.CreatedAt, &c.UpdatedAt); err != nil {
 			return fmt.Errorf("scan: %w", err)
 		}
@@ -116,10 +124,12 @@ func (r *Resolver) Get(ctx context.Context, ownerTag string) (*Config, error) {
 	err := r.pool.QueryRow(ctx, `
 		SELECT owner_tag, downstream_base_url, downstream_api_token,
 		       downstream_account_id, downstream_inbox_id,
+		       COALESCE(webhook_hmac_secret, ''),
 		       created_at, updated_at
 		FROM bridge_tenant WHERE owner_tag=$1
 	`, ownerTag).Scan(&loaded.OwnerTag, &loaded.DownstreamBaseURL,
 		&loaded.DownstreamAPIToken, &loaded.DownstreamAccountID, &loaded.DownstreamInboxID,
+		&loaded.WebhookHMACSecret,
 		&loaded.CreatedAt, &loaded.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -144,18 +154,22 @@ func (r *Resolver) Set(ctx context.Context, c Config) error {
 	if c.DownstreamAccountID == 0 {
 		c.DownstreamAccountID = 1
 	}
+	// Set = PUT semantic: replace all fields. WebhookHMACSecret vacío en
+	// payload PUT borra el HMAC del tenant. Para preservar selectivamente
+	// usar Patch.
 	var createdAt, updatedAt time.Time
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO bridge_tenant (owner_tag, downstream_base_url, downstream_api_token, downstream_account_id, downstream_inbox_id)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO bridge_tenant (owner_tag, downstream_base_url, downstream_api_token, downstream_account_id, downstream_inbox_id, webhook_hmac_secret)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''))
 		ON CONFLICT (owner_tag) DO UPDATE SET
 			downstream_base_url   = EXCLUDED.downstream_base_url,
 			downstream_api_token  = EXCLUDED.downstream_api_token,
 			downstream_account_id = EXCLUDED.downstream_account_id,
 			downstream_inbox_id   = EXCLUDED.downstream_inbox_id,
+			webhook_hmac_secret   = EXCLUDED.webhook_hmac_secret,
 			updated_at            = NOW()
 		RETURNING created_at, updated_at
-	`, c.OwnerTag, c.DownstreamBaseURL, c.DownstreamAPIToken, c.DownstreamAccountID, c.DownstreamInboxID).Scan(&createdAt, &updatedAt)
+	`, c.OwnerTag, c.DownstreamBaseURL, c.DownstreamAPIToken, c.DownstreamAccountID, c.DownstreamInboxID, c.WebhookHMACSecret).Scan(&createdAt, &updatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert tenant: %w", err)
 	}
@@ -166,6 +180,82 @@ func (r *Resolver) Set(ctx context.Context, c Config) error {
 	r.cache[c.OwnerTag] = &cp
 	r.mu.Unlock()
 	return nil
+}
+
+// Patch hace un update parcial del tenant. Solo se modifican los
+// campos del map presentes. Keys aceptadas:
+//
+//   - "downstream_base_url" (string)
+//   - "downstream_api_token" (string)
+//   - "downstream_account_id" (int)
+//   - "downstream_inbox_id" (int)
+//   - "webhook_hmac_secret" (string)
+//
+// Devuelve ErrNotFound si el tenant no existe. Invalida el cache tras un
+// update exitoso.
+func (r *Resolver) Patch(ctx context.Context, ownerTag string, fields map[string]any) (*Config, error) {
+	if ownerTag == "" {
+		return nil, errors.New("tenant: owner_tag required")
+	}
+	if len(fields) == 0 {
+		// Sin campos = no-op; devuelve el tenant actual.
+		return r.Get(ctx, ownerTag)
+	}
+	allowed := map[string]bool{
+		"downstream_base_url":   true,
+		"downstream_api_token":  true,
+		"downstream_account_id": true,
+		"downstream_inbox_id":   true,
+		"webhook_hmac_secret":   true,
+	}
+	var sets []string
+	var args []any
+	for k, v := range fields {
+		if !allowed[k] {
+			continue
+		}
+		sets = append(sets, fmt.Sprintf("%s = $%d", k, len(args)+1))
+		args = append(args, v)
+	}
+	if len(sets) == 0 {
+		return r.Get(ctx, ownerTag)
+	}
+	// updated_at se refresca siempre que haya cambios
+	args = append(args, ownerTag)
+	query := fmt.Sprintf(`
+		UPDATE bridge_tenant
+		SET %s, updated_at = NOW()
+		WHERE owner_tag = $%d
+		RETURNING owner_tag, downstream_base_url, downstream_api_token,
+		          downstream_account_id, downstream_inbox_id,
+		          created_at, updated_at, COALESCE(webhook_hmac_secret, '')
+	`, joinComma(sets), len(args))
+	var loaded Config
+	err := r.pool.QueryRow(ctx, query, args...).Scan(
+		&loaded.OwnerTag, &loaded.DownstreamBaseURL, &loaded.DownstreamAPIToken,
+		&loaded.DownstreamAccountID, &loaded.DownstreamInboxID,
+		&loaded.CreatedAt, &loaded.UpdatedAt, &loaded.WebhookHMACSecret)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("patch tenant: %w", err)
+	}
+	r.mu.Lock()
+	r.cache[ownerTag] = &loaded
+	r.mu.Unlock()
+	return &loaded, nil
+}
+
+func joinComma(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += ", "
+		}
+		out += p
+	}
+	return out
 }
 
 // Delete remueve el tenant. Invalida el cache.

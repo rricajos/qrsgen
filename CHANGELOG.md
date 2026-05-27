@@ -4,6 +4,21 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.28.3] - 2026-05-27
+
+UX del `spam_blocked` event: contexto para que el integrador pueda
+linkear al mensaje y avisar en la conversación del cliente.
+
+### Added
+
+- **`spam_blocked` lifecycle event ahora incluye `msg_id`, `conv_id`
+  y `remote_jid`** en los extras del payload, además de `count` y
+  `preview` que ya estaban. Permite que el integrador (n8n / Omnia)
+  construya un link directo al mensaje bloqueado (`/conversations/{conv_id}`)
+  y poste una nota interna en la conv del cliente avisando que el
+  outgoing no se entregó. Antes el agente veía su mensaje como `sent`
+  en Chatwoot sin saber que qrsgen lo había bloqueado.
+
 ## [0.28.2] - 2026-05-27
 
 Tres pulidos observables: una race real arreglada + métrica de versión
@@ -431,7 +446,8 @@ Primera release pública.
 - Spamguard counter in-memory: se resetea en cada restart.
 - LID twin del cliente: dedup limpia downstream pero el destinatario sigue recibiendo 2 msgs si WhatsApp hace dispatch dual.
 
-[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.2...HEAD
+[Unreleased]: https://github.com/rricajos/qrsgen/compare/v0.28.3...HEAD
+[0.28.3]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.3
 [0.28.2]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.2
 [0.28.1]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.1
 [0.28.0]: https://github.com/rricajos/qrsgen/releases/tag/v0.28.0

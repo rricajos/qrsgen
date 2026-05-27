@@ -192,10 +192,19 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 					r := []rune(preview)
 					preview = string(r[:60]) + "…"
 				}
-				o.sg.EmitLifecycle(instance, "spam_blocked", map[string]any{
-					"count":   count,
-					"preview": preview,
-				})
+				// Extras enriquecidos (v0.28.3): permiten que el integrador (n8n)
+				// linke al mensaje en el panel QR y postee una nota interna en la
+				// conversación del cliente avisando que no se entregó.
+				extras := map[string]any{
+					"count":      count,
+					"preview":    preview,
+					"remote_jid": remoteJid,
+					"msg_id":     p.ID,
+				}
+				if p.Conversation != nil {
+					extras["conv_id"] = p.Conversation.ID
+				}
+				o.sg.EmitLifecycle(instance, "spam_blocked", extras)
 				return nil
 			}
 		}

@@ -76,6 +76,32 @@ móvil → app WA → whatsmeow. Cubre el caso LID-anonymizado-en-grupos
 resolviendo a PN antes de decidir. Detalles en
 [Formato del prefijo de grupo](../integrations/group-sender-format.md).
 
+## Sincronización de reacciones WhatsApp
+
+Desde v0.33.0, cuando un usuario reacciona a un mensaje en WhatsApp
+(long-press → emoji), qrsgen propaga la reacción al downstream como
+un nuevo mensaje incoming. Antes de esta versión los eventos
+`ReactionMessage` se descartaban silenciosamente.
+
+- **Contacto en agenda**:
+  ```
+  **~Jean Paul** reaccionó con 👍
+  ```
+- **Sender no guardado en grupo**:
+  ```
+  **~Richard** `+34604021705` reaccionó con ❤️
+  ```
+- **Reacción retirada**:
+  ```
+  **~Jean Paul** _quitó su reacción_
+  ```
+
+Mismo path platform-agnostic (`downstream.Router.PostMessage`), mismo
+name resolver con `IsContactSaved` que el prefijo de grupo. Master
+switch via `QRSGEN_REACTIONS_SYNC` (default `true`). Las reacciones
+del propio bot owner (`IsFromMe=true`) se ignoran. Detalles en
+[Sincronización de reacciones](../integrations/reactions-sync.md).
+
 ## HMAC opcional del webhook
 
 `WEBHOOK_HMAC_SECRET` activa firma HMAC-SHA256 obligatoria en el
@@ -171,3 +197,17 @@ bloque de teléfono en el prefijo de grupo.
 **PushName**: nombre que el propio sender configura en su WhatsApp.
 qrsgen lo usa como fallback de display pero NO lo cuenta como
 "guardado" — viene del sender, no de la decisión del bot owner.
+
+**Reacción (WhatsApp)**: emoji que un usuario añade a un mensaje
+existente mediante long-press → tap en el emoji. WhatsApp lo entrega
+como un `ReactionMessage` que apunta al `msg.Info.ID` del mensaje
+target. qrsgen lo sincroniza al downstream como un nuevo mensaje
+incoming desde v0.33.0.
+
+**`ReactionMessage`**: tipo de payload en `events.Message` cuando el
+sender reaccionó en vez de enviar texto/media. Tiene `Text` (emoji o
+`""` si retiró la reacción) y referencia al mensaje target.
+
+**Reacciones sync**: propagación de reacciones WhatsApp al downstream.
+Read-only sobre WhatsApp (qrsgen no envía reacciones de vuelta).
+Controlada por `QRSGEN_REACTIONS_SYNC`.

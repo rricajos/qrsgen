@@ -123,6 +123,7 @@ nav:
       - Python: integrations/python.md
       - Avatar sync: integrations/avatar-sync.md
       - Prefijo de grupo: integrations/group-sender-format.md
+      - Reacciones sync: integrations/reactions-sync.md
   - Migrations:
       - migrations/index.md
       - Desde Evolution API: migrations/from-evolution-api.md

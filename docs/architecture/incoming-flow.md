@@ -15,6 +15,19 @@ wameow.handle() → callback onMessage
         ▼
 bridge/incoming.go:
         │ resuelve LID↔PN si aplica (Multi-Device)
+        │ si msg.GetReactionMessage() != nil ──► handleReaction
+        │                                          │
+        │                                          ▼
+        │                                  resuelve sender + conv
+        │                                  aplica name resolver
+        │                                    (IsContactSaved + LID/PN)
+        │                                  body = "**~<name>** reaccionó con <emoji>"
+        │                                          (o "_quitó su reacción_")
+        │                                  POST incoming con
+        │                                    source_id="WAID:reaction:<ID>"
+        │                                          │
+        │                                          ▼
+        │                                        (fin)
         │ si fromMe=true: dedup.ShouldDrop() para evitar twin
         │ si grupo: applyGroupSenderPrefix(body, msg, resolver)
         │           ├─ IsContactSaved(sender)? ──► sí: prefix = "**~<name>**"
@@ -78,6 +91,37 @@ contactos guardados por número que llegan anonimizados en grupos.
 Detalles en
 [Formato del prefijo de grupo](../integrations/group-sender-format.md).
 
+## Reacciones (handleReaction)
+
+Desde v0.33.0, `bridge.Incoming.Handle` chequea si el payload entrante
+es una reacción **antes** del path normal de texto/media:
+
+```go
+if msg.Message.GetReactionMessage() != nil {
+    return i.handleReaction(ctx, instance, msg)
+}
+```
+
+Antes de v0.33.0 estos eventos caían en el path "sin texto ni media" y
+se descartaban. `handleReaction`:
+
+- Resuelve sender + conversación por el mismo camino que un mensaje
+  normal (LID↔PN, contact lookup en downstream).
+- Aplica el name resolver de `applyGroupSenderPrefix` incluyendo
+  `IsContactSaved` (v0.32.0) para decidir si incluye teléfono.
+- Construye el body con uno de tres formatos:
+  - `**~<name>** reaccionó con <emoji>` (saved)
+  - `` **~<name>** `+<E164>` reaccionó con <emoji> `` (no saved en grupo)
+  - `**~<name>** _quitó su reacción_` (text="" → retracted)
+- POSTea con `message_type: "incoming"` y
+  `source_id: "WAID:reaction:<msg.Info.ID>"` — namespace separado del
+  mensaje target para evitar colisión en el dedup del downstream.
+
+Casos de descarte: `IsFromMe=true` (reacción propia desde otro
+device), contacto no existe en downstream (no se crea por una
+reacción suelta), `QRSGEN_REACTIONS_SYNC=false`. Detalles en
+[Sincronización de reacciones](../integrations/reactions-sync.md).
+
 ## Side effect: avatar sync
 
 Tras el POST al downstream, `sync()` llama también a `maybeAvatarSync`
@@ -137,3 +181,13 @@ minimizar tráfico.
 `applyGroupSenderPrefix` (desde v0.32.0) que omite el bloque de
 teléfono cuando el sender está guardado en la libreta del bot owner.
 Detectado vía `IsContactSaved` contra el contact store de whatsmeow.
+
+**`handleReaction`**: handler en `bridge.Incoming` (desde v0.33.0) que
+intercepta `ReactionMessage` antes del path normal de texto/media y
+los propaga al downstream como mensaje incoming con
+`source_id: "WAID:reaction:<ID>"`.
+
+**`WAID:reaction:<ID>` namespace**: prefijo para el `source_id` de
+reacciones. Garantiza unicidad respecto al mensaje target (que usa
+`WAID:<ID>`) y evita que el dedup del downstream las confunda como
+duplicados.

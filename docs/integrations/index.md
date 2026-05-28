@@ -21,6 +21,11 @@ para los integradores más comunes.
   se adapta según si el contacto está guardado en la libreta del
   número conectado (omite el teléfono) o no (lo mantiene). Read-only
   sobre `client.Store.Contacts` de whatsmeow.
+- **[Sincronización de reacciones](reactions-sync.md)** — v0.33.0.
+  Las reacciones que un usuario añade a un mensaje en WhatsApp
+  (long-press → emoji) se propagan al downstream como mensaje
+  incoming con el formato `**~<name>** reaccionó con <emoji>`. Read-only
+  sobre WhatsApp: qrsgen no envía reacciones de vuelta.
 
 ## Patrones comunes a todas las integraciones
 

@@ -4,6 +4,58 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.31.3] - 2026-05-28
+
+Bulk re-sync endpoint para backfillear avatares de contactos viejos
+(creados antes de v0.31.0 o que no han recibido mensajes recientes
+que disparen el sync vía sync()).
+
+### Added
+
+- **`Client.ListContactsByInbox(ctx, inboxID, page)`** — endpoint
+  helper para paginar contactos de un inbox via Chatwoot API
+  (`GET /api/v1/accounts/X/inboxes/Y/contacts?page=Z`). Devuelve
+  `(contacts, hasMore, error)`. Detecta paginación comparando con
+  page_size default de Chatwoot (15).
+- **`Incoming.ResyncInstanceAvatars(ctx, instance, r, inboxID)`** —
+  itera todas las páginas de contactos del inbox, parsea identifier
+  como JID, lanza `syncAvatar` por cada uno bypassando el tracker.
+  Devuelve `ResyncResult` con scanned/skipped/queued/pages.
+  Cap defensivo de 200 páginas (~3000 contactos).
+- **`POST /api/instances/{name}/avatars/resync`** — endpoint REST
+  que dispara el bulk. Requiere API token. Resuelve inbox via la
+  config de la instancia y delega en `ResyncInstanceAvatars`.
+
+### Use case
+
+Tras adoptar v0.31.0+ por primera vez, los contactos viejos en
+Chatwoot tienen letter-avatars. El sync automático solo aplica al
+crear contacto o cuando llega un mensaje (sync flow) o cuando WA
+emite `events.Picture`. Si tienes contactos inactivos, no se les
+sincronizará nunca a menos que les llames manualmente. Este
+endpoint permite hacerlo en una sola operación.
+
+```bash
+curl -X POST -H "Authorization: Bearer $QRSGEN_API_TOKEN" \
+  https://qrsgen.example.com/api/instances/CONEXIA4/avatars/resync
+```
+
+Respuesta:
+```json
+{
+  "instance": "CONEXIA4",
+  "scanned": 234,
+  "skipped": 5,
+  "queued": 229,
+  "pages": 16
+}
+```
+
+### Migration notes
+
+- Sin breaking changes. La feature es opt-in via llamada explícita
+  al endpoint; sin invocarlo, el sistema funciona como en v0.31.2.
+
 ## [0.31.2] - 2026-05-28
 
 Real-time avatar refresh: subscribe a `events.Picture` de whatsmeow

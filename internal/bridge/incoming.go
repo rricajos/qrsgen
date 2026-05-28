@@ -96,6 +96,85 @@ func (i *Incoming) SetAvatarRefreshTTL(ttl time.Duration) {
 	i.avatarTracker = newAvatarTracker(ttl)
 }
 
+// ResyncResult resume el bulk-resync de avatars.
+type ResyncResult struct {
+	Instance string `json:"instance"`
+	Scanned  int    `json:"scanned"`  // contactos totales iterados
+	Skipped  int    `json:"skipped"`  // identifier no parseable como JID
+	Queued   int    `json:"queued"`   // syncs lanzados en background
+	Pages    int    `json:"pages"`    // páginas consultadas en downstream
+}
+
+// ResyncInstanceAvatars itera todos los contactos del inbox asociado a la
+// instancia y dispara un avatar sync por cada uno que tenga identifier
+// parseable como JID. BYPASS del tracker — cada contacto se chequea sí o sí.
+//
+// Útil para backfillear contactos viejos (creados antes de v0.31.0) que
+// todavía tienen letter-avatar autogenerado y no han recibido mensajes
+// recientes que disparen el sync vía sync().
+//
+// La iteración bloquea hasta terminar pero los syncs por contacto son
+// goroutines fire-and-forget. Para inboxes grandes (>1k contactos)
+// considera invocar con cuidado — N goroutines concurrentes pueden
+// estresar tanto al server WA como al downstream.
+func (i *Incoming) ResyncInstanceAvatars(ctx context.Context, instance string, r wameow.WAResolver, inboxID int) (ResyncResult, error) {
+	result := ResyncResult{Instance: instance}
+	if !i.avatarSync || r == nil {
+		return result, fmt.Errorf("avatar sync disabled")
+	}
+	ds := i.ds.For(ctx, instance)
+	if ds == nil {
+		return result, fmt.Errorf("downstream not configured for instance %s", instance)
+	}
+	if inboxID <= 0 {
+		return result, fmt.Errorf("inbox id required (got %d)", inboxID)
+	}
+
+	page := 1
+	for {
+		contacts, hasMore, err := ds.ListContactsByInbox(ctx, inboxID, page)
+		if err != nil {
+			return result, fmt.Errorf("list contacts page %d: %w", page, err)
+		}
+		result.Pages++
+		for _, contact := range contacts {
+			result.Scanned++
+			jid, parseErr := types.ParseJID(contact.Identifier)
+			if parseErr != nil {
+				result.Skipped++
+				continue
+			}
+			// Forzar sync ignorando tracker — copiar contact.ID a variable
+			// local para que la goroutine no comparta el loop var (Go 1.22+
+			// ya no lo necesita pero por claridad).
+			cid := contact.ID
+			j := jid
+			if i.avatarTracker != nil {
+				// Forzar re-check: limpiar LastID para que syncAvatar
+				// detecte cambio y descargue.
+				i.avatarTracker.UpdateID(instance, j.String(), "")
+			}
+			go i.syncAvatar(ds, r, cid, j, instance)
+			result.Queued++
+		}
+		if !hasMore {
+			break
+		}
+		page++
+		// Safety: no más de 200 páginas (3000 contactos). Si tienes más,
+		// implementa cursor en lugar de page-based.
+		if page > 200 {
+			i.logger.Warn("resync avatars: page cap reached, stopping",
+				"instance", instance, "pages", page, "scanned", result.Scanned)
+			break
+		}
+	}
+	i.logger.Info("resync avatars done",
+		"instance", instance, "scanned", result.Scanned,
+		"skipped", result.Skipped, "queued", result.Queued, "pages", result.Pages)
+	return result, nil
+}
+
 // HandlePictureChange reacciona a *events.Picture: alguien (user o grupo)
 // cambió su foto de perfil. Encuentra el contact correspondiente en el
 // downstream y dispara avatar sync. A diferencia de maybeAvatarSync,

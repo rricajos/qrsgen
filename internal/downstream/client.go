@@ -261,6 +261,44 @@ func (c *Client) CreateConversation(ctx context.Context, req CreateConversationR
 	return &conv, nil
 }
 
+// ListContactsByInbox devuelve una página de contactos asociados a un inbox.
+// page es 1-based. hasMore indica si hay siguiente página (basándose en si
+// la página actual está llena al límite del downstream — 15 por defecto en
+// Chatwoot).
+//
+// Útil para bulk-resync: iterar páginas y disparar avatar sync para cada
+// contacto. NO mantengas página abierta en lecturas largas — cada llamada
+// es una request HTTP nueva.
+func (c *Client) ListContactsByInbox(ctx context.Context, inboxID, page int) ([]Contact, bool, error) {
+	if page < 1 {
+		page = 1
+	}
+	path := fmt.Sprintf("/inboxes/%d/contacts?page=%d", inboxID, page)
+	data, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	// Chatwoot devuelve {payload: [...], meta: {...}}. La paginación
+	// se infiere comparando el tamaño de payload con el page_size típico
+	// (15). Si es menor, no hay más páginas.
+	var wrap struct {
+		Payload []Contact `json:"payload"`
+		Meta    struct {
+			Count int `json:"count"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(data, &wrap); err != nil {
+		// Fallback: algunas versiones devuelven array directo.
+		var arr []Contact
+		if err2 := json.Unmarshal(data, &arr); err2 != nil {
+			return nil, false, fmt.Errorf("unmarshal contacts: %w", err)
+		}
+		wrap.Payload = arr
+	}
+	hasMore := len(wrap.Payload) >= 15 // page_size típico de Chatwoot
+	return wrap.Payload, hasMore, nil
+}
+
 // UploadContactAvatar sube una imagen como avatar del contacto en el downstream.
 // Usa multipart/form-data con el campo `avatar` (formato esperado por la API
 // PUT /api/v1/accounts/:account/contacts/:id del downstream). El mime

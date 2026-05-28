@@ -622,6 +622,29 @@ func main() {
 		return c.JSON(http.StatusOK, banWatcher.Snapshot(c.Param("name")))
 	})
 
+	// POST /api/instances/:name/avatars/resync
+	// Backfill bulk: itera todos los contactos del inbox de la instancia y
+	// dispara avatar sync para cada uno con identifier parseable como JID.
+	// Bypassea el tracker — fuerza re-chequeo aunque el TTL no haya expirado.
+	// Útil tras adoptar v0.31.0+ por primera vez, para llevar la mejora a
+	// contactos viejos que no han recibido mensajes recientes.
+	api.POST("/instances/:name/avatars/resync", func(c echo.Context) error {
+		instance := c.Param("name")
+		conn, ok := mgr.Get(instance)
+		if !ok {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
+		}
+		inboxID := resolveInbox(instance)
+		if inboxID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "no inbox_id for instance"})
+		}
+		result, err := incoming.ResyncInstanceAvatars(c.Request().Context(), instance, conn, inboxID)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	// GET /api/usage/summary?from=YYYY-MM&to=YYYY-MM
 	// Resumen mensual agregado por (owner_tag, mes). Pensado para billing —
 	// el integrador mapea owner_tag a su modelo de tenant y suma los contadores.

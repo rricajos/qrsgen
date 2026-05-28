@@ -461,14 +461,14 @@ func filenameFromMime(mime, prefix, defaultExt string) string {
 // applyGroupSenderPrefix añade al body un prefijo identificando al
 // remitente dentro del grupo. Formato actual:
 //
-//	**~Richard** `+34604021705`
+//	**~Richard** `+34604021705`
 //	<body>
 //
-// Tilde + nombre en bold (foreground, estilo WhatsApp), espacio,
-// teléfono en code block (background, monospace, fondo distintivo
-// que Chatwoot pinta para inline code — separación visual sin
-// necesitar separador char). Chatwoot renderiza `**...**` bold y
-// los backticks como inline code.
+// Tilde + nombre en bold (foreground, estilo WhatsApp), em-space
+// (U+2003, ~4x un espacio normal) que markdown NO colapsa, teléfono
+// en code block (background, monospace, fondo distintivo). El em-space
+// da respiración visual entre el bold y el code sin necesitar
+// separador char explícito.
 //
 // Degradaciones:
 //   - sin teléfono: "**~<name>**:\n<body>"
@@ -503,10 +503,11 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	var prefix string
 	switch {
 	case phoneDigits != "" && name != "":
-		// Tilde + name en bold + espacio + teléfono en code block. El
-		// fondo distintivo del code block hace de separador visual sin
-		// necesitar un char explícito.
-		prefix = "**~" + name + "** `" + formatE164(phoneDigits) + "`"
+		// Tilde + name en bold + em-space (U+2003) + teléfono en code
+		// block. El em-space es Unicode "wide space" que markdown no
+		// colapsa, dando separación visual entre el bold y el code
+		// que un espacio normal no consigue.
+		prefix = "**~" + name + "** `" + formatE164(phoneDigits) + "`"
 	case name != "":
 		prefix = "**~" + name + "**:"
 	case phoneDigits != "":

@@ -4,6 +4,24 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.30.2] - 2026-05-28
+
+UX tweak: em-space (U+2003) entre nombre y code block del teléfono.
+
+### Changed
+
+- **`applyGroupSenderPrefix`** ahora intercala un em-space (U+2003,
+  un carácter Unicode "wide space") entre el bold del nombre y el
+  inline code del teléfono. Razón: en v0.30.1 quedaban tocándose,
+  porque Chatwoot colapsa espacios normales a uno solo en render.
+  El em-space NO se colapsa (es un codepoint distinto al `\x20`)
+  y ocupa ~4x más, dando la respiración que faltaba.
+
+### Migration notes
+
+- Cambio cosmético. Si tu parser regex matchea exactamente
+  ` ` entre el `**` y el `` ` ``, ahora hay un ` ` allí.
+
 ## [0.30.1] - 2026-05-28
 
 UX tweak: teléfono en inline code block en lugar de italic + separador.

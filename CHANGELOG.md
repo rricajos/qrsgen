@@ -4,6 +4,17 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.29.6] - 2026-05-28
+
+UX micro-tweak: 3 espacios entre nombre y teléfono en lugar de 2.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora usa TRES espacios** entre el bold
+  del nombre y el italic del teléfono:
+  `**~<Name>**   _+CC ..._`. Razón: con 2 espacios el espacio entre
+  ambos era demasiado tight; 3 marca mejor la separación visual.
+
 ## [0.29.5] - 2026-05-28
 
 UX tweak: tilde delante del nombre, dentro del bold — matchea la

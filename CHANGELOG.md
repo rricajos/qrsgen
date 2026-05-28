@@ -4,6 +4,43 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-05-28
+
+UX patch del prefijo de grupo: nombre primero, teléfono en "segundo
+plano" (italic + paréntesis), y teléfono formateado E.164 con
+espaciado por país. La readabilidad mejora notablemente cuando
+varios participantes intervienen en la misma conversación.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora genera `<Name> _(+CC NNN NN NN NN)_`**
+  en lugar de `+<phone> - <Name>:`. Chatwoot renderiza el `_..._` como
+  italic, así que el teléfono queda visualmente subordinado al nombre.
+  Razón: con 3+ senders distintos en una conv del grupo, el "+phone -"
+  inicial le robaba prioridad al contenido del mensaje.
+- **Teléfono formateado E.164 por país**. España (`+34`) usa 3-2-2-2
+  (e.g. `+34 604 02 17 05`, matcheando el estilo de Evolution); resto
+  de países agrupa por 3 desde la izquierda (`+33 612 345 678`). CCs
+  reconocidos: NANP (+1), Europa común (+30..+49), Latam (+51..+58),
+  Asia operacional, Portugal (+351), Israel (+972), Emiratos (+971).
+  Para CCs no listados, deja el número compacto con `+` delante.
+
+### Added
+
+- **`formatE164`, `detectCountryCode`, `groupNationalNumber`,
+  `groupByThree`** — helpers en `internal/bridge/incoming.go`. 12 tests
+  cubriendo Spain mobile/landline, France, Germany, UK, US, Portugal,
+  Italy, Mexico, CCs desconocidos, y casos degenerados.
+
+### Migration notes
+
+- **Sin nuevas env vars**. `QRSGEN_GROUP_PREFIX_SENDER=false` sigue
+  desactivando el prefix entero como antes.
+- **Cambio de formato observable** en Chatwoot/downstream para
+  integraciones que parseaban el body raw esperando `+phone - Name:`.
+  Si tienes un parser regex de n8n que dependa del formato viejo,
+  actualízalo al nuevo (`<Name> _\(\+[\d ]+\)_`) o desactiva el prefix.
+
 ## [0.29.0] - 2026-05-28
 
 Conversaciones de WhatsApp en grupo se reflejan correctamente en

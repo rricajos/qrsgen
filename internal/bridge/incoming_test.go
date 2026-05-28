@@ -278,10 +278,10 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	senderPN := types.NewJID("34640047775", types.DefaultUserServer)
 	senderLID := types.NewJID("99887766554433221100", types.HiddenUserServer)
 
-	t.Run("PN sender with push name → full prefix", func(t *testing.T) {
+	t.Run("PN sender (Spain) with push name → name + italic phone", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "+34640047775 - Jean Paul:\nhola"
+		want := "Jean Paul _(+34 640 04 77 75)_\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -291,7 +291,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "")
 		r := &fakeResolver{names: map[string]string{senderPN.String(): "Jean Paul (CRM)"}}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "+34640047775 - Jean Paul (CRM):\nhola"
+		want := "Jean Paul (CRM) _(+34 640 04 77 75)_\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -303,13 +303,13 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			pnByLID: map[string]types.JID{senderLID.String(): senderPN},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "+34640047775 - Anon:\nhola"
+		want := "Anon _(+34 640 04 77 75)_\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 
-	t.Run("LID sender unresolvable, only push name", func(t *testing.T) {
+	t.Run("LID sender unresolvable, only push name → name + colon", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderLID, "Pseudo")
 		got := applyGroupSenderPrefix("hola", msg, nil)
 		want := "Pseudo:\nhola"
@@ -318,10 +318,19 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 		}
 	})
 
+	t.Run("PN sender no name → bare phone + colon", func(t *testing.T) {
+		msg := mkGroupMsg(groupJID, senderPN, "")
+		got := applyGroupSenderPrefix("hola", msg, nil)
+		want := "+34 640 04 77 75:\nhola"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
 	t.Run("empty body keeps prefix without trailing newline", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		got := applyGroupSenderPrefix("", msg, nil)
-		want := "+34640047775 - Jean Paul:"
+		want := "Jean Paul _(+34 640 04 77 75)_"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -336,6 +345,35 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			t.Errorf("got %q, want %q", got, "hola")
 		}
 	})
+}
+
+func TestFormatE164(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"Spain mobile (3-2-2-2)", "34604021705", "+34 604 02 17 05"},
+		{"Spain 9-digit landline", "34931234567", "+34 931 23 45 67"},
+		{"France (generic 3-3-3)", "33612345678", "+33 612 345 678"},
+		{"Germany", "4915112345678", "+49 151 123 456 78"},
+		{"UK", "447911123456", "+44 791 112 345 6"},
+		{"US (1-digit CC)", "14155551234", "+1 415 555 123 4"},
+		{"Portugal (3-digit CC)", "351912345678", "+351 912 345 678"},
+		{"Italy", "393331234567", "+39 333 123 456 7"},
+		{"Mexico", "525512345678", "+52 551 234 567 8"},
+		{"Unknown CC — compact", "999123456", "+999123456"},
+		{"Only CC (rare)", "34", "+34"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatE164(tc.in)
+			if got != tc.want {
+				t.Errorf("formatE164(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestFakeResolver_GroupSubject(t *testing.T) {

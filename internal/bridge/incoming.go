@@ -425,20 +425,31 @@ func filenameFromMime(mime, prefix, defaultExt string) string {
 }
 
 // applyGroupSenderPrefix añade al body un prefijo identificando al
-// remitente dentro del grupo. Formato: "+<phone> - <name>:\n<body>" cuando
-// hay phone (PN) y push name; degrada a solo name o solo phone si falta uno.
-// Si no hay identificación posible (ni phone ni name ni LID), devuelve el
-// body sin tocar — mejor sin prefijo que con basura.
+// remitente dentro del grupo. Formato preferido (Option A):
+//
+//	Richard _(+34 604 02 17 05)_
+//	<body>
+//
+// El nombre va primero y plano (es lo que el agente lee al escanear); el
+// teléfono va en italic + paréntesis para quedar en "segundo plano",
+// imitando el estilo de WhatsApp. Chatwoot renderiza markdown básico.
+//
+// Degradaciones:
+//   - sin teléfono: "<name>:\n<body>"
+//   - sin nombre:   "+<phone>:\n<body>" (sin italic — no hay foreground)
+//   - sin ninguno:  devuelve el body sin tocar.
+//
+// El teléfono se formatea E.164 con espaciado por país (formatE164).
 func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolver) string {
 	sender := msg.Info.Sender
-	phone := ""
+	phoneDigits := ""
 	switch sender.Server {
 	case types.DefaultUserServer:
-		phone = "+" + sender.User
+		phoneDigits = sender.User
 	case types.HiddenUserServer:
 		if r != nil {
 			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
-				phone = "+" + pn.User
+				phoneDigits = pn.User
 			}
 		}
 	}
@@ -455,12 +466,12 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 
 	var prefix string
 	switch {
-	case phone != "" && name != "":
-		prefix = phone + " - " + name + ":"
+	case phoneDigits != "" && name != "":
+		prefix = name + " _(" + formatE164(phoneDigits) + ")_"
 	case name != "":
 		prefix = name + ":"
-	case phone != "":
-		prefix = phone + ":"
+	case phoneDigits != "":
+		prefix = formatE164(phoneDigits) + ":"
 	default:
 		return body
 	}
@@ -468,6 +479,106 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 		return prefix
 	}
 	return prefix + "\n" + body
+}
+
+// formatE164 toma "34604021705" → "+34 604 02 17 05" (España: 3-2-2-2)
+// o "+33 612 345 678" (resto: agrupado por 3). Si no detecta CC válido,
+// devuelve el número compacto con prefijo "+".
+func formatE164(digits string) string {
+	if digits == "" {
+		return ""
+	}
+	cc := detectCountryCode(digits)
+	if cc == "" {
+		return "+" + digits
+	}
+	rest := digits[len(cc):]
+	if rest == "" {
+		return "+" + cc
+	}
+	return "+" + cc + " " + groupNationalNumber(cc, rest)
+}
+
+// detectCountryCode devuelve el CC en E.164 reconocido al inicio de
+// digits, o "" si no matchea ninguno. Cubre los países operativos del
+// proyecto + EU + Latam comunes. Para CCs no listados, devuelve "" y
+// el caller deja el número compacto.
+func detectCountryCode(digits string) string {
+	// Probamos primero 3-dígit, luego 2, luego 1. Sets para lookup O(1).
+	if len(digits) >= 3 {
+		if _, ok := ccLen3[digits[:3]]; ok {
+			return digits[:3]
+		}
+	}
+	if len(digits) >= 2 {
+		if _, ok := ccLen2[digits[:2]]; ok {
+			return digits[:2]
+		}
+	}
+	if len(digits) >= 1 {
+		if _, ok := ccLen1[digits[:1]]; ok {
+			return digits[:1]
+		}
+	}
+	return ""
+}
+
+// CCs de longitud 1 según ITU-T E.164.
+var ccLen1 = map[string]struct{}{
+	"1": {}, // NANP (US/CA/Caribbean)
+	"7": {}, // RU/KZ
+}
+
+// CCs de longitud 2: subset común — EU + Latam + Asia operacional.
+var ccLen2 = map[string]struct{}{
+	"20": {}, "27": {}, "30": {}, "31": {}, "32": {}, "33": {},
+	"34": {}, "36": {}, "39": {}, "40": {}, "41": {}, "43": {},
+	"44": {}, "45": {}, "46": {}, "47": {}, "48": {}, "49": {},
+	"51": {}, "52": {}, "53": {}, "54": {}, "55": {}, "56": {},
+	"57": {}, "58": {}, "60": {}, "61": {}, "62": {}, "63": {},
+	"64": {}, "65": {}, "66": {}, "81": {}, "82": {}, "84": {},
+	"86": {}, "90": {}, "91": {}, "92": {}, "93": {}, "94": {},
+	"95": {}, "98": {},
+}
+
+// CCs de longitud 3: subset común (Portugal, Israel, Emiratos, etc).
+var ccLen3 = map[string]struct{}{
+	"350": {}, "351": {}, "352": {}, "353": {}, "354": {}, "355": {},
+	"356": {}, "357": {}, "358": {}, "359": {}, "370": {}, "371": {},
+	"372": {}, "373": {}, "385": {}, "386": {}, "420": {}, "421": {},
+	"961": {}, "962": {}, "971": {}, "972": {}, "974": {}, "977": {},
+}
+
+// groupNationalNumber inserta espacios según convención del país.
+// Para CCs sin pattern específico, agrupa por 3 desde la izquierda.
+func groupNationalNumber(cc, rest string) string {
+	switch cc {
+	case "34":
+		// España: NN-NNN-NN-NN-NN (móvil/fijo 9 dígitos). Si la longitud
+		// no encaja, caemos al agrupamiento genérico.
+		if len(rest) == 9 {
+			return rest[0:3] + " " + rest[3:5] + " " + rest[5:7] + " " + rest[7:9]
+		}
+	}
+	return groupByThree(rest)
+}
+
+func groupByThree(s string) string {
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i += 3 {
+		end := i + 3
+		if end > len(s) {
+			end = len(s)
+		}
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(s[i:end])
+	}
+	return b.String()
 }
 
 // isSupportedChatServer indica si procesamos eventos de este tipo de chat.

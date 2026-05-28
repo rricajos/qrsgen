@@ -16,6 +16,11 @@ para los integradores más comunes.
   fotos de perfil de WA y las sube al downstream como avatar de
   contacto. Cuatro capas: on-create, TTL refresh, `events.Picture`
   en tiempo real, endpoint bulk re-sync para backfill.
+- **[Formato del prefijo de grupo](group-sender-format.md)** —
+  v0.32.0. El prefijo que identifica al sender en mensajes de grupo
+  se adapta según si el contacto está guardado en la libreta del
+  número conectado (omite el teléfono) o no (lo mantiene). Read-only
+  sobre `client.Store.Contacts` de whatsmeow.
 
 ## Patrones comunes a todas las integraciones
 

@@ -52,6 +52,30 @@ Más un endpoint `POST /api/instances/:name/avatars/resync` (v0.31.3) para
 **backfill** de contactos viejos (creados antes de v0.31.x o inactivos).
 Detalles completos en [Avatar sync](../integrations/avatar-sync.md).
 
+## Formato adaptativo del prefijo de grupo
+
+Desde v0.32.0, el prefijo que qrsgen antepone al body de mensajes de
+grupo se adapta según si el remitente está guardado en la libreta del
+número conectado:
+
+- **Contacto en agenda** (FullName o FirstName en whatsmeow): solo nombre.
+  ```
+  **~Jean Paul**
+  hola buenas
+  ```
+- **Solo push name** (no guardado): nombre + código de teléfono para que
+  el agente pueda identificar al desconocido.
+  ```
+  **~Richard** `+34604021705`
+  hola buenas
+  ```
+
+Sin env vars: el comportamiento depende del estado del contact store
+de whatsmeow, que se nutre de la cadena Google Contacts → libreta del
+móvil → app WA → whatsmeow. Cubre el caso LID-anonymizado-en-grupos
+resolviendo a PN antes de decidir. Detalles en
+[Formato del prefijo de grupo](../integrations/group-sender-format.md).
+
 ## HMAC opcional del webhook
 
 `WEBHOOK_HMAC_SECRET` activa firma HMAC-SHA256 obligatoria en el
@@ -133,3 +157,17 @@ qrsgen nunca escribe en el perfil del usuario.
 **Letter-avatar**: avatar por defecto que algunos downstreams (ej.
 Chatwoot) generan con las iniciales del nombre cuando no hay imagen
 configurada. El avatar sync los reemplaza por las fotos reales de WA.
+
+**Prefijo de grupo**: línea que qrsgen antepone al body de cada
+mensaje de grupo identificando al sender (nombre + opcionalmente
+teléfono). Permite al agente que lee la conversación saber quién
+escribió cada mensaje sin abrir el subhilo del grupo.
+
+**Contacto saved (libreta)**: JID que el dueño del número conectado
+tiene en su libreta del móvil, con `FullName` o `FirstName` propagado
+hasta el contact store de whatsmeow. Determina si qrsgen omite el
+bloque de teléfono en el prefijo de grupo.
+
+**PushName**: nombre que el propio sender configura en su WhatsApp.
+qrsgen lo usa como fallback de display pero NO lo cuenta como
+"guardado" — viene del sender, no de la decisión del bot owner.

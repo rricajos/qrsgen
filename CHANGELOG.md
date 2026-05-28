@@ -4,6 +4,29 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.29.2] - 2026-05-28
+
+UX tweak del prefijo de grupo: quita los paréntesis del teléfono y
+añade doble espacio de separación.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora genera `<Name>  _+CC NNN NN NN NN_`**
+  (dos espacios entre name y teléfono, teléfono italic sin paréntesis)
+  en lugar de `<Name> _(+CC ...)_`. Razón: los paréntesis añadían
+  ruido visual y el doble espacio marca mejor la separación entre
+  foreground (nombre) y background (teléfono).
+- **Degradación phone-only** ahora también va italic:
+  `_+CC NNN ..._:\n<body>` en lugar de `+CC NNN ...:`. Consistencia
+  con el caso con nombre.
+
+### Migration notes
+
+- **Sin nuevas env vars**, sin cambios de comportamiento del routing.
+- Cambio cosmético: parsers que matcheaban `_\(\+[\d ]+\)_` necesitan
+  actualizar al patrón `_\+[\d ]+_` (sin paréntesis). El doble espacio
+  entre nombre y teléfono también puede afectar regex.
+
 ## [0.29.1] - 2026-05-28
 
 UX patch del prefijo de grupo: nombre primero, teléfono en "segundo

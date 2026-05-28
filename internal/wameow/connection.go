@@ -42,6 +42,11 @@ type WAResolver interface {
 	// común, no es error), o (nil, "", err) si falla la consulta o descarga.
 	// Hace round-trip al server WA + HTTP GET — usar con timeout corto.
 	GetProfilePicture(ctx context.Context, jid types.JID) ([]byte, string, error)
+	// GetProfilePictureID devuelve solo el ID (hash/version) de la foto
+	// actual del JID, o ("", nil) si no hay foto. Cheap call — solo
+	// metadata via GetProfilePictureInfo, no descarga la imagen. Útil
+	// para comparar con un ID cacheado y decidir si toca re-sincronizar.
+	GetProfilePictureID(ctx context.Context, jid types.JID) (string, error)
 	// PNForLID intenta resolver el JID PN equivalente a un LID. Devuelve el JID y true si lo conoce.
 	PNForLID(lid types.JID) (types.JID, bool)
 	// LIDForPN intenta resolver el JID LID equivalente a un PN. Devuelve el JID y true si lo conoce.
@@ -294,6 +299,25 @@ func (c *Conn) GetProfilePicture(ctx context.Context, jid types.JID) ([]byte, st
 		mime = "image/jpeg" // default para fotos WA
 	}
 	return data, mime, nil
+}
+
+// GetProfilePictureID es una variante cheap de GetProfilePicture que solo
+// devuelve el ID (versión/hash) de la foto. No descarga la imagen. Útil
+// para comparar contra un ID cacheado y decidir si toca re-sincronizar.
+func (c *Conn) GetProfilePictureID(ctx context.Context, jid types.JID) (string, error) {
+	if c.client == nil {
+		return "", fmt.Errorf("get profile picture id: client nil")
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	info, err := c.client.GetProfilePictureInfo(fetchCtx, jid.ToNonAD(), &whatsmeow.GetProfilePictureParams{})
+	if err != nil {
+		return "", fmt.Errorf("get profile picture info: %w", err)
+	}
+	if info == nil {
+		return "", nil
+	}
+	return info.ID, nil
 }
 
 // PNForLID intenta mapear un JID LID a su PN. Devuelve la JID y true si lo conoce.

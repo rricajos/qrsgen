@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.31.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
+| `QRSGEN_VERSION` | `0.31.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |
@@ -28,6 +28,7 @@
 | `QRSGEN_GROUP_PREFIX_SENDER` | `true` | Si `true`, mensajes incoming de grupos se postean a downstream con prefijo `**~<Name>** `+CC NNNNNNNNN`\n<body>` (nombre bold + dos espacios + teléfono italic con solo el CC separado) para distinguir participantes en una misma conv. Pon a `false` si tu integración parsea el body raw. Desde v0.29.0 (formato actualizado en v0.30.1). |
 | `QRSGEN_GROUP_HEADER_TTL` | `10m` | Suprime el header de remitente en mensajes consecutivos del mismo participante dentro de un grupo, si caen dentro de este TTL. Replica la convención de WhatsApp (header en el primer msg del burst, nada en los siguientes). `0` desactiva la feature (header siempre). Desde v0.30.0. |
 | `QRSGEN_AVATAR_SYNC` | `true` | Si `true`, qrsgen descarga la foto de perfil WhatsApp del contacto/grupo al crear el contact en downstream y la sube como avatar via PUT multipart. Fire-and-forget (no bloquea el msg). `false` desactiva la sincronización; los contactos quedan con letter-avatar autogenerado. Desde v0.31.0. |
+| `QRSGEN_AVATAR_REFRESH_TTL` | `24h` | Si > 0, contactos existentes se re-chequean cada este TTL para detectar cambios de foto WhatsApp. La comparación usa el `info.ID` (cheap metadata, no descarga); solo se descarga + sube si el ID cambió. `0` desactiva el refresh (solo sync al crear). Desde v0.31.1. |
 | `DEDUP_ENABLED` | `true` | |
 | `DEDUP_WINDOW_MS` | `10000` | Ventana LID-twin dedup. |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. |

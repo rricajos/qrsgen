@@ -19,8 +19,11 @@ type fakeResolver struct {
 	pfp       map[string]fakePFP   // jid (no-AD).String() → profile picture
 }
 
-// fakePFP simula el retorno de GetProfilePicture en tests.
+// fakePFP simula el retorno de GetProfilePicture / GetProfilePictureID
+// en tests. id es el "current ID" que devolvería GetProfilePictureID,
+// data/mime el bytes que devolvería GetProfilePicture.
 type fakePFP struct {
+	id   string
 	data []byte
 	mime string
 	err  error
@@ -35,6 +38,26 @@ func (f *fakeResolver) GetProfilePicture(_ context.Context, jid types.JID) ([]by
 		return nil, "", nil
 	}
 	return e.data, e.mime, e.err
+}
+
+func (f *fakeResolver) GetProfilePictureID(_ context.Context, jid types.JID) (string, error) {
+	if f == nil || f.pfp == nil {
+		return "", nil
+	}
+	e, ok := f.pfp[jid.ToNonAD().String()]
+	if !ok {
+		return "", nil
+	}
+	if e.err != nil {
+		return "", e.err
+	}
+	// Sin foto = "" como ID. Si hay bytes, generamos un ID determinista
+	// para tests usando la longitud + primer byte (no-cripto, solo
+	// para que IDs sean estables y comparables).
+	if len(e.data) == 0 {
+		return "", nil
+	}
+	return e.id, nil
 }
 
 func (f *fakeResolver) ContactName(jid types.JID) string {

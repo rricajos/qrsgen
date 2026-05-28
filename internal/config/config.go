@@ -81,6 +81,13 @@ type Config struct {
 	// letter avatar autogenerado por el downstream. Default true.
 	// Desde v0.31.0.
 	AvatarSync bool `env:"QRSGEN_AVATAR_SYNC" envDefault:"true"`
+
+	// AvatarRefreshTTL: si > 0, contactos existentes se re-chequean cada
+	// este TTL para detectar cambios de foto WhatsApp. La comparación
+	// usa el ID (cheap metadata, no descarga); solo se descarga + sube
+	// si el ID cambió. 0 = sin refresh (modo v0.31.0: sync solo al crear).
+	// Default "24h". Desde v0.31.1.
+	AvatarRefreshTTL time.Duration `env:"QRSGEN_AVATAR_REFRESH_TTL" envDefault:"24h"`
 }
 
 func Load() (Config, error) {

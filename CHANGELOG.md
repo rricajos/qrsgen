@@ -4,6 +4,53 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-05-28
+
+Smart refresh del avatar: detecta cambios de foto en WhatsApp y
+re-sincroniza solo lo necesario. Aplica a contactos EXISTENTES, no
+solo a los recién creados (modo v0.31.0).
+
+### Added
+
+- **`WAResolver.GetProfilePictureID(ctx, jid) (string, error)`** —
+  versión cheap de GetProfilePicture: solo devuelve el ID
+  (hash/version) del avatar actual, no descarga la imagen. Permite
+  comparar antes de decidir si re-descargar.
+- **`internal/bridge/avatar_tracker.go`** — tracker en memoria
+  (per-instancia + per-JID) con `ShouldCheck(TTL)`, `LastID`,
+  `UpdateID`. ShouldCheck es atómica: bumpea timestamp en `true`
+  para que múltiples goroutines concurrentes (burst de mensajes)
+  no spawnen el mismo sync varias veces.
+- **`Incoming.maybeAvatarSync`** — wrapper que gate-keepea el spawn
+  de la goroutine via el tracker.
+- **`QRSGEN_AVATAR_REFRESH_TTL`** (default `24h`) — env var nueva.
+  `0` desactiva el refresh (modo v0.31.0: sync solo al crear).
+- **7 tests** del avatar_tracker: primer chequeo, dentro/fuera de
+  TTL, UpdateID, aislamiento per-JID, aislamiento per-instancia,
+  concurrencia (burst de 20 goroutines, solo una ve `true`).
+
+### Changed
+
+- **`Incoming.syncAvatar` refactorizado** a flow smart:
+  1. Get current ID (cheap metadata, no descarga).
+  2. Si == lastKnownID → skip descarga.
+  3. Si == "" → sin foto, cachear y exit.
+  4. Si distinto → download + upload + update tracker.
+  
+  Antes (v0.31.0) siempre descargaba la imagen completa.
+  
+- **Aplica el sync tanto a contactos creados como existentes** (el
+  callsite en sync() ya no está dentro del `if contact == nil`). El
+  tracker decide si toca según TTL.
+
+### Migration notes
+
+- Sin breaking changes. Default ON, TTL 24h. Si quieres mantener
+  el comportamiento exacto de v0.31.0 (solo al crear contact, sin
+  refresh), setea `QRSGEN_AVATAR_REFRESH_TTL=0`.
+- **`WAResolver` añade un método** (`GetProfilePictureID`). Mocks
+  externos necesitan implementarlo.
+
 ## [0.31.0] - 2026-05-28
 
 Sincroniza la foto de perfil de WhatsApp al avatar del contacto en

@@ -43,10 +43,18 @@ type Incoming struct {
 	// (dentro del TTL configurable). nil = desactivado, header siempre.
 	groupTracker *groupSenderTracker
 
-	// avatarSync controla si tras CreateContact qrsgen intenta sincronizar
-	// la foto de perfil de WhatsApp al avatar del downstream. Fire-and-forget,
-	// no bloquea el flujo del mensaje. Default true.
+	// avatarSync controla si qrsgen intenta sincronizar la foto de perfil
+	// de WhatsApp al avatar del downstream. Aplica tanto al crear el
+	// contact (primer sync) como al re-chequear contactos existentes
+	// (refresh tras cambio en WA). Fire-and-forget, no bloquea el
+	// flujo del mensaje. Default true.
 	avatarSync bool
+
+	// avatarTracker decide cuándo re-chequear el avatar de un JID
+	// (TTL por defecto 24h) y evita races entre goroutines concurrentes
+	// que reciben mensajes del mismo grupo en burst. nil = solo se sincroniza
+	// al crear el contacto (sin refresh, modo v0.31.0).
+	avatarTracker *avatarTracker
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
@@ -76,28 +84,79 @@ func (i *Incoming) SetGroupHeaderTTL(ttl time.Duration) {
 // del contacto. Default true.
 func (i *Incoming) SetAvatarSync(v bool) { i.avatarSync = v }
 
-// syncAvatar descarga la foto de perfil del JID y la sube como avatar al
-// contacto en el downstream. Fire-and-forget — diseñado para correr en
-// goroutine. Errores se loguean como warning, no afectan el flujo principal.
-//
-// Esta función no se preocupa por el tipo de JID: funciona igual para
-// usuarios individuales (foto de perfil del usuario) y para grupos
-// (foto del grupo). Es el caller quien decide qué JID pasar.
-func (i *Incoming) syncAvatar(ds *downstream.Client, r wameow.WAResolver, contactID int, jid types.JID) {
-	if r == nil || ds == nil {
+// SetAvatarRefreshTTL activa el refresh periódico del avatar (mismo TTL
+// para todos los JIDs). Si > 0, contactos existentes se re-chequean
+// cada TTL para detectar cambios de foto en WhatsApp; 0 = sin refresh
+// (solo sync al crear contact, como en v0.31.0).
+func (i *Incoming) SetAvatarRefreshTTL(ttl time.Duration) {
+	if ttl <= 0 {
+		i.avatarTracker = nil
 		return
 	}
+	i.avatarTracker = newAvatarTracker(ttl)
+}
+
+// maybeAvatarSync decide si lanzar el sync de avatar para un JID. Si el
+// tracker dice que toca (primera vez, o TTL expirado), spawnea goroutine
+// fire-and-forget. Si no, no hace nada.
+//
+// Llamarlo tanto al crear contacto nuevo COMO al encontrar contacto
+// existente — el tracker se encarga de la lógica de "cuándo".
+func (i *Incoming) maybeAvatarSync(ds *downstream.Client, r wameow.WAResolver, contactID int, jid types.JID, instance string) {
+	if !i.avatarSync || r == nil || ds == nil {
+		return
+	}
+	// Sin tracker = modo v0.31.0 sin refresh — solo cuando se crea contacto
+	// (este callsite). Si el caller distingue create/found, gate ahí.
+	if i.avatarTracker != nil && !i.avatarTracker.ShouldCheck(instance, jid.String()) {
+		return
+	}
+	go i.syncAvatar(ds, r, contactID, jid, instance)
+}
+
+// syncAvatar es el worker que corre en goroutine. Lógica:
+//   1. Get current ID via GetProfilePictureID (cheap, solo metadata).
+//   2. Si ID == lastKnownID → no descarga, solo registra "checked".
+//   3. Si ID == "" → no hay foto. Cachea y termina.
+//   4. Si ID distinto → download + upload + update tracker.
+//
+// Errores se loguean como warning; el tracker ya marcó el timestamp
+// en ShouldCheck para no retry inmediato.
+func (i *Incoming) syncAvatar(ds *downstream.Client, r wameow.WAResolver, contactID int, jid types.JID, instance string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	currentID, err := r.GetProfilePictureID(ctx, jid)
+	if err != nil {
+		i.logger.Warn("avatar sync: get id failed",
+			"err", err, "contact_id", contactID, "jid", jid.String())
+		return
+	}
+	// Sin foto WA: nada que subir, cacheamos el "" para no chequear hasta TTL.
+	if currentID == "" {
+		if i.avatarTracker != nil {
+			i.avatarTracker.UpdateID(instance, jid.String(), "")
+		}
+		return
+	}
+	// Avatar idéntico al último sincronizado: no re-descargar.
+	if i.avatarTracker != nil {
+		if last := i.avatarTracker.LastID(instance, jid.String()); last == currentID {
+			return
+		}
+	}
+
 	data, mime, err := r.GetProfilePicture(ctx, jid)
 	if err != nil {
-		i.logger.Warn("avatar sync: get profile picture failed",
+		i.logger.Warn("avatar sync: download failed",
 			"err", err, "contact_id", contactID, "jid", jid.String())
 		return
 	}
 	if len(data) == 0 {
-		// No hay foto configurada en WhatsApp. Estado válido, no es error.
+		// Edge: tenía ID pero descarga vacía. Cacheamos como sin foto.
+		if i.avatarTracker != nil {
+			i.avatarTracker.UpdateID(instance, jid.String(), "")
+		}
 		return
 	}
 	if err := ds.UploadContactAvatar(ctx, contactID, data, mime); err != nil {
@@ -105,8 +164,12 @@ func (i *Incoming) syncAvatar(ds *downstream.Client, r wameow.WAResolver, contac
 			"err", err, "contact_id", contactID, "size", len(data))
 		return
 	}
+	if i.avatarTracker != nil {
+		i.avatarTracker.UpdateID(instance, jid.String(), currentID)
+	}
 	i.logger.Info("avatar synced",
-		"contact_id", contactID, "size", len(data), "mime", mime, "jid", jid.String())
+		"contact_id", contactID, "size", len(data), "mime", mime,
+		"avatar_id", currentID, "jid", jid.String())
 }
 
 func (i *Incoming) incUsageIn(instance string) {
@@ -326,15 +389,14 @@ func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs re
 		if err != nil {
 			return fmt.Errorf("create contact: %w", err)
 		}
-		// Avatar sync en background: descarga la foto WhatsApp y la sube como
-		// avatar del contact. Solo en contact-creation — si más adelante
-		// quieres refresh periódico, va en otra minor con tracking de
-		// avatar_id en DB. Fire-and-forget, errores solo loguean warning.
-		if i.avatarSync && r != nil {
-			if chatJID, parseErr := types.ParseJID(identifier); parseErr == nil {
-				go i.syncAvatar(ds, r, contact.ID, chatJID)
-			}
-		}
+	}
+	// Avatar sync — aplica tanto al contacto recién creado como al
+	// existente. El tracker decide cuándo procede (primera vez o TTL).
+	// Sin tracker (v0.31.0 mode): solo se llamará para creados nuevos
+	// porque la rama de existing pasa sobre contact ya no-nil sin tocar
+	// el flow original. Con tracker (v0.31.1+): se chequea en ambos casos.
+	if chatJID, parseErr := types.ParseJID(identifier); parseErr == nil {
+		i.maybeAvatarSync(ds, r, contact.ID, chatJID, instance)
 	}
 
 	conv, err := ds.FindOpenConversation(ctx, contact.ID, inboxID)

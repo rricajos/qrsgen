@@ -4,6 +4,58 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-05-28
+
+Propaga las reacciones (emojis) que los clientes WhatsApp añaden a
+mensajes hacia el downstream como un mensaje incoming con formato
+visible. El agente ve en la conv quién reaccionó y con qué emoji,
+sin tener que adivinarlo.
+
+### Added
+
+- **Reactions read-side**: cuando un `*events.Message` llega con
+  `ReactionMessage` no-nil, qrsgen ya no lo ignora. En su lugar,
+  invoca `handleReaction` que:
+  - Resuelve sender + conv via el mismo path que mensajes normales
+  - Aplica el resolver de nombre (incluyendo `IsContactSaved` de
+    v0.32.0): contactos en agenda se muestran sin teléfono,
+    desconocidos en grupos se muestran con phone code block
+  - Postea al downstream como `message_type: incoming` con
+    `source_id: "WAID:reaction:<msg.Info.ID>"`
+  - Si el emoji es vacío (reacción retirada), formato
+    `"**~Name** _quitó su reacción_"`
+- **`QRSGEN_REACTIONS_SYNC`** (default `true`) — env var nueva.
+  Setear a `false` ignora todas las reacciones silenciosamente.
+
+### Format examples
+
+```
+Contacto en agenda:        **~Jean Paul** reaccionó con 👍
+Grupo + desconocido:       **~Richard** `+34604021705` reaccionó con ❤️
+Reacción retirada:         **~Jean Paul** _quitó su reacción_
+```
+
+### Behavior
+
+- **Reacciones del propio bot (`IsFromMe`) se ignoran**. El agente
+  reaccionando desde el downstream no tiene flujo write-back hoy
+  (sería v0.34.x outgoing reactions). Por ahora solo read-side.
+- **Si el contacto no existe en downstream**, la reacción se
+  descarta — no creamos contactos para reacciones sueltas.
+  Esperamos al primer mensaje normal del JID para crearlo.
+- **El target del mensaje reaccionado** se loguea (`target_msg_id`)
+  pero no se incluye visualmente. Chatwoot no tiene UI nativa para
+  asociar la reacción al mensaje original; la inferencia visual la
+  hace el agente por proximidad en el timeline.
+
+### Migration notes
+
+- Sin breaking changes. Default ON aumenta el volumen de mensajes
+  postados al downstream — si tu integración tiene rate-limits
+  ajustados o métricas que cuentan mensajes (billing), considéralo.
+- `QRSGEN_REACTIONS_SYNC=false` mantiene el comportamiento de
+  v0.32.x (reacciones ignoradas).
+
 ## [0.32.1] - 2026-05-28
 
 Bugfix del bulk avatar resync endpoint (v0.31.3): la ruta usada en

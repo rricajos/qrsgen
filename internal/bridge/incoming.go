@@ -55,12 +55,22 @@ type Incoming struct {
 	// que reciben mensajes del mismo grupo en burst. nil = solo se sincroniza
 	// al crear el contacto (sin refresh, modo v0.31.0).
 	avatarTracker *avatarTracker
+
+	// reactionsSync controla si las reacciones a mensajes de WhatsApp se
+	// propagan al downstream como mensajes nuevos con formato
+	// "**~Name** reaccionó con 👍". Default true. Desde v0.33.0.
+	reactionsSync bool
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
 func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logger, resolve InboxResolver) *Incoming {
-	return &Incoming{ds: ds, dedup: dedup, logger: logger, resolve: resolve, groupPrefixSender: true, avatarSync: true}
+	return &Incoming{ds: ds, dedup: dedup, logger: logger, resolve: resolve, groupPrefixSender: true, avatarSync: true, reactionsSync: true}
 }
+
+// SetReactionsSync activa o desactiva la propagación de reacciones WhatsApp
+// al downstream. Default true. Setear a false ignora todos los eventos
+// de reacción — no se postea nada en la conv del downstream.
+func (i *Incoming) SetReactionsSync(v bool) { i.reactionsSync = v }
 
 // SetUsage attaches a usage recorder. Pass nil to disable.
 func (i *Incoming) SetUsage(u UsageRecorder) { i.usage = u }
@@ -173,6 +183,128 @@ func (i *Incoming) ResyncInstanceAvatars(ctx context.Context, instance string, r
 		"instance", instance, "scanned", result.Scanned,
 		"skipped", result.Skipped, "queued", result.Queued, "pages", result.Pages)
 	return result, nil
+}
+
+// handleReaction procesa un *events.Message que contiene un ReactionMessage.
+// Postea un mensaje incoming al downstream con formato:
+//
+//	**~Jean Paul** reaccionó con 👍
+//
+// o, si la reacción fue eliminada (text vacío):
+//
+//	**~Jean Paul** quitó su reacción
+//
+// Aplica el mismo resolver de nombre que applyGroupSenderPrefix (incluyendo
+// IsContactSaved). Si no encuentra la conv (porque el contacto no existe
+// aún en el downstream — no había mandado mensajes), no hace nada.
+//
+// Reacciones del propio bot (fromMe) se ignoran: el agente reaccionando
+// desde el downstream debería postearse vía el flujo outgoing si en algún
+// momento se añade soporte.
+func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *events.Message, r wameow.WAResolver) {
+	if !i.reactionsSync {
+		return
+	}
+	if msg.Info.IsFromMe {
+		return
+	}
+	reaction := msg.Message.GetReactionMessage()
+	if reaction == nil {
+		return
+	}
+	emoji := reaction.GetText()
+	targetMsgID := reaction.GetKey().GetID()
+
+	rs := resolveSender(msg, r)
+	ds := i.ds.For(ctx, instance)
+	if ds == nil {
+		return
+	}
+
+	identifier := rs.primaryJID
+	contact, err := findContactByIdentifier(ctx, ds, identifier, rs.phone)
+	if err != nil {
+		i.logger.Warn("reaction sync: find contact failed",
+			"err", err, "jid", identifier, "instance", instance)
+		return
+	}
+	if contact == nil {
+		// Sin contact = sin conv. No creamos contactos para reacciones
+		// sueltas — esperamos al primer mensaje real.
+		return
+	}
+	inboxID := i.resolve(instance)
+	conv, err := ds.FindOpenConversation(ctx, contact.ID, inboxID)
+	if err != nil || conv == nil {
+		return
+	}
+
+	// Resolver nombre del sender con la misma lógica que el group prefix.
+	name := ""
+	saved := false
+	if r != nil {
+		name = r.ContactName(msg.Info.Sender.ToNonAD())
+		saved = r.IsContactSaved(msg.Info.Sender.ToNonAD())
+		if msg.Info.Sender.Server == types.HiddenUserServer && (name == "" || !saved) {
+			if pn, ok := r.PNForLID(msg.Info.Sender.ToNonAD()); ok {
+				if name == "" {
+					name = r.ContactName(pn)
+				}
+				if !saved {
+					saved = r.IsContactSaved(pn)
+				}
+			}
+		}
+	}
+	if name == "" {
+		name = msg.Info.PushName
+	}
+	if name == "" {
+		name = "alguien"
+	}
+
+	var content string
+	isGroup := msg.Info.Chat.Server == types.GroupServer
+	prefix := "**~" + name + "**"
+	if !saved && isGroup {
+		// En grupos con sender desconocido, incluir teléfono para context.
+		// 1-on-1 no lo necesita porque la conv ya es ese contacto.
+		phone := ""
+		switch msg.Info.Sender.Server {
+		case types.DefaultUserServer:
+			phone = msg.Info.Sender.User
+		case types.HiddenUserServer:
+			if r != nil {
+				if pn, ok := r.PNForLID(msg.Info.Sender.ToNonAD()); ok {
+					phone = pn.User
+				}
+			}
+		}
+		if phone != "" {
+			prefix = prefix + " `" + formatE164(phone) + "`"
+		}
+	}
+
+	if emoji == "" {
+		content = prefix + " _quitó su reacción_"
+	} else {
+		content = prefix + " reaccionó con " + emoji
+	}
+
+	_, err = ds.PostMessage(ctx, downstream.PostMessageReq{
+		ConversationID: conv.ID,
+		Content:        content,
+		MessageType:    "incoming",
+		SourceID:       "WAID:reaction:" + msg.Info.ID,
+	})
+	if err != nil {
+		i.logger.Warn("reaction sync: post failed",
+			"err", err, "conv_id", conv.ID, "target_msg_id", targetMsgID)
+		return
+	}
+	i.logger.Info("reaction synced",
+		"conv_id", conv.ID, "emoji", emoji, "target_msg_id", targetMsgID,
+		"sender", name, "instance", instance)
 }
 
 // HandlePictureChange reacciona a *events.Picture: alguien (user o grupo)
@@ -380,6 +512,13 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 	if msg.Info.IsIncomingBroadcast() {
 		i.logger.Debug("incoming broadcast — ignorado",
 			"id", msg.Info.ID, "instance", instance, "chat", msg.Info.Chat.String())
+		return
+	}
+
+	// Reactions: si el mensaje es una reacción a otro mensaje, lo manejamos
+	// por un path distinto (postea actividad en la conv, no mensaje normal).
+	if msg.Message != nil && msg.Message.GetReactionMessage() != nil {
+		i.handleReaction(ctx, instance, msg, r)
 		return
 	}
 

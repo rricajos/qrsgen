@@ -88,6 +88,13 @@ type Config struct {
 	// si el ID cambió. 0 = sin refresh (modo v0.31.0: sync solo al crear).
 	// Default "24h". Desde v0.31.1.
 	AvatarRefreshTTL time.Duration `env:"QRSGEN_AVATAR_REFRESH_TTL" envDefault:"24h"`
+
+	// ReactionsSync: si true, las reacciones a mensajes WhatsApp (emojis
+	// que el cliente añade tocando largo el mensaje) se propagan al
+	// downstream como mensajes incoming con formato
+	// "**~Name** reaccionó con 👍". false los ignora silenciosamente.
+	// Default true. Desde v0.33.0.
+	ReactionsSync bool `env:"QRSGEN_REACTIONS_SYNC" envDefault:"true"`
 }
 
 func Load() (Config, error) {

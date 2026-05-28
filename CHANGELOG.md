@@ -4,6 +4,26 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.29.3] - 2026-05-28
+
+UX tweak adicional del prefijo de grupo: nombre en **bold** para que
+salte visualmente.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora genera `**<Name>**  _+CC ..._`**
+  (nombre en bold). Chatwoot renderiza `**...**` como negrita.
+  Razón: en una conv con 3-5 senders el ojo necesita escanear quién
+  habla; nombre en bold + teléfono italic da la jerarquía visual
+  correcta sin sumar líneas.
+- Mismo bold aplica al caso degenerate name-only: `**<Name>**:`.
+
+### Migration notes
+
+- Cambio puramente cosmético, sin nuevas env vars.
+- Parsers regex actualizar a `\*\*[^*]+\*\*\s+_[^_]+_` si dependían
+  del formato anterior.
+
 ## [0.29.2] - 2026-05-28
 
 UX tweak del prefijo de grupo: quita los paréntesis del teléfono y

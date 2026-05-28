@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.29.2` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
+| `QRSGEN_VERSION` | `0.29.3` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |
@@ -25,7 +25,7 @@
 | `PUBLIC_STATS_ENABLED` | `false` | Si `true`, habilita `GET /api/public/stats` (sin auth, telemetría agregada). Ver [Telemetría pública](public-stats.md). |
 | `PUBLIC_STATS_ALLOW_ORIGIN` | (vacío) | Header `Access-Control-Allow-Origin` para el endpoint público. Ejemplo: `https://rricajos.github.io`. |
 | `OUTBOX_ENCRYPTION_KEY` | (vacío) | AES-256 key (32 bytes en base64 estándar) para cifrar payloads del outbox en reposo. Si vacío, payloads se guardan en claro (compat). Ver [Outbox encryption](../security/outbox-encryption.md). Desde v0.27.0. |
-| `QRSGEN_GROUP_PREFIX_SENDER` | `true` | Si `true`, mensajes incoming de grupos se postean a downstream con prefijo `<Name>  _+CC NNN NN NN NN_\n<body>` (nombre + dos espacios + teléfono italic E.164 formateado) para distinguir participantes en una misma conv. Pon a `false` si tu integración parsea el body raw. Desde v0.29.0 (formato actualizado en v0.29.2). |
+| `QRSGEN_GROUP_PREFIX_SENDER` | `true` | Si `true`, mensajes incoming de grupos se postean a downstream con prefijo `**<Name>**  _+CC NNN NN NN NN_\n<body>` (nombre bold + dos espacios + teléfono italic E.164 formateado) para distinguir participantes en una misma conv. Pon a `false` si tu integración parsea el body raw. Desde v0.29.0 (formato actualizado en v0.29.3). |
 | `DEDUP_ENABLED` | `true` | |
 | `DEDUP_WINDOW_MS` | `10000` | Ventana LID-twin dedup. |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. |

@@ -138,6 +138,7 @@ func main() {
 	}
 	incoming := bridge.NewIncomingDynamic(dsRegistry, dedup, logger, resolveInbox)
 	incoming.SetGroupPrefixSender(cfg.GroupPrefixSender)
+	incoming.SetGroupHeaderTTL(cfg.GroupHeaderTTL)
 
 	onMsg := func(ctx context.Context, instance string, msg *events.Message, r wameow.WAResolver) {
 		incoming.Handle(ctx, instance, msg, r)

@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 )
@@ -66,6 +67,13 @@ type Config struct {
 	// mensajes de múltiples senders dentro de una misma conv del grupo se
 	// ven idénticos. Desde v0.29.0.
 	GroupPrefixSender bool `env:"QRSGEN_GROUP_PREFIX_SENDER" envDefault:"true"`
+
+	// GroupHeaderTTL: si > 0, mensajes consecutivos del mismo sender en
+	// un grupo dentro de este TTL se postean SIN el header de identidad
+	// (replica el "burst" visual de WhatsApp donde solo el primer msg
+	// muestra quién habla). 0 = feature desactivada, header siempre.
+	// Default "10m". Desde v0.30.0.
+	GroupHeaderTTL time.Duration `env:"QRSGEN_GROUP_HEADER_TTL" envDefault:"10m"`
 }
 
 func Load() (Config, error) {

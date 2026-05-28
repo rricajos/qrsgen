@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/rricajos/qrsgen/internal/downstream"
 	"github.com/rricajos/qrsgen/internal/metrics"
@@ -32,10 +33,15 @@ type Incoming struct {
 	usage   UsageRecorder
 
 	// groupPrefixSender controla si los mensajes incoming de un grupo se
-	// posteán a downstream con prefijo de remitente ("+34 ... - Name:\n<body>").
+	// posteán a downstream con prefijo de remitente ("**~Name** · _+CC ..._").
 	// Default true porque sin él, multi-sender en una misma conv del downstream
 	// son indistinguibles. Se puede desactivar con QRSGEN_GROUP_PREFIX_SENDER=false.
 	groupPrefixSender bool
+
+	// groupTracker decide si emitir el header en cada mensaje del grupo.
+	// Suprime el header si el sender es el mismo del mensaje anterior
+	// (dentro del TTL configurable). nil = desactivado, header siempre.
+	groupTracker *groupSenderTracker
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
@@ -48,6 +54,17 @@ func (i *Incoming) SetUsage(u UsageRecorder) { i.usage = u }
 
 // SetGroupPrefixSender controla el prefijo de remitente en mensajes de grupo.
 func (i *Incoming) SetGroupPrefixSender(v bool) { i.groupPrefixSender = v }
+
+// SetGroupHeaderTTL activa la supresión de header en mensajes consecutivos
+// del mismo sender dentro del TTL dado. ttl=0 desactiva la feature
+// (header siempre).
+func (i *Incoming) SetGroupHeaderTTL(ttl time.Duration) {
+	if ttl <= 0 {
+		i.groupTracker = nil
+		return
+	}
+	i.groupTracker = newGroupSenderTracker(ttl)
+}
 
 func (i *Incoming) incUsageIn(instance string) {
 	if i.usage != nil {
@@ -188,8 +205,25 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 	// múltiples senders dentro de la misma conv del downstream sean
 	// distinguibles. Solo aplica a mensajes incoming (los fromMe del agente
 	// no necesitan prefijo).
-	if i.groupPrefixSender && isGroup && !fromMe {
-		content = applyGroupSenderPrefix(content, msg, r)
+	//
+	// Si groupTracker está activo, suprime el header cuando el sender es
+	// el mismo del mensaje anterior dentro del TTL — replica el "burst"
+	// visual de WhatsApp donde solo el primer msg del grupo lleva header.
+	// Siempre registramos el sender (incluyendo fromMe, usando "_bot" como
+	// JID sintético) para que el siguiente mensaje real reciba header
+	// correctamente tras una intervención del agente.
+	if i.groupPrefixSender && isGroup {
+		senderKey := msg.Info.Sender.String()
+		if fromMe {
+			senderKey = "_bot"
+		}
+		shouldEmit := true
+		if i.groupTracker != nil {
+			shouldEmit = i.groupTracker.RecordAndCheck(instance, msg.Info.Chat.String(), senderKey)
+		}
+		if !fromMe && shouldEmit {
+			content = applyGroupSenderPrefix(content, msg, r)
+		}
 	}
 
 	metrics.MessagesTotal.WithLabelValues("in", instance, i.ds.OwnerTagFor(ctx, instance)).Inc()

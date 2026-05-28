@@ -13,7 +13,7 @@
 #   DOWNSTREAM_API_TOKEN         token con permisos full
 #
 # Variables opcionales (con defaults razonables):
-#   QRSGEN_VERSION             tag de imagen (default: 0.29.7)
+#   QRSGEN_VERSION             tag de imagen (default: 0.30.0)
 #   POSTGRES_PORT              5432
 #   POSTGRES_DB                bridge
 #   POSTGRES_USER              postgres
@@ -31,7 +31,7 @@ version: '3.9'
 
 services:
   qrsgen:
-    image: qrsgen:${QRSGEN_VERSION:-0.29.7}
+    image: qrsgen:${QRSGEN_VERSION:-0.30.0}
     environment:
       PORT: "3100"
       INSTANCE_NAME: "${INSTANCE_NAME:-DEVOPS}"

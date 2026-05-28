@@ -4,6 +4,32 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-05-28
+
+Suprime el header de remitente en mensajes consecutivos del mismo
+participante dentro de un grupo. Replica la convención visual de
+WhatsApp (header en el primer msg del burst, nada en los siguientes).
+
+### Added
+
+- **`internal/bridge/group_tracker.go`** — tracker per-instancia +
+  per-grupo del último sender visto. API: `RecordAndCheck(instance,
+  chatJID, senderJID) bool`. Returns true si toca emitir header
+  (sender distinto al previo, o TTL expirado, o no había registro).
+  Estado en memoria — un restart de qrsgen reinicia los burst counters.
+- **`QRSGEN_GROUP_HEADER_TTL`** (default `10m`) — env var nueva.
+  Setear a `0` desactiva la feature (header siempre).
+- **6 tests** del tracker: primer msg, burst del mismo sender, cambio
+  de sender, TTL expirado, aislamiento per-grupo, aislamiento
+  per-instancia.
+
+### Changed
+
+- **`Handle` en `incoming.go` ahora consulta el tracker** antes de
+  aplicar el prefix de grupo. Mensajes `fromMe` (del agente) se
+  registran como `_bot` para que el siguiente mensaje real reciba
+  header correctamente tras una intervención del agente.
+
 ## [0.29.7] - 2026-05-28
 
 UX tweak final del prefijo de grupo: middle dot como separador

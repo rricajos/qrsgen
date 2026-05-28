@@ -26,6 +26,12 @@ para los integradores más comunes.
   (long-press → emoji) se propagan al downstream como mensaje
   incoming con el formato `**~<name>** reaccionó con <emoji>`. Read-only
   sobre WhatsApp: qrsgen no envía reacciones de vuelta.
+- **[Typing indicators y read receipts](presence-and-receipts.md)** —
+  v0.34.0 y v0.34.1. Propagación en tiempo real de presencia de chat
+  (`composing`/`paused` → "está escribiendo..." en el downstream) y de
+  read receipts (`read`/`read-self` → `contact_last_seen_at` y doble
+  tick azul). Throttle in-memory de 4s para typing; filtro de tipos de
+  receipt accionables. Read-only sobre WhatsApp.
 
 ## Patrones comunes a todas las integraciones
 

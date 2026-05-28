@@ -124,6 +124,7 @@ nav:
       - Avatar sync: integrations/avatar-sync.md
       - Prefijo de grupo: integrations/group-sender-format.md
       - Reacciones sync: integrations/reactions-sync.md
+      - Typing y read receipts: integrations/presence-and-receipts.md
   - Migrations:
       - migrations/index.md
       - Desde Evolution API: migrations/from-evolution-api.md

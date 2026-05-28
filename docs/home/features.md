@@ -102,6 +102,34 @@ switch via `QRSGEN_REACTIONS_SYNC` (default `true`). Las reacciones
 del propio bot owner (`IsFromMe=true`) se ignoran. Detalles en
 [Sincronización de reacciones](../integrations/reactions-sync.md).
 
+## Typing indicators y read receipts
+
+Desde **v0.34.0** y **v0.34.1**, qrsgen propaga al downstream dos
+señales de interacción en tiempo real que antes se descartaban:
+
+- **Typing indicators (v0.34.0)** — cuando el cliente WhatsApp empieza
+  a escribir (`composing`) o se detiene (`paused`), qrsgen llama
+  `POST /toggle_typing_status` y el agente ve "está escribiendo..." en
+  el panel del downstream. Throttle in-memory per-conversación: cambios
+  de estado siempre emiten, mismo estado dentro de 4s se silencia para
+  no inundar al downstream con keystrokes repetidos. Master switch via
+  `QRSGEN_TYPING_SYNC` (default `true`).
+- **Read receipts (v0.34.1)** — cuando el cliente abre el chat y lee
+  los mensajes del agente, qrsgen llama `POST /update_last_seen` con
+  `agent_last_seen_at` y `contact_last_seen_at` ambos igual al
+  timestamp del receipt. La UI marca los mensajes del agente como
+  leídos (equivalente al doble tick azul). Solo se propagan `read` y
+  `read-self`; `delivered`, `played`, `sender` se ignoran por menos
+  accionables. Master switch via `QRSGEN_READ_RECEIPTS_SYNC` (default
+  `true`).
+
+Ambas son fire-and-forget, read-only sobre WhatsApp (no se envía
+`MarkRead` de vuelta), y comparten arquitectura platform-agnostic vía
+`downstream.Client`. Limitaciones: grupos solo muestran un indicador
+agregado ("alguien está escribiendo..."); privacy settings del sender
+pueden ocultar receipts (cobertura parcial). Detalles en
+[Typing indicators y read receipts](../integrations/presence-and-receipts.md).
+
 ## HMAC opcional del webhook
 
 `WEBHOOK_HMAC_SECRET` activa firma HMAC-SHA256 obligatoria en el
@@ -211,3 +239,30 @@ sender reaccionó en vez de enviar texto/media. Tiene `Text` (emoji o
 **Reacciones sync**: propagación de reacciones WhatsApp al downstream.
 Read-only sobre WhatsApp (qrsgen no envía reacciones de vuelta).
 Controlada por `QRSGEN_REACTIONS_SYNC`.
+
+**Typing indicator (sync)**: propagación de los eventos
+`*events.ChatPresence` (`composing`/`paused`) de WhatsApp al downstream
+vía `POST /toggle_typing_status`. Permite al agente ver "está
+escribiendo..." mientras el cliente WA tipea. Throttled in-memory con
+`minInterval=4s` por conversación. Controlado por `QRSGEN_TYPING_SYNC`.
+
+**Read receipt (sync)**: propagación de los `*events.Receipt` con
+`Type in ("read","read-self")` de WhatsApp al downstream vía
+`POST /update_last_seen`. Actualiza `contact_last_seen_at` con el
+timestamp del receipt, marcando los mensajes outgoing previos del
+agente como leídos en la UI. Controlado por
+`QRSGEN_READ_RECEIPTS_SYNC`.
+
+**`*events.ChatPresence`**: evento de whatsmeow que indica si un
+cliente está escribiendo (`composing`) o ha dejado de escribir
+(`paused`) en una conversación concreta.
+
+**`*events.Receipt`**: evento de whatsmeow que llega cuando Meta
+confirma un cambio de estado de un mensaje (entregado, leído,
+reproducido). qrsgen filtra por `Type` y solo propaga `read` y
+`read-self`.
+
+**`typingTracker`**: estructura in-memory per-conversación que
+deduplica los POSTs `toggle_typing_status` al downstream. Cambios de
+estado siempre emiten; mismo estado dentro de `minInterval` (default
+4s) NO emite.

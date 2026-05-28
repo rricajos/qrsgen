@@ -1,7 +1,7 @@
 # Flujo INCOMING (cliente WhatsApp → tu sistema)
 
 ```
-Cliente WhatsApp envía msg al número conectado
+Cliente WhatsApp envía msg/typing/read al número conectado
         │
         ▼
 Meta enruta al WebSocket activo del JID destino
@@ -9,10 +9,12 @@ Meta enruta al WebSocket activo del JID destino
         ▼
 WebSocket que qrsgen mantiene abierto desde bootstrap
         │ whatsmeow emite events.Message
+        │                       events.ChatPresence ──► handleChatPresence
+        │                       events.Receipt      ──► handleReceipt
         ▼
-wameow.handle() → callback onMessage
+wameow.handle() dispatcher (case por tipo de evento)
         │
-        ▼
+        ▼ events.Message
 bridge/incoming.go:
         │ resuelve LID↔PN si aplica (Multi-Device)
         │ si msg.GetReactionMessage() != nil ──► handleReaction
@@ -49,6 +51,32 @@ Tu sistema recibe el POST y procesa
                               GetProfilePicture (descarga)
                               UploadContactAvatar(downstream)
                               tracker.UpdateID
+
+events.ChatPresence (composing/paused) — v0.34.0
+        │
+        ▼
+manager.SetChatPresenceHandler → bridge.Incoming.HandleChatPresence
+        │ FindContact + FindConversation (no crea)
+        │ typingTracker.ShouldEmit(convID, state)
+        │     ├─ cambio de estado ──► true (emite)
+        │     ├─ mismo estado, < minInterval ──► false (throttle)
+        │     └─ mismo estado, ≥ minInterval ──► true
+        │ si true: Client.SetTypingStatus(convID, typing)
+        │          POST /conversations/Y/toggle_typing_status
+        ▼
+        (fin)
+
+events.Receipt (kind=read | read-self) — v0.34.1
+        │
+        ▼
+manager.SetReceiptHandler → bridge.Incoming.HandleReceipt
+        │ filtra Type in ("read","read-self"); resto: return
+        │ FindContact + FindConversation (no crea)
+        │ Client.UpdateContactLastSeen(convID, ts)
+        │ POST /conversations/Y/update_last_seen
+        │     body {agent_last_seen_at, contact_last_seen_at}=ts
+        ▼
+        (fin)
 ```
 
 ## LID/PN twin dedup
@@ -122,6 +150,59 @@ device), contacto no existe en downstream (no se crea por una
 reacción suelta), `QRSGEN_REACTIONS_SYNC=false`. Detalles en
 [Sincronización de reacciones](../integrations/reactions-sync.md).
 
+## Typing (handleChatPresence)
+
+Desde v0.34.0, `wameow.Conn` expone `SetChatPresenceHandler` y el
+dispatcher tiene un case nuevo para `*events.ChatPresence`. El handler
+se propaga vía `manager.SetChatPresenceHandler` a todas las `Conn`
+(actuales + futuras), mismo patrón que `SetPictureHandler` del avatar
+sync.
+
+`bridge.Incoming.HandleChatPresence`:
+
+- Resuelve contacto + conversación con `FindContact`/`FindConversation`.
+  **No crea** — si no existen, descarta el evento (el primer mensaje
+  "real" abrirá la ruta).
+- Consulta `typingTracker.ShouldEmit(convID, state)` para decidir si
+  POSTea. La política: cambios de estado siempre emiten; mismo estado
+  dentro de `minInterval` (default 4s) se throttlea.
+- Si debe emitir, llama `Client.SetTypingStatus(convID, typing bool)`
+  que hace `POST /api/v1/accounts/X/conversations/Y/toggle_typing_status`
+  con body `{"typing_status":"on"}` o `{"typing_status":"off"}`.
+
+Master switch `QRSGEN_TYPING_SYNC` (default `true`). El tracker es
+in-memory; restart pierde el throttle state y en el worst case se hace
+una llamada HTTP extra por conversación activa. Detalles en
+[Typing indicators y read receipts](../integrations/presence-and-receipts.md).
+
+## Read receipts (handleReceipt)
+
+Desde v0.34.1, `wameow.Conn` expone `SetReceiptHandler` y el dispatcher
+tiene un case nuevo para `*events.Receipt`. Propagación idéntica al
+patrón de typing.
+
+`bridge.Incoming.HandleReceipt`:
+
+- Filtra por `Type`: solo `read` y `read-self` continúan; resto
+  (`delivered`, `played`, `sender`) se ignoran porque son menos
+  accionables para el agente.
+- Resuelve contacto + conversación. Si no existen, descarta.
+- Llama `Client.UpdateContactLastSeen(convID, ts)` que hace
+  `POST /api/v1/accounts/X/conversations/Y/update_last_seen` con body
+  `{"agent_last_seen_at": <ts>, "contact_last_seen_at": <ts>}`. Ambos
+  campos llevan el mismo valor: el `receipt.Timestamp` (Unix epoch
+  segundos) del momento en que WhatsApp registró el receipt — no
+  cuando qrsgen lo recibió.
+
+El resultado en el downstream: la conversación se marca como vista por
+el contacto en `ts`, y los mensajes outgoing previos del agente se
+renderizan como leídos (equivalente al doble check azul en Chatwoot).
+
+Master switch `QRSGEN_READ_RECEIPTS_SYNC` (default `true`). Sin retry:
+el siguiente `read` corregirá el `last_seen_at` si el POST falla.
+Detalles en
+[Typing indicators y read receipts](../integrations/presence-and-receipts.md).
+
 ## Side effect: avatar sync
 
 Tras el POST al downstream, `sync()` llama también a `maybeAvatarSync`
@@ -191,3 +272,22 @@ los propaga al downstream como mensaje incoming con
 reacciones. Garantiza unicidad respecto al mensaje target (que usa
 `WAID:<ID>`) y evita que el dedup del downstream las confunda como
 duplicados.
+
+**`handleChatPresence`**: handler en `bridge.Incoming` (desde v0.34.0)
+que procesa `*events.ChatPresence` (`composing`/`paused`) y los propaga
+al downstream vía `Client.SetTypingStatus`. Throttled por el
+`typingTracker`.
+
+**`handleReceipt`**: handler en `bridge.Incoming` (desde v0.34.1) que
+procesa `*events.Receipt` filtrando por `Type in ("read","read-self")`
+y los propaga al downstream vía `Client.UpdateContactLastSeen`.
+
+**`typingTracker`**: estructura in-memory per-conversación que decide
+si un evento `ChatPresence` debe emitir o silenciarse. Cambios de
+estado siempre emiten; mismo estado dentro de `minInterval` (default
+4s) NO emite. Reset on restart.
+
+**`contact_last_seen_at`**: campo de la conversación en el modelo de
+Chatwoot que registra cuándo el contacto vio la conversación por
+última vez. qrsgen lo actualiza con el `receipt.Timestamp` de los
+read receipts entrantes.

@@ -4,6 +4,33 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.29.4] - 2026-05-28
+
+UX tweak: el teléfono ahora solo separa el country code del national
+number con un espacio; el national queda compacto.
+
+### Changed
+
+- **`formatE164` simplificado**: `"34604021705" → "+34 604021705"` en
+  lugar de `"+34 604 02 17 05"`. Razón: el agrupamiento intra-national
+  era ruido. Lo único que aporta lectura es el `+CC` separado del
+  resto.
+- **Tabla de CCs reconocidos sigue igual** (NANP, Europa, Latam, Asia
+  operacional, Portugal, Israel, Emiratos). CCs no listados se dejan
+  compactos con `+` delante (sin separación).
+
+### Removed
+
+- **`groupNationalNumber` y `groupByThree`** — funciones internas no
+  longer needed con el nuevo formato. Eliminadas para reducir
+  superficie.
+
+### Migration notes
+
+- Cambio puramente cosmético. Si un parser regex usaba el patrón
+  `\+\d+( \d+){3,4}` (CC + 3-4 grupos), ahora debe ajustarse a
+  `\+\d+ \d+` (CC + un solo grupo).
+
 ## [0.29.3] - 2026-05-28
 
 UX tweak adicional del prefijo de grupo: nombre en **bold** para que

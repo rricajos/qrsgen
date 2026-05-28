@@ -484,9 +484,10 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	return prefix + "\n" + body
 }
 
-// formatE164 toma "34604021705" → "+34 604 02 17 05" (España: 3-2-2-2)
-// o "+33 612 345 678" (resto: agrupado por 3). Si no detecta CC válido,
-// devuelve el número compacto con prefijo "+".
+// formatE164 toma "34604021705" → "+34 604021705". Separa el country
+// code del national number con un solo espacio; el national queda
+// compacto. Si no detecta CC válido, devuelve el número entero compacto
+// con prefijo "+".
 func formatE164(digits string) string {
 	if digits == "" {
 		return ""
@@ -499,7 +500,7 @@ func formatE164(digits string) string {
 	if rest == "" {
 		return "+" + cc
 	}
-	return "+" + cc + " " + groupNationalNumber(cc, rest)
+	return "+" + cc + " " + rest
 }
 
 // detectCountryCode devuelve el CC en E.164 reconocido al inicio de
@@ -552,37 +553,6 @@ var ccLen3 = map[string]struct{}{
 	"961": {}, "962": {}, "971": {}, "972": {}, "974": {}, "977": {},
 }
 
-// groupNationalNumber inserta espacios según convención del país.
-// Para CCs sin pattern específico, agrupa por 3 desde la izquierda.
-func groupNationalNumber(cc, rest string) string {
-	switch cc {
-	case "34":
-		// España: NN-NNN-NN-NN-NN (móvil/fijo 9 dígitos). Si la longitud
-		// no encaja, caemos al agrupamiento genérico.
-		if len(rest) == 9 {
-			return rest[0:3] + " " + rest[3:5] + " " + rest[5:7] + " " + rest[7:9]
-		}
-	}
-	return groupByThree(rest)
-}
-
-func groupByThree(s string) string {
-	if len(s) <= 3 {
-		return s
-	}
-	var b strings.Builder
-	for i := 0; i < len(s); i += 3 {
-		end := i + 3
-		if end > len(s) {
-			end = len(s)
-		}
-		if i > 0 {
-			b.WriteByte(' ')
-		}
-		b.WriteString(s[i:end])
-	}
-	return b.String()
-}
 
 // isSupportedChatServer indica si procesamos eventos de este tipo de chat.
 // Solo aceptamos 1-on-1 (PN/LID) y grupos. Broadcasts, newsletter, bot, etc. se ignoran.

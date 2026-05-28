@@ -281,7 +281,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("PN sender (Spain) with push name → bold name + italic phone", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "**Jean Paul**  _+34 640 04 77 75_\nhola"
+		want := "**Jean Paul**  _+34 640047775_\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -291,7 +291,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "")
 		r := &fakeResolver{names: map[string]string{senderPN.String(): "Jean Paul (CRM)"}}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "**Jean Paul (CRM)**  _+34 640 04 77 75_\nhola"
+		want := "**Jean Paul (CRM)**  _+34 640047775_\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -303,7 +303,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			pnByLID: map[string]types.JID{senderLID.String(): senderPN},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "**Anon**  _+34 640 04 77 75_\nhola"
+		want := "**Anon**  _+34 640047775_\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -321,7 +321,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("PN sender no name → italic phone + colon", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "_+34 640 04 77 75_:\nhola"
+		want := "_+34 640047775_:\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -330,7 +330,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("empty body keeps prefix without trailing newline", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		got := applyGroupSenderPrefix("", msg, nil)
-		want := "**Jean Paul**  _+34 640 04 77 75_"
+		want := "**Jean Paul**  _+34 640047775_"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -354,15 +354,15 @@ func TestFormatE164(t *testing.T) {
 		want string
 	}{
 		{"empty", "", ""},
-		{"Spain mobile (3-2-2-2)", "34604021705", "+34 604 02 17 05"},
-		{"Spain 9-digit landline", "34931234567", "+34 931 23 45 67"},
-		{"France (generic 3-3-3)", "33612345678", "+33 612 345 678"},
-		{"Germany", "4915112345678", "+49 151 123 456 78"},
-		{"UK", "447911123456", "+44 791 112 345 6"},
-		{"US (1-digit CC)", "14155551234", "+1 415 555 123 4"},
-		{"Portugal (3-digit CC)", "351912345678", "+351 912 345 678"},
-		{"Italy", "393331234567", "+39 333 123 456 7"},
-		{"Mexico", "525512345678", "+52 551 234 567 8"},
+		{"Spain mobile", "34604021705", "+34 604021705"},
+		{"Spain landline", "34931234567", "+34 931234567"},
+		{"France", "33612345678", "+33 612345678"},
+		{"Germany", "4915112345678", "+49 15112345678"},
+		{"UK", "447911123456", "+44 7911123456"},
+		{"US (1-digit CC)", "14155551234", "+1 4155551234"},
+		{"Portugal (3-digit CC)", "351912345678", "+351 912345678"},
+		{"Italy", "393331234567", "+39 3331234567"},
+		{"Mexico", "525512345678", "+52 5512345678"},
 		{"Unknown CC — compact", "999123456", "+999123456"},
 		{"Only CC (rare)", "34", "+34"},
 	}

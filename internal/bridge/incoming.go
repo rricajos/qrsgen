@@ -258,16 +258,19 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 	if err != nil {
 		i.logger.Warn("reaction sync: find contact failed",
 			"err", err, "jid", identifier, "instance", instance)
+		metrics.RealtimeEventsTotal.WithLabelValues("reaction", "ds_error", instance).Inc()
 		return
 	}
 	if contact == nil {
 		// Sin contact = sin conv. No creamos contactos para reacciones
 		// sueltas — esperamos al primer mensaje real.
+		metrics.RealtimeEventsTotal.WithLabelValues("reaction", "no_contact", instance).Inc()
 		return
 	}
 	inboxID := i.resolve(instance)
 	conv, err := ds.FindOpenConversation(ctx, contact.ID, inboxID)
 	if err != nil || conv == nil {
+		metrics.RealtimeEventsTotal.WithLabelValues("reaction", "no_conv", instance).Inc()
 		return
 	}
 
@@ -332,8 +335,10 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 	if err != nil {
 		i.logger.Warn("reaction sync: post failed",
 			"err", err, "conv_id", conv.ID, "target_msg_id", targetMsgID)
+		metrics.RealtimeEventsTotal.WithLabelValues("reaction", "ds_error", instance).Inc()
 		return
 	}
+	metrics.RealtimeEventsTotal.WithLabelValues("reaction", "ok", instance).Inc()
 	i.logger.Info("reaction synced",
 		"conv_id", conv.ID, "emoji", emoji, "target_msg_id", targetMsgID,
 		"sender", name, "instance", instance)
@@ -355,6 +360,7 @@ func (i *Incoming) HandleReceipt(ctx context.Context, instance string, chat type
 	// Solo procesamos read y read-self. Los demás (delivered, played,
 	// sender) tienen menos valor accionable para el agente.
 	if kind != string(types.ReceiptTypeRead) && kind != string(types.ReceiptTypeReadSelf) {
+		metrics.RealtimeEventsTotal.WithLabelValues("read_receipt", "filtered", instance).Inc()
 		return
 	}
 	ds := i.ds.For(ctx, instance)
@@ -365,19 +371,23 @@ func (i *Incoming) HandleReceipt(ctx context.Context, instance string, chat type
 	identifier := chat.ToNonAD().String()
 	contact, err := findContactByIdentifier(ctx, ds, identifier, "")
 	if err != nil || contact == nil {
+		metrics.RealtimeEventsTotal.WithLabelValues("read_receipt", "no_contact", instance).Inc()
 		return
 	}
 	inboxID := i.resolve(instance)
 	conv, err := ds.FindOpenConversation(ctx, contact.ID, inboxID)
 	if err != nil || conv == nil {
+		metrics.RealtimeEventsTotal.WithLabelValues("read_receipt", "no_conv", instance).Inc()
 		return
 	}
 
 	if err := ds.UpdateContactLastSeen(ctx, conv.ID, ts); err != nil {
 		i.logger.Warn("read receipt: update_last_seen failed",
 			"err", err, "conv_id", conv.ID, "ts", ts)
+		metrics.RealtimeEventsTotal.WithLabelValues("read_receipt", "ds_error", instance).Inc()
 		return
 	}
+	metrics.RealtimeEventsTotal.WithLabelValues("read_receipt", "ok", instance).Inc()
 	i.logger.Debug("read receipt synced",
 		"conv_id", conv.ID, "ts", ts, "messages_count", len(messageIDs),
 		"kind", kind, "instance", instance)
@@ -407,23 +417,28 @@ func (i *Incoming) HandleChatPresence(ctx context.Context, instance string, chat
 	identifier := chat.ToNonAD().String()
 	contact, err := findContactByIdentifier(ctx, ds, identifier, "")
 	if err != nil || contact == nil {
+		metrics.RealtimeEventsTotal.WithLabelValues("typing", "no_contact", instance).Inc()
 		return
 	}
 	inboxID := i.resolve(instance)
 	conv, err := ds.FindOpenConversation(ctx, contact.ID, inboxID)
 	if err != nil || conv == nil {
+		metrics.RealtimeEventsTotal.WithLabelValues("typing", "no_conv", instance).Inc()
 		return
 	}
 
 	if i.typingTracker != nil && !i.typingTracker.ShouldEmit(conv.ID, composing) {
+		metrics.RealtimeEventsTotal.WithLabelValues("typing", "throttled", instance).Inc()
 		return
 	}
 
 	if err := ds.SetTypingStatus(ctx, conv.ID, composing); err != nil {
 		i.logger.Warn("typing sync: SetTypingStatus failed",
 			"err", err, "conv_id", conv.ID, "composing", composing)
+		metrics.RealtimeEventsTotal.WithLabelValues("typing", "ds_error", instance).Inc()
 		return
 	}
+	metrics.RealtimeEventsTotal.WithLabelValues("typing", "ok", instance).Inc()
 	i.logger.Debug("typing synced",
 		"conv_id", conv.ID, "composing", composing, "media", media,
 		"chat", chat.String(), "sender", sender.String(), "instance", instance)
@@ -505,6 +520,7 @@ func (i *Incoming) syncAvatar(ds *downstream.Client, r wameow.WAResolver, contac
 	if err != nil {
 		i.logger.Warn("avatar sync: get id failed",
 			"err", err, "contact_id", contactID, "jid", jid.String())
+		metrics.RealtimeEventsTotal.WithLabelValues("avatar", "wa_error", instance).Inc()
 		return
 	}
 	// Sin foto WA: nada que subir, cacheamos el "" para no chequear hasta TTL.
@@ -512,11 +528,13 @@ func (i *Incoming) syncAvatar(ds *downstream.Client, r wameow.WAResolver, contac
 		if i.avatarTracker != nil {
 			i.avatarTracker.UpdateID(instance, jid.String(), "")
 		}
+		metrics.RealtimeEventsTotal.WithLabelValues("avatar", "wa_miss", instance).Inc()
 		return
 	}
 	// Avatar idéntico al último sincronizado: no re-descargar.
 	if i.avatarTracker != nil {
 		if last := i.avatarTracker.LastID(instance, jid.String()); last == currentID {
+			metrics.RealtimeEventsTotal.WithLabelValues("avatar", "throttled", instance).Inc()
 			return
 		}
 	}
@@ -525,6 +543,7 @@ func (i *Incoming) syncAvatar(ds *downstream.Client, r wameow.WAResolver, contac
 	if err != nil {
 		i.logger.Warn("avatar sync: download failed",
 			"err", err, "contact_id", contactID, "jid", jid.String())
+		metrics.RealtimeEventsTotal.WithLabelValues("avatar", "wa_error", instance).Inc()
 		return
 	}
 	if len(data) == 0 {
@@ -532,16 +551,19 @@ func (i *Incoming) syncAvatar(ds *downstream.Client, r wameow.WAResolver, contac
 		if i.avatarTracker != nil {
 			i.avatarTracker.UpdateID(instance, jid.String(), "")
 		}
+		metrics.RealtimeEventsTotal.WithLabelValues("avatar", "wa_miss", instance).Inc()
 		return
 	}
 	if err := ds.UploadContactAvatar(ctx, contactID, data, mime); err != nil {
 		i.logger.Warn("avatar sync: upload to downstream failed",
 			"err", err, "contact_id", contactID, "size", len(data))
+		metrics.RealtimeEventsTotal.WithLabelValues("avatar", "ds_error", instance).Inc()
 		return
 	}
 	if i.avatarTracker != nil {
 		i.avatarTracker.UpdateID(instance, jid.String(), currentID)
 	}
+	metrics.RealtimeEventsTotal.WithLabelValues("avatar", "ok", instance).Inc()
 	i.logger.Info("avatar synced",
 		"contact_id", contactID, "size", len(data), "mime", mime,
 		"avatar_id", currentID, "jid", jid.String())

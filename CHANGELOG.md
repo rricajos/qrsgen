@@ -4,6 +4,61 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-05-28
+
+Observability: contador Prometheus unificado para los eventos
+real-time del bridge (avatar/reaction/typing/read_receipt). Permite
+calcular tasas de éxito, detectar regresiones y alertar sobre fallos
+en producción.
+
+### Added
+
+- **`qrsgen_realtime_events_total{feature, result, instance}`** —
+  nuevo CounterVec en `internal/metrics/metrics.go`. Labels:
+  - `feature`: "avatar" | "reaction" | "typing" | "read_receipt"
+  - `result`: "ok" | "no_contact" | "no_conv" | "throttled" |
+    "filtered" | "wa_miss" | "wa_error" | "ds_error"
+  - `instance`: nombre de la instancia
+- Cardinalidad: ~4 features × ~8 results × ~N instancias. Para una
+  deployment típica (1-10 instancias) son 32-320 series.
+
+### Wired
+
+- `Incoming.syncAvatar`: incrementa con result=ok/wa_miss/wa_error/
+  ds_error/throttled según el path tomado.
+- `Incoming.handleReaction`: result=ok/no_contact/no_conv/ds_error.
+- `Incoming.HandleChatPresence`: ok/no_contact/no_conv/throttled/ds_error.
+- `Incoming.HandleReceipt`: ok/no_contact/no_conv/filtered/ds_error.
+
+### PromQL examples
+
+Tasa de errores de downstream por feature:
+```promql
+sum by (feature) (rate(qrsgen_realtime_events_total{result="ds_error"}[5m]))
+```
+
+% de avatares con foto vs sin foto (privacidad):
+```promql
+sum(rate(qrsgen_realtime_events_total{feature="avatar",result="ok"}[1h]))
+/
+sum(rate(qrsgen_realtime_events_total{feature="avatar",result=~"ok|wa_miss"}[1h]))
+```
+
+Typing events throttleados (debería ser >50% del total típicamente):
+```promql
+sum(rate(qrsgen_realtime_events_total{feature="typing",result="throttled"}[5m]))
+/
+sum(rate(qrsgen_realtime_events_total{feature="typing"}[5m]))
+```
+
+### Migration notes
+
+- Sin breaking changes. Las métricas son aditivas; los exporters
+  Prometheus existentes las recogen automáticamente.
+- Dashboards Grafana nuevos: actualizar para incluir los paneles
+  sobre la nueva métrica. Ejemplo en
+  `examples/grafana-dashboard/qrsgen-realtime.json` (pendiente).
+
 ## [0.34.1] - 2026-05-28
 
 Read receipts incoming: cuando el cliente WhatsApp abre el chat y ve

@@ -143,6 +143,7 @@ func main() {
 	incoming.SetAvatarSync(cfg.AvatarSync)
 	incoming.SetAvatarRefreshTTL(cfg.AvatarRefreshTTL)
 	incoming.SetReactionsSync(cfg.ReactionsSync)
+	incoming.SetTypingSync(cfg.TypingSync)
 
 	onMsg := func(ctx context.Context, instance string, msg *events.Message, r wameow.WAResolver) {
 		incoming.Handle(ctx, instance, msg, r)
@@ -213,6 +214,11 @@ func main() {
 	// (cambio de foto), forzar el re-sync del contact correspondiente.
 	mgr.SetPictureHandler(func(ctx context.Context, instance string, jid types.JID, pictureID string, removed bool, r wameow.WAResolver) {
 		incoming.HandlePictureChange(ctx, instance, jid, pictureID, removed, r)
+	})
+	// v0.34.0: typing indicators. Cuando whatsmeow emite ChatPresence
+	// (composing/paused), propagar al downstream via toggle_typing_status.
+	mgr.SetChatPresenceHandler(func(ctx context.Context, instance string, chat types.JID, sender types.JID, composing bool, media string, r wameow.WAResolver) {
+		incoming.HandleChatPresence(ctx, instance, chat, sender, composing, media, r)
 	})
 	metrics.VersionInfo.WithLabelValues(version).Set(1)
 

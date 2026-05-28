@@ -261,6 +261,28 @@ func (c *Client) CreateConversation(ctx context.Context, req CreateConversationR
 	return &conv, nil
 }
 
+// SetTypingStatus propaga al downstream un evento de typing (on/off)
+// para una conversación. Implementa el toggle_typing_status del
+// api_channel de Chatwoot.
+//
+// POST /api/v1/accounts/{a}/conversations/{c}/toggle_typing_status
+// con body {"typing_status": "on"|"off"}.
+//
+// El downstream renderiza el indicador "está escribiendo" en la UI del
+// agente. No es un mensaje persistente — si la conexión se cae o el
+// receptor no está mirando la conv, no pasa nada.
+func (c *Client) SetTypingStatus(ctx context.Context, convID int, typing bool) error {
+	status := "off"
+	if typing {
+		status = "on"
+	}
+	path := fmt.Sprintf("/conversations/%d/toggle_typing_status", convID)
+	_, err := c.request(ctx, http.MethodPost, path, map[string]string{
+		"typing_status": status,
+	})
+	return err
+}
+
 // ListContactsByInbox devuelve una página de contactos asociados a un inbox.
 // page es 1-based. hasMore indica si hay siguiente página (basándose en si
 // la página actual está llena al límite del downstream — 15 por defecto en

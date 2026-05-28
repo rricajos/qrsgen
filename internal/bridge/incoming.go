@@ -60,17 +60,39 @@ type Incoming struct {
 	// propagan al downstream como mensajes nuevos con formato
 	// "**~Name** reaccionó con 👍". Default true. Desde v0.33.0.
 	reactionsSync bool
+
+	// typingSync controla si los eventos *events.ChatPresence (composing/
+	// paused) se propagan al downstream como toggle_typing_status.
+	// Default true. Desde v0.34.0.
+	typingSync bool
+
+	// typingTracker dedupea calls al downstream — eventos ChatPresence
+	// pueden llegar varios por segundo durante typing activo. Default
+	// minInterval 4s (Chatwoot UI normalmente expira typing tras ~5s).
+	typingTracker *typingTracker
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
 func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logger, resolve InboxResolver) *Incoming {
-	return &Incoming{ds: ds, dedup: dedup, logger: logger, resolve: resolve, groupPrefixSender: true, avatarSync: true, reactionsSync: true}
+	return &Incoming{
+		ds: ds, dedup: dedup, logger: logger, resolve: resolve,
+		groupPrefixSender: true,
+		avatarSync:        true,
+		reactionsSync:     true,
+		typingSync:        true,
+		typingTracker:     newTypingTracker(4 * time.Second),
+	}
 }
 
 // SetReactionsSync activa o desactiva la propagación de reacciones WhatsApp
 // al downstream. Default true. Setear a false ignora todos los eventos
 // de reacción — no se postea nada en la conv del downstream.
 func (i *Incoming) SetReactionsSync(v bool) { i.reactionsSync = v }
+
+// SetTypingSync activa o desactiva la propagación de ChatPresence (typing
+// indicators) al downstream. Default true. Setear a false ignora todos
+// los eventos — la UI del downstream no muestra "está escribiendo".
+func (i *Incoming) SetTypingSync(v bool) { i.typingSync = v }
 
 // SetUsage attaches a usage recorder. Pass nil to disable.
 func (i *Incoming) SetUsage(u UsageRecorder) { i.usage = u }
@@ -305,6 +327,52 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 	i.logger.Info("reaction synced",
 		"conv_id", conv.ID, "emoji", emoji, "target_msg_id", targetMsgID,
 		"sender", name, "instance", instance)
+}
+
+// HandleChatPresence reacciona a *events.ChatPresence (typing/paused).
+// Propaga al downstream el toggle_typing_status correspondiente, con
+// throttle del typingTracker para no saturar.
+//
+// chat es el JID del chat/grupo. sender es el JID del participante que
+// tipea (en grupo) o igual a chat (en 1-on-1). En grupos puede haber
+// múltiples participantes typing a la vez — el downstream solo soporta
+// un indicator por conv, así que se reciben todos como "alguien está
+// escribiendo".
+//
+// Para JIDs sin contact registrado, no hace nada (no podemos resolver
+// la conv).
+func (i *Incoming) HandleChatPresence(ctx context.Context, instance string, chat types.JID, sender types.JID, composing bool, media string, r wameow.WAResolver) {
+	if !i.typingSync {
+		return
+	}
+	ds := i.ds.For(ctx, instance)
+	if ds == nil {
+		return
+	}
+
+	identifier := chat.ToNonAD().String()
+	contact, err := findContactByIdentifier(ctx, ds, identifier, "")
+	if err != nil || contact == nil {
+		return
+	}
+	inboxID := i.resolve(instance)
+	conv, err := ds.FindOpenConversation(ctx, contact.ID, inboxID)
+	if err != nil || conv == nil {
+		return
+	}
+
+	if i.typingTracker != nil && !i.typingTracker.ShouldEmit(conv.ID, composing) {
+		return
+	}
+
+	if err := ds.SetTypingStatus(ctx, conv.ID, composing); err != nil {
+		i.logger.Warn("typing sync: SetTypingStatus failed",
+			"err", err, "conv_id", conv.ID, "composing", composing)
+		return
+	}
+	i.logger.Debug("typing synced",
+		"conv_id", conv.ID, "composing", composing, "media", media,
+		"chat", chat.String(), "sender", sender.String(), "instance", instance)
 }
 
 // HandlePictureChange reacciona a *events.Picture: alguien (user o grupo)

@@ -35,6 +35,13 @@ type MessageHandler func(ctx context.Context, instance string, msg *events.Messa
 // esperar al siguiente mensaje. removed=true indica que la foto fue eliminada.
 type PictureHandler func(ctx context.Context, instance string, jid types.JID, pictureID string, removed bool, r WAResolver)
 
+// ChatPresenceHandler se dispara cuando whatsmeow emite *events.ChatPresence
+// (un usuario está escribiendo o paró de escribir en un chat o grupo).
+// composing=true indica typing activo, false indica que paró. media
+// distingue text ("") vs audio ("audio"). Útil para propagar typing
+// indicators al downstream.
+type ChatPresenceHandler func(ctx context.Context, instance string, chat types.JID, sender types.JID, composing bool, media string, r WAResolver)
+
 // WAResolver expone consultas al estado local del cliente whatsmeow.
 type WAResolver interface {
 	// ContactName devuelve el nombre cacheado para un JID, o "" si no hay info.
@@ -94,12 +101,13 @@ type PairCallback func(ctx context.Context, instance, jid string)
 
 // Conn representa una conexión whatsmeow para una instancia con nombre.
 type Conn struct {
-	name        string
-	client      *whatsmeow.Client
-	logger      *slog.Logger
-	onMessage   MessageHandler
-	onLifecycle LifecycleCallback
-	onPicture   PictureHandler
+	name           string
+	client         *whatsmeow.Client
+	logger         *slog.Logger
+	onMessage      MessageHandler
+	onLifecycle    LifecycleCallback
+	onPicture      PictureHandler
+	onChatPresence ChatPresenceHandler
 
 	mu        sync.RWMutex
 	lastQRPNG []byte
@@ -168,6 +176,10 @@ func (c *Conn) Name() string { return c.name }
 // (cambios de foto de perfil de usuarios o grupos). Llamar antes de
 // Connect — no es seguro modificarlo en runtime sin sincronización.
 func (c *Conn) SetPictureHandler(h PictureHandler) { c.onPicture = h }
+
+// SetChatPresenceHandler registra el callback para *events.ChatPresence
+// (typing/composing indicators). Llamar antes de Connect.
+func (c *Conn) SetChatPresenceHandler(h ChatPresenceHandler) { c.onChatPresence = h }
 
 // Connect arranca la conexión. Si el device aún no está pareado, abre canal QR.
 func (c *Conn) Connect(ctx context.Context) error {
@@ -439,6 +451,11 @@ func (c *Conn) handle(rawEvt any) {
 	case *events.Picture:
 		if c.onPicture != nil {
 			c.onPicture(context.Background(), c.name, evt.JID, evt.PictureID, evt.Remove, c)
+		}
+	case *events.ChatPresence:
+		if c.onChatPresence != nil {
+			composing := evt.State == types.ChatPresenceComposing
+			c.onChatPresence(context.Background(), c.name, evt.Chat, evt.Sender, composing, string(evt.Media), c)
 		}
 	case *events.Connected:
 		c.logger.Info("connected to whatsapp")

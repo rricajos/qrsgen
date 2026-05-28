@@ -30,8 +30,9 @@ type Manager struct {
 	instances map[string]*wameow.Conn
 	pool      *pgxpool.Pool
 	logger    *slog.Logger
-	onMsg     wameow.MessageHandler
-	onPicture wameow.PictureHandler
+	onMsg           wameow.MessageHandler
+	onPicture       wameow.PictureHandler
+	onChatPresence  wameow.ChatPresenceHandler
 
 	// waiters: suscripciones a "esta instancia está ready". Cada canal
 	// recibe una señal cuando la instancia transiciona a ready y se cierra.
@@ -96,6 +97,18 @@ func (m *Manager) SetPictureHandler(h wameow.PictureHandler) {
 	m.onPicture = h
 	for _, conn := range m.instances {
 		conn.SetPictureHandler(h)
+	}
+}
+
+// SetChatPresenceHandler registra el callback para *events.ChatPresence
+// (typing indicators). Mismo patrón que SetPictureHandler — se aplica a
+// todas las instancias y a las futuras.
+func (m *Manager) SetChatPresenceHandler(h wameow.ChatPresenceHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onChatPresence = h
+	for _, conn := range m.instances {
+		conn.SetChatPresenceHandler(h)
 	}
 }
 
@@ -326,6 +339,9 @@ func (m *Manager) startLocked(ctx context.Context, name, jidStr string) (*wameow
 	conn := wameow.NewConn(name, device, m.logger, m.onMsg, m.onLifecycle)
 	if m.onPicture != nil {
 		conn.SetPictureHandler(m.onPicture)
+	}
+	if m.onChatPresence != nil {
+		conn.SetChatPresenceHandler(m.onChatPresence)
 	}
 	if err := conn.Connect(ctx); err != nil {
 		return nil, err

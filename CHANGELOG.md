@@ -4,6 +4,54 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-05-28
+
+Typing indicators (composing) de WhatsApp se propagan al downstream.
+El agente ve "está escribiendo..." en la UI del downstream cuando el
+cliente está tipeando del lado WhatsApp.
+
+### Added
+
+- **`wameow.ChatPresenceHandler`** — nuevo callback type. Se dispara
+  con `*events.ChatPresence` (composing/paused, text/audio).
+- **`wameow.Conn.SetChatPresenceHandler`** + nuevo case para
+  `*events.ChatPresence` en el event dispatcher de Conn.
+- **`manager.Manager.SetChatPresenceHandler`** — propaga el callback
+  a Conns existentes y futuras.
+- **`bridge.Incoming.HandleChatPresence`** — orquesta:
+  - Find contact + conv (sin crear nada si no existen)
+  - Throttle via typingTracker (anti-spam)
+  - POST a `toggle_typing_status` del downstream
+- **`downstream.Client.SetTypingStatus(convID, typing)`** — implementa
+  `POST /api/v1/accounts/X/conversations/Y/toggle_typing_status` con
+  body `{"typing_status":"on"|"off"}`.
+- **`bridge.typingTracker`** — dedupea calls al downstream. Anti-spam
+  con minInterval default 4s. Cambios de estado siempre emiten.
+- **`QRSGEN_TYPING_SYNC`** (default `true`) — env var nueva.
+- **5 tests** del typingTracker: primer emit, mismo state dentro
+  intervalo, cambio de state, mismo state tras intervalo, aislamiento
+  per-conv.
+
+### Behavior
+
+- **Throttle de 4s**: typing events de WhatsApp llegan varios por
+  segundo durante una sesión de escritura. Solo propagamos al
+  downstream cuando el estado cambia (composing↔paused) o si han
+  pasado 4s desde la última propagación del mismo estado (refresh).
+- **Si el contacto no existe en downstream**, evento descartado.
+  No creamos contactos para typing sueltos.
+- **Grupos**: cuando hay typing en un grupo, llega un evento por
+  participante. El downstream solo soporta un indicator por conv,
+  así que se ven todos como "alguien está escribiendo". El campo
+  `sender` se loguea para debug pero no se incluye visualmente.
+
+### Migration notes
+
+- Sin breaking changes. Default ON aumenta la frecuencia de calls
+  POST al downstream — si tienes rate-limits muy ajustados,
+  considera el throttle de 4s y/o desactivar con
+  `QRSGEN_TYPING_SYNC=false`.
+
 ## [0.33.0] - 2026-05-28
 
 Propaga las reacciones (emojis) que los clientes WhatsApp añaden a

@@ -95,6 +95,12 @@ type Config struct {
 	// "**~Name** reaccionó con 👍". false los ignora silenciosamente.
 	// Default true. Desde v0.33.0.
 	ReactionsSync bool `env:"QRSGEN_REACTIONS_SYNC" envDefault:"true"`
+
+	// TypingSync: si true, los eventos de typing (composing/paused) que
+	// emite WhatsApp se propagan al downstream como toggle_typing_status.
+	// El downstream renderiza "está escribiendo" en la UI del agente.
+	// false los ignora. Default true. Desde v0.34.0.
+	TypingSync bool `env:"QRSGEN_TYPING_SYNC" envDefault:"true"`
 }
 
 func Load() (Config, error) {

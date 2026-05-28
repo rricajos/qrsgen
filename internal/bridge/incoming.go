@@ -70,6 +70,11 @@ type Incoming struct {
 	// pueden llegar varios por segundo durante typing activo. Default
 	// minInterval 4s (Chatwoot UI normalmente expira typing tras ~5s).
 	typingTracker *typingTracker
+
+	// readReceiptsSync controla si los read receipts WhatsApp (cliente
+	// abrió el chat y vio el msg del agente) actualizan el last_seen
+	// del downstream. Default true. Desde v0.34.1.
+	readReceiptsSync bool
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
@@ -81,6 +86,7 @@ func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logge
 		reactionsSync:     true,
 		typingSync:        true,
 		typingTracker:     newTypingTracker(4 * time.Second),
+		readReceiptsSync:  true,
 	}
 }
 
@@ -93,6 +99,10 @@ func (i *Incoming) SetReactionsSync(v bool) { i.reactionsSync = v }
 // indicators) al downstream. Default true. Setear a false ignora todos
 // los eventos — la UI del downstream no muestra "está escribiendo".
 func (i *Incoming) SetTypingSync(v bool) { i.typingSync = v }
+
+// SetReadReceiptsSync activa o desactiva la propagación de read receipts
+// WhatsApp (cliente abrió el chat) al downstream. Default true.
+func (i *Incoming) SetReadReceiptsSync(v bool) { i.readReceiptsSync = v }
 
 // SetUsage attaches a usage recorder. Pass nil to disable.
 func (i *Incoming) SetUsage(u UsageRecorder) { i.usage = u }
@@ -327,6 +337,50 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 	i.logger.Info("reaction synced",
 		"conv_id", conv.ID, "emoji", emoji, "target_msg_id", targetMsgID,
 		"sender", name, "instance", instance)
+}
+
+// HandleReceipt reacciona a *events.Receipt. Solo procesamos kind="read"
+// (cliente abrió el chat y vio los msgs enviados por el agente). Otros
+// tipos (delivered, played, sender, read-self) los logueamos pero no
+// los propagamos al downstream — son menos accionables.
+//
+// Para read, actualizamos contact_last_seen_at del conv en el downstream
+// usando el timestamp del receipt. La UI del downstream renderiza el
+// "doble check azul" en los mensajes del agente que están dentro de
+// ese rango temporal.
+func (i *Incoming) HandleReceipt(ctx context.Context, instance string, chat types.JID, sender types.JID, kind string, messageIDs []string, ts time.Time, r wameow.WAResolver) {
+	if !i.readReceiptsSync {
+		return
+	}
+	// Solo procesamos read y read-self. Los demás (delivered, played,
+	// sender) tienen menos valor accionable para el agente.
+	if kind != string(types.ReceiptTypeRead) && kind != string(types.ReceiptTypeReadSelf) {
+		return
+	}
+	ds := i.ds.For(ctx, instance)
+	if ds == nil {
+		return
+	}
+
+	identifier := chat.ToNonAD().String()
+	contact, err := findContactByIdentifier(ctx, ds, identifier, "")
+	if err != nil || contact == nil {
+		return
+	}
+	inboxID := i.resolve(instance)
+	conv, err := ds.FindOpenConversation(ctx, contact.ID, inboxID)
+	if err != nil || conv == nil {
+		return
+	}
+
+	if err := ds.UpdateContactLastSeen(ctx, conv.ID, ts); err != nil {
+		i.logger.Warn("read receipt: update_last_seen failed",
+			"err", err, "conv_id", conv.ID, "ts", ts)
+		return
+	}
+	i.logger.Debug("read receipt synced",
+		"conv_id", conv.ID, "ts", ts, "messages_count", len(messageIDs),
+		"kind", kind, "instance", instance)
 }
 
 // HandleChatPresence reacciona a *events.ChatPresence (typing/paused).

@@ -261,6 +261,24 @@ func (c *Client) CreateConversation(ctx context.Context, req CreateConversationR
 	return &conv, nil
 }
 
+// UpdateContactLastSeen actualiza el timestamp "contact_last_seen_at"
+// de la conversación en el downstream. En Chatwoot esto hace que los
+// mensajes del agente queden marcados como leídos (icono check azul).
+//
+// POST /api/v1/accounts/{a}/conversations/{c}/update_last_seen
+// Body opcional con timestamp; si vacío, el downstream usa el reloj
+// del server. Pasar `ts > 0` para que coincida con el read receipt real.
+func (c *Client) UpdateContactLastSeen(ctx context.Context, convID int, ts time.Time) error {
+	path := fmt.Sprintf("/conversations/%d/update_last_seen", convID)
+	body := map[string]any{}
+	if !ts.IsZero() {
+		body["agent_last_seen_at"] = ts.Unix()
+		body["contact_last_seen_at"] = ts.Unix()
+	}
+	_, err := c.request(ctx, http.MethodPost, path, body)
+	return err
+}
+
 // SetTypingStatus propaga al downstream un evento de typing (on/off)
 // para una conversación. Implementa el toggle_typing_status del
 // api_channel de Chatwoot.

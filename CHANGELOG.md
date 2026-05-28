@@ -4,6 +4,42 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.34.1] - 2026-05-28
+
+Read receipts incoming: cuando el cliente WhatsApp abre el chat y ve
+los mensajes que envió el agente, qrsgen actualiza el
+`contact_last_seen_at` de la conv en el downstream. La UI marca los
+mensajes con "leído" / doble check azul.
+
+### Added
+
+- **`wameow.ReceiptHandler`** — callback type para `*events.Receipt`.
+- **`wameow.Conn.SetReceiptHandler`** + case nuevo para `*events.Receipt`
+  en el dispatcher.
+- **`manager.Manager.SetReceiptHandler`** — propagación a Conns.
+- **`bridge.Incoming.HandleReceipt`** — filtra por kind in
+  ("read", "read-self"), encuentra conv, llama
+  `UpdateContactLastSeen`.
+- **`downstream.Client.UpdateContactLastSeen(convID, ts)`** —
+  `POST /api/v1/accounts/X/conversations/Y/update_last_seen` con
+  `agent_last_seen_at` y `contact_last_seen_at` = ts del receipt.
+- **`QRSGEN_READ_RECEIPTS_SYNC`** (default `true`).
+
+### Behavior
+
+- Solo procesamos `ReceiptTypeRead` y `ReceiptTypeReadSelf`. Los
+  otros (`delivered`, `played`, `sender`) se ignoran — son menos
+  accionables y aumentarían el ruido al downstream.
+- Si el contacto no existe en el downstream o no hay conv abierta,
+  el receipt se descarta silenciosamente.
+- El timestamp del receipt se pasa al downstream tal cual — la UI
+  muestra los msgs como leídos hasta ese momento.
+
+### Migration notes
+
+- Sin breaking changes. `QRSGEN_READ_RECEIPTS_SYNC=false` revierte
+  al comportamiento de v0.34.0 (no propagación de receipts).
+
 ## [0.34.0] - 2026-05-28
 
 Typing indicators (composing) de WhatsApp se propagan al downstream.

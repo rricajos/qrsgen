@@ -144,6 +144,7 @@ func main() {
 	incoming.SetAvatarRefreshTTL(cfg.AvatarRefreshTTL)
 	incoming.SetReactionsSync(cfg.ReactionsSync)
 	incoming.SetTypingSync(cfg.TypingSync)
+	incoming.SetReadReceiptsSync(cfg.ReadReceiptsSync)
 
 	onMsg := func(ctx context.Context, instance string, msg *events.Message, r wameow.WAResolver) {
 		incoming.Handle(ctx, instance, msg, r)
@@ -219,6 +220,11 @@ func main() {
 	// (composing/paused), propagar al downstream via toggle_typing_status.
 	mgr.SetChatPresenceHandler(func(ctx context.Context, instance string, chat types.JID, sender types.JID, composing bool, media string, r wameow.WAResolver) {
 		incoming.HandleChatPresence(ctx, instance, chat, sender, composing, media, r)
+	})
+	// v0.34.1: read receipts. Cuando whatsmeow emite Receipt con Type=read,
+	// actualizar contact_last_seen_at de la conv en el downstream.
+	mgr.SetReceiptHandler(func(ctx context.Context, instance string, chat types.JID, sender types.JID, kind string, messageIDs []string, ts time.Time, r wameow.WAResolver) {
+		incoming.HandleReceipt(ctx, instance, chat, sender, kind, messageIDs, ts, r)
 	})
 	metrics.VersionInfo.WithLabelValues(version).Set(1)
 

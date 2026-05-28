@@ -33,6 +33,7 @@ type Manager struct {
 	onMsg           wameow.MessageHandler
 	onPicture       wameow.PictureHandler
 	onChatPresence  wameow.ChatPresenceHandler
+	onReceipt       wameow.ReceiptHandler
 
 	// waiters: suscripciones a "esta instancia está ready". Cada canal
 	// recibe una señal cuando la instancia transiciona a ready y se cierra.
@@ -109,6 +110,17 @@ func (m *Manager) SetChatPresenceHandler(h wameow.ChatPresenceHandler) {
 	m.onChatPresence = h
 	for _, conn := range m.instances {
 		conn.SetChatPresenceHandler(h)
+	}
+}
+
+// SetReceiptHandler registra el callback para *events.Receipt
+// (delivery/read acknowledgements sobre mensajes que envió este device).
+func (m *Manager) SetReceiptHandler(h wameow.ReceiptHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onReceipt = h
+	for _, conn := range m.instances {
+		conn.SetReceiptHandler(h)
 	}
 }
 
@@ -342,6 +354,9 @@ func (m *Manager) startLocked(ctx context.Context, name, jidStr string) (*wameow
 	}
 	if m.onChatPresence != nil {
 		conn.SetChatPresenceHandler(m.onChatPresence)
+	}
+	if m.onReceipt != nil {
+		conn.SetReceiptHandler(m.onReceipt)
 	}
 	if err := conn.Connect(ctx); err != nil {
 		return nil, err

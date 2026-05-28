@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.34.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
+| `QRSGEN_VERSION` | `0.34.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |
@@ -31,6 +31,7 @@
 | `QRSGEN_AVATAR_REFRESH_TTL` | `24h` | Si > 0, contactos existentes se re-chequean cada este TTL para detectar cambios de foto WhatsApp. La comparación usa el `info.ID` (cheap metadata, no descarga); solo se descarga + sube si el ID cambió. `0` desactiva el refresh (solo sync al crear). Desde v0.31.1. |
 | `QRSGEN_REACTIONS_SYNC` | `true` | Si `true`, las reacciones (emojis) que los clientes WhatsApp añaden a mensajes se postean al downstream como mensaje incoming con formato `**~Name** reaccionó con 👍`. `false` las ignora silenciosamente. Desde v0.33.0. |
 | `QRSGEN_TYPING_SYNC` | `true` | Si `true`, los eventos de typing (composing/paused) que emite WhatsApp se propagan al downstream como `toggle_typing_status` — el agente ve "está escribiendo" en la UI. Throttle interno de 4s para evitar saturar. `false` ignora los eventos. Desde v0.34.0. |
+| `QRSGEN_READ_RECEIPTS_SYNC` | `true` | Si `true`, los read receipts WhatsApp (cliente abrió el chat y vio los mensajes del agente) actualizan el `contact_last_seen_at` del conv en el downstream — la UI marca los mensajes como leídos. `false` los ignora. Desde v0.34.1. |
 | `DEDUP_ENABLED` | `true` | |
 | `DEDUP_WINDOW_MS` | `10000` | Ventana LID-twin dedup. |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. |

@@ -42,6 +42,14 @@ type PictureHandler func(ctx context.Context, instance string, jid types.JID, pi
 // indicators al downstream.
 type ChatPresenceHandler func(ctx context.Context, instance string, chat types.JID, sender types.JID, composing bool, media string, r WAResolver)
 
+// ReceiptHandler se dispara cuando whatsmeow emite *events.Receipt
+// (acknowledgement de delivery o read sobre mensajes que ENVIASTE).
+// kind es el ReceiptType: "" (delivered), "read", "read-self", "played".
+// Para "read" / "read-self" → el contacto abrió la conv y vio el msg.
+// chat es el JID del chat/grupo; sender es quién leyó (en 1-on-1 es
+// chat=sender). messageIDs son los WAIDs de los msgs marcados read.
+type ReceiptHandler func(ctx context.Context, instance string, chat types.JID, sender types.JID, kind string, messageIDs []string, ts time.Time, r WAResolver)
+
 // WAResolver expone consultas al estado local del cliente whatsmeow.
 type WAResolver interface {
 	// ContactName devuelve el nombre cacheado para un JID, o "" si no hay info.
@@ -108,6 +116,7 @@ type Conn struct {
 	onLifecycle    LifecycleCallback
 	onPicture      PictureHandler
 	onChatPresence ChatPresenceHandler
+	onReceipt      ReceiptHandler
 
 	mu        sync.RWMutex
 	lastQRPNG []byte
@@ -180,6 +189,10 @@ func (c *Conn) SetPictureHandler(h PictureHandler) { c.onPicture = h }
 // SetChatPresenceHandler registra el callback para *events.ChatPresence
 // (typing/composing indicators). Llamar antes de Connect.
 func (c *Conn) SetChatPresenceHandler(h ChatPresenceHandler) { c.onChatPresence = h }
+
+// SetReceiptHandler registra el callback para *events.Receipt
+// (delivery / read receipts sobre mensajes que envió este device).
+func (c *Conn) SetReceiptHandler(h ReceiptHandler) { c.onReceipt = h }
 
 // Connect arranca la conexión. Si el device aún no está pareado, abre canal QR.
 func (c *Conn) Connect(ctx context.Context) error {
@@ -456,6 +469,14 @@ func (c *Conn) handle(rawEvt any) {
 		if c.onChatPresence != nil {
 			composing := evt.State == types.ChatPresenceComposing
 			c.onChatPresence(context.Background(), c.name, evt.Chat, evt.Sender, composing, string(evt.Media), c)
+		}
+	case *events.Receipt:
+		if c.onReceipt != nil {
+			ids := make([]string, 0, len(evt.MessageIDs))
+			for _, id := range evt.MessageIDs {
+				ids = append(ids, string(id))
+			}
+			c.onReceipt(context.Background(), c.name, evt.Chat, evt.Sender, string(evt.Type), ids, evt.Timestamp, c)
 		}
 	case *events.Connected:
 		c.logger.Info("connected to whatsapp")

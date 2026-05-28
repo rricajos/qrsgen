@@ -101,6 +101,13 @@ type Config struct {
 	// El downstream renderiza "está escribiendo" en la UI del agente.
 	// false los ignora. Default true. Desde v0.34.0.
 	TypingSync bool `env:"QRSGEN_TYPING_SYNC" envDefault:"true"`
+
+	// ReadReceiptsSync: si true, los read receipts WhatsApp (cliente
+	// abrió el chat y vio los mensajes del agente) actualizan el
+	// contact_last_seen_at del conv en el downstream. La UI del
+	// downstream renderiza "leído" en los msgs correspondientes.
+	// Default true. Desde v0.34.1.
+	ReadReceiptsSync bool `env:"QRSGEN_READ_RECEIPTS_SYNC" envDefault:"true"`
 }
 
 func Load() (Config, error) {

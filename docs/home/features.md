@@ -35,6 +35,23 @@ Counters diarios persistidos en `bridge_usage_daily`. Endpoint
 `/api/usage/summary` agrega por `(owner_tag, mes)` listo para billing
 multi-tenant ligero. qrsgen no decide pricing — solo expone los hechos.
 
+## Sincronización de avatares WhatsApp
+
+qrsgen descarga la foto de perfil de cada contacto/grupo WhatsApp y la
+sube al downstream como avatar. Tres capas de sincronización:
+
+- **Al crear contacto** (v0.31.0) — primera foto disponible.
+- **Refresh con TTL** (v0.31.1) — tracker en memoria que compara
+  `info.ID` (cheap metadata, no descarga) cada `QRSGEN_AVATAR_REFRESH_TTL`
+  y solo descarga si cambió.
+- **Tiempo real** (v0.31.2) — subscribe a `events.Picture` de whatsmeow:
+  cuando el usuario cambia su foto en WhatsApp móvil, el avatar
+  downstream se actualiza en ~1s sin esperar al siguiente mensaje.
+
+Más un endpoint `POST /api/instances/:name/avatars/resync` (v0.31.3) para
+**backfill** de contactos viejos (creados antes de v0.31.x o inactivos).
+Detalles completos en [Avatar sync](../integrations/avatar-sync.md).
+
 ## HMAC opcional del webhook
 
 `WEBHOOK_HMAC_SECRET` activa firma HMAC-SHA256 obligatoria en el
@@ -108,3 +125,11 @@ compromiso si ocurre.
 
 **Lifecycle event**: notificación HTTP que qrsgen POSTea cuando ocurre
 algo relevante en una instancia (conexión, QR, ban risk, etc.).
+
+**Avatar sync**: descarga de la foto de perfil de WhatsApp y subida al
+downstream como avatar del contacto. Read-only sobre WhatsApp:
+qrsgen nunca escribe en el perfil del usuario.
+
+**Letter-avatar**: avatar por defecto que algunos downstreams (ej.
+Chatwoot) generan con las iniciales del nombre cuando no hay imagen
+configurada. El avatar sync los reemplaza por las fotos reales de WA.

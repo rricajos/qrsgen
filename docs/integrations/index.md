@@ -12,6 +12,10 @@ para los integradores más comunes.
 - **[Python (httpx + FastAPI)](python.md)** — cliente para integrarlo en
   scripts o servicios propios. Incluye listener de webhooks para recibir
   lifecycle events.
+- **[Sincronización de avatares WhatsApp](avatar-sync.md)** — descarga
+  fotos de perfil de WA y las sube al downstream como avatar de
+  contacto. Cuatro capas: on-create, TTL refresh, `events.Picture`
+  en tiempo real, endpoint bulk re-sync para backfill.
 
 ## Patrones comunes a todas las integraciones
 

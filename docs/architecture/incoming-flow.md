@@ -23,6 +23,16 @@ Tu sistema recibe el POST y procesa
         │
         └─ usage.IncIn(instance)
         └─ metric qrsgen_messages_total{direction="in"}++
+        └─ maybeAvatarSync(jid)  ──► goroutine (fire-and-forget)
+                                       │
+                                       ▼
+                              GetProfilePictureID (cheap)
+                              ¿LastID != currentID?  ──► no: skip
+                                       │ sí
+                                       ▼
+                              GetProfilePicture (descarga)
+                              UploadContactAvatar(downstream)
+                              tracker.UpdateID
 ```
 
 ## LID/PN twin dedup
@@ -42,6 +52,21 @@ reformatee a otro shape si tu downstream no usa Channel::Api.
 
 `inbox_id` se obtiene de `bridge_instance.inbox_id` para esa instancia;
 si está `NULL` o `0`, cae al `DOWNSTREAM_INBOX_ID` global.
+
+## Side effect: avatar sync
+
+Tras el POST al downstream, `sync()` llama también a `maybeAvatarSync`
+(desde v0.31.1). Esta función consulta el tracker in-memory
+(`avatar_tracker.go`); si el TTL ha vencido para `(instance, jid)`,
+spawnea una goroutine que sincroniza el avatar de WhatsApp al
+downstream. Es fire-and-forget — errores se loguean como `warn` pero
+nunca bloquean el flujo del mensaje. Detalle completo en
+[Avatar sync](../integrations/avatar-sync.md).
+
+Adicionalmente, qrsgen subscribe `events.Picture` de whatsmeow (desde
+v0.31.2). Cuando el usuario cambia su foto, dispara
+`HandlePictureChange` que resetea el tracker y fuerza un sync
+inmediato sin esperar al siguiente mensaje.
 
 ## Glosario
 
@@ -76,3 +101,9 @@ sepa en qué conversación encolar el mensaje.
 **Routing al downstream**: qrsgen no decide qué hacer con cada mensaje;
 solo lo entrega al downstream que el integrador haya configurado
 (Chatwoot, n8n proxy, app custom).
+
+**Avatar sync (side-effect)**: spawn fire-and-forget que descarga la
+foto de perfil del JID en WhatsApp y la sube al downstream como
+avatar del contacto. Corre en paralelo al POST del mensaje. Gated
+por un tracker in-memory que usa TTL + comparación de `info.ID` para
+minimizar tráfico.

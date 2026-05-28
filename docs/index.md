@@ -23,7 +23,7 @@ Tu webhook endpoint
 ## Sub-apartados de esta sección
 
 - **[Características destacadas](home/features.md)** — outbox,
-  BanWatcher, audit log, usage tracking, HMAC, hardening.
+  BanWatcher, audit log, usage tracking, HMAC, hardening, avatar sync.
 - **[Por dónde empezar](home/getting-started.md)** — caminos para
   integrar, entender, desplegar u operar.
 - **[Estado del proyecto](home/status.md)** — telemetría en vivo

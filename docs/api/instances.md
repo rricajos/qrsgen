@@ -163,6 +163,51 @@ Estado rico de todas las instancias en una sola request. Equivalente a
 hacer `/api/instances/:name` por cada nombre en `/api/instances` pero en
 una sola consulta.
 
+---
+
+## `POST /api/instances/:name/avatars/resync`
+
+Fuerza un re-sync del avatar para **todos** los contactos del inbox
+asociado a la instancia. Útil como backfill tras adoptar la feature
+(v0.31.0+) sobre un inbox con contactos pre-existentes que tienen
+letter-avatars. Desde v0.31.3.
+
+Itera el endpoint Chatwoot
+`/api/v1/accounts/X/inboxes/Y/contacts?page=Z` paginando hasta agotar
+contactos o alcanzar el cap defensivo de 200 páginas (~3000 contactos).
+Por cada contact cuyo `identifier` parsea como JID válido, spawnea
+una goroutine `syncAvatar` bypassing el tracker (resetea `LastID`).
+
+**Headers:**
+```
+Authorization: Bearer ${QRSGEN_API_TOKEN}
+```
+
+**Response 200:**
+```json
+{
+  "instance": "whatsapp-main",
+  "scanned": 234,
+  "skipped": 5,
+  "queued": 229,
+  "pages": 16
+}
+```
+
+| Campo | Significado |
+|---|---|
+| `scanned` | Contactos totales devueltos por el downstream. |
+| `skipped` | Contactos cuyo `identifier` no parsea como JID (placeholders, sintéticos). |
+| `queued` | Goroutines `syncAvatar` lanzadas. No refleja éxito real — mira logs (`avatar synced`). |
+| `pages` | Páginas iteradas. |
+
+**Códigos posibles:** `200`, `401` (token inválido o ausente), `404`
+(instancia no existe), `500` (downstream inaccesible). Fallos
+individuales de sync NO suben a 500 — se loguean como warn y siguen.
+
+Ver [Avatar sync](../integrations/avatar-sync.md) para flujo completo
+y modos de fallo.
+
 ## Glosario
 
 **Instancia**: una sesión WhatsApp dentro del proceso qrsgen. Cada

@@ -121,6 +121,7 @@ nav:
       - integrations/index.md
       - n8n: integrations/n8n.md
       - Python: integrations/python.md
+      - Avatar sync: integrations/avatar-sync.md
   - Migrations:
       - migrations/index.md
       - Desde Evolution API: migrations/from-evolution-api.md

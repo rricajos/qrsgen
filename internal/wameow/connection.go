@@ -96,9 +96,14 @@ type groupSubjectEntry struct {
 // Group subject cache TTLs. Tras un cambio de nombre en el grupo, los
 // mensajes posteriores pueden seguir mostrando el nombre antiguo durante
 // hasta groupSubjectTTL. Vale la pena por la reducción de round-trips.
+//
+// groupSubjectFetchTimeout limita lo que esperamos al server WA por un
+// GetGroupInfo. Si vence, cacheamos negativo (TTL corto) y dejamos que
+// el mensaje siga sin subject — mejor que bloquear el handler.
 const (
-	groupSubjectTTL    = 10 * time.Minute
-	groupSubjectNegTTL = 1 * time.Minute
+	groupSubjectTTL          = 10 * time.Minute
+	groupSubjectNegTTL       = 1 * time.Minute
+	groupSubjectFetchTimeout = 2 * time.Second
 )
 
 // NewContainer crea el sqlstore.Container compartido por todas las instancias.
@@ -216,7 +221,9 @@ func (c *Conn) GroupSubject(jid types.JID) (string, bool) {
 	}
 	c.groupSubjMu.RUnlock()
 
-	info, err := c.client.GetGroupInfo(jid.ToNonAD())
+	fetchCtx, cancel := context.WithTimeout(context.Background(), groupSubjectFetchTimeout)
+	defer cancel()
+	info, err := c.client.GetGroupInfo(fetchCtx, jid.ToNonAD())
 	if err != nil || info == nil {
 		c.groupSubjMu.Lock()
 		c.groupSubjCache[key] = groupSubjectEntry{name: "", until: time.Now().Add(groupSubjectNegTTL)}

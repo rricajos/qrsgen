@@ -4,6 +4,26 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.29.5] - 2026-05-28
+
+UX tweak: tilde delante del nombre, dentro del bold — matchea la
+convención visual que WhatsApp usa para indicar remitente.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora genera `**~<Name>**  _+CC ..._`**
+  (tilde como primer char dentro del bold) en lugar de
+  `**<Name>**  _+CC ..._`. Razón: el tilde delante es la pista visual
+  que WhatsApp usa nativa para "esto es el sender del grupo", y
+  reproducirlo hace que el chat lea más como WhatsApp y menos como
+  un text dump genérico.
+- Mismo `~` aplica al caso degenerate name-only: `**~<Name>**:`.
+
+### Migration notes
+
+- Cambio puramente cosmético. Parsers regex actualizar a
+  `\*\*~[^*]+\*\*` si dependían del bold-name-pattern.
+
 ## [0.29.4] - 2026-05-28
 
 UX tweak: el teléfono ahora solo separa el country code del national

@@ -427,19 +427,20 @@ func filenameFromMime(mime, prefix, defaultExt string) string {
 // applyGroupSenderPrefix añade al body un prefijo identificando al
 // remitente dentro del grupo. Formato actual:
 //
-//	**Richard**  _+34 604 02 17 05_
+//	**~Richard**  _+34 604021705_
 //	<body>
 //
-// Nombre en bold (foreground prominente), DOS espacios, teléfono italic
-// (background, estilo WhatsApp). Chatwoot renderiza markdown `**...**`
-// como bold y `_..._` como italic.
+// Tilde + nombre en bold (foreground, estilo WhatsApp), DOS espacios,
+// teléfono italic (background). El tilde delante del nombre matchea
+// la estética que WhatsApp usa para indicar remitente. Chatwoot
+// renderiza markdown `**...**` como bold y `_..._` como italic.
 //
 // Degradaciones:
-//   - sin teléfono: "**<name>**:\n<body>"
+//   - sin teléfono: "**~<name>**:\n<body>"
 //   - sin nombre:   "_<phone>_:\n<body>"
 //   - sin ninguno:  devuelve el body sin tocar.
 //
-// El teléfono se formatea E.164 con espaciado por país (formatE164).
+// El teléfono se formatea E.164 separando solo el CC (formatE164).
 func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolver) string {
 	sender := msg.Info.Sender
 	phoneDigits := ""
@@ -467,12 +468,11 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	var prefix string
 	switch {
 	case phoneDigits != "" && name != "":
-		// Name en bold + DOS espacios + teléfono italic. La separación
-		// doble marca visualmente el límite entre foreground (nombre) y
-		// background (teléfono).
-		prefix = "**" + name + "**  _" + formatE164(phoneDigits) + "_"
+		// Tilde + name en bold + DOS espacios + teléfono italic. El
+		// tilde dentro del bold imita la convención visual de WhatsApp.
+		prefix = "**~" + name + "**  _" + formatE164(phoneDigits) + "_"
 	case name != "":
-		prefix = "**" + name + "**:"
+		prefix = "**~" + name + "**:"
 	case phoneDigits != "":
 		prefix = "_" + formatE164(phoneDigits) + "_:"
 	default:

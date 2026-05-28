@@ -29,6 +29,12 @@ import (
 // contactos del propio usuario y mapping LID↔PN).
 type MessageHandler func(ctx context.Context, instance string, msg *events.Message, r WAResolver)
 
+// PictureHandler se dispara cuando whatsmeow emite *events.Picture (un usuario
+// cambia su foto o un grupo su imagen). Permite al callsite reaccionar en
+// tiempo real — útil para sincronizar avatares con el downstream sin
+// esperar al siguiente mensaje. removed=true indica que la foto fue eliminada.
+type PictureHandler func(ctx context.Context, instance string, jid types.JID, pictureID string, removed bool, r WAResolver)
+
 // WAResolver expone consultas al estado local del cliente whatsmeow.
 type WAResolver interface {
 	// ContactName devuelve el nombre cacheado para un JID, o "" si no hay info.
@@ -87,6 +93,7 @@ type Conn struct {
 	logger      *slog.Logger
 	onMessage   MessageHandler
 	onLifecycle LifecycleCallback
+	onPicture   PictureHandler
 
 	mu        sync.RWMutex
 	lastQRPNG []byte
@@ -150,6 +157,11 @@ func NewConn(name string, device *store.Device, logger *slog.Logger, onMsg Messa
 
 // Name devuelve el nombre lógico de la instancia.
 func (c *Conn) Name() string { return c.name }
+
+// SetPictureHandler registra el callback para *events.Picture
+// (cambios de foto de perfil de usuarios o grupos). Llamar antes de
+// Connect — no es seguro modificarlo en runtime sin sincronización.
+func (c *Conn) SetPictureHandler(h PictureHandler) { c.onPicture = h }
 
 // Connect arranca la conexión. Si el device aún no está pareado, abre canal QR.
 func (c *Conn) Connect(ctx context.Context) error {
@@ -394,6 +406,10 @@ func (c *Conn) handle(rawEvt any) {
 	case *events.Message:
 		if c.onMessage != nil {
 			c.onMessage(context.Background(), c.name, evt, c)
+		}
+	case *events.Picture:
+		if c.onPicture != nil {
+			c.onPicture(context.Background(), c.name, evt.JID, evt.PictureID, evt.Remove, c)
 		}
 	case *events.Connected:
 		c.logger.Info("connected to whatsapp")

@@ -31,6 +31,7 @@ type Manager struct {
 	pool      *pgxpool.Pool
 	logger    *slog.Logger
 	onMsg     wameow.MessageHandler
+	onPicture wameow.PictureHandler
 
 	// waiters: suscripciones a "esta instancia está ready". Cada canal
 	// recibe una señal cuando la instancia transiciona a ready y se cierra.
@@ -84,6 +85,18 @@ type Manager struct {
 	// main). Se incluye en cada payload lifecycle para que el orquestador
 	// pueda mostrar "QRsGEN vX.X.X" en sus mensajes. Si vacío, no se añade.
 	version string
+}
+
+// SetPictureHandler registra el callback que se inyecta en cada Conn
+// (existente y futura) para recibir *events.Picture. Llamar antes de
+// Bootstrap si quieres que se aplique a las instancias auto-reconnect.
+func (m *Manager) SetPictureHandler(h wameow.PictureHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onPicture = h
+	for _, conn := range m.instances {
+		conn.SetPictureHandler(h)
+	}
 }
 
 // SetVersion attaches the running qrsgen version to lifecycle event payloads.
@@ -311,6 +324,9 @@ func (m *Manager) startLocked(ctx context.Context, name, jidStr string) (*wameow
 		return nil, fmt.Errorf("acquire device: %w", err)
 	}
 	conn := wameow.NewConn(name, device, m.logger, m.onMsg, m.onLifecycle)
+	if m.onPicture != nil {
+		conn.SetPictureHandler(m.onPicture)
+	}
 	if err := conn.Connect(ctx); err != nil {
 		return nil, err
 	}

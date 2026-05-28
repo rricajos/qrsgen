@@ -4,6 +4,46 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.31.2] - 2026-05-28
+
+Real-time avatar refresh: subscribe a `events.Picture` de whatsmeow
+y fuerza re-sync inmediato cuando alguien (usuario o grupo) cambia
+su foto. No depende del TTL del tracker — el evento es la señal
+canónica.
+
+### Added
+
+- **`wameow.PictureHandler`** — nuevo callback type que se inyecta
+  en `Conn.SetPictureHandler(h)`. Se dispara con `*events.Picture`
+  (JID, pictureID, removed, resolver).
+- **`wameow.Conn.handle`** — nuevo case para `*events.Picture`.
+- **`manager.Manager.SetPictureHandler(h)`** — propaga el handler a
+  cada Conn (existente y futura). Llamar antes de Bootstrap para
+  capturar instancias auto-reconnect.
+- **`Incoming.HandlePictureChange`** — orquesta la respuesta al
+  evento: encuentra el contact en downstream via FindContact, resetea
+  el LastID del tracker (forzar re-descarga), spawnea syncAvatar.
+  Si el contact no existe, no hace nada (al primer mensaje del JID,
+  sync()→CreateContact→maybeAvatarSync hará el sync inicial).
+
+### Behavior
+
+- Cuando un usuario cambia su foto en WhatsApp móvil → evento
+  llega a qrsgen → en ~1s su avatar en Chatwoot también está
+  actualizado. Sin esperar al siguiente mensaje, sin esperar al TTL.
+- Mismo flow para grupos cuando el admin cambia la foto del grupo.
+- Si `pictureID` está vacío y `removed=true`, syncAvatar internamente
+  cachea el "" — el contact queda con su último avatar conocido en
+  Chatwoot (no se elimina automáticamente).
+- Sin tracker (`QRSGEN_AVATAR_REFRESH_TTL=0`), el evento sigue
+  funcionando — se ignora el tracker pero el resto del flow opera.
+
+### Migration notes
+
+- Sin breaking changes. La feature está ON por default vía el
+  wiring en `main.go`. Convs/contactos existentes en Chatwoot SE
+  ven beneficiados sin acción operativa.
+
 ## [0.31.1] - 2026-05-28
 
 Smart refresh del avatar: detecta cambios de foto en WhatsApp y

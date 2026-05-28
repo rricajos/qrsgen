@@ -38,6 +38,7 @@ import (
 	"github.com/rricajos/qrsgen/internal/tenant"
 	"github.com/rricajos/qrsgen/internal/usage"
 	"github.com/rricajos/qrsgen/internal/wameow"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
@@ -207,6 +208,11 @@ func main() {
 	mgr.SetAudit(auditLog)
 	mgr.SetOwnerTagResolver(dsRegistry)
 	mgr.SetVersion(version)
+	// v0.31.2: real-time avatar refresh. Cuando whatsmeow emite Picture
+	// (cambio de foto), forzar el re-sync del contact correspondiente.
+	mgr.SetPictureHandler(func(ctx context.Context, instance string, jid types.JID, pictureID string, removed bool, r wameow.WAResolver) {
+		incoming.HandlePictureChange(ctx, instance, jid, pictureID, removed, r)
+	})
 	metrics.VersionInfo.WithLabelValues(version).Set(1)
 
 	banWatcher := banwatch.New(banwatch.DefaultConfig(), spamguardAdapter{mgr: mgr}, logger)

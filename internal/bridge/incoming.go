@@ -96,6 +96,48 @@ func (i *Incoming) SetAvatarRefreshTTL(ttl time.Duration) {
 	i.avatarTracker = newAvatarTracker(ttl)
 }
 
+// HandlePictureChange reacciona a *events.Picture: alguien (user o grupo)
+// cambió su foto de perfil. Encuentra el contact correspondiente en el
+// downstream y dispara avatar sync. A diferencia de maybeAvatarSync,
+// IGNORA el TTL — el evento es la señal canónica de que cambió.
+//
+// Si el contact no existe en downstream todavía, no hace nada: al primer
+// mensaje del JID, sync()→CreateContact→maybeAvatarSync hará el sync inicial.
+func (i *Incoming) HandlePictureChange(ctx context.Context, instance string, jid types.JID, pictureID string, removed bool, r wameow.WAResolver) {
+	if !i.avatarSync || r == nil {
+		return
+	}
+	ds := i.ds.For(ctx, instance)
+	if ds == nil {
+		return
+	}
+	identifier := jid.ToNonAD().String()
+
+	contact, err := findContactByIdentifier(ctx, ds, identifier, "")
+	if err != nil {
+		i.logger.Warn("picture event: find contact failed",
+			"err", err, "jid", identifier)
+		return
+	}
+	if contact == nil {
+		// El contact no existe en downstream. Al primer mensaje de este
+		// JID, sync() lo creará y disparará el avatar sync inicial.
+		return
+	}
+
+	// Reset del LastID en el tracker para forzar re-descarga: el evento
+	// nos dice que cambió, así que el cached ID está stale.
+	if i.avatarTracker != nil {
+		i.avatarTracker.UpdateID(instance, identifier, "")
+	}
+
+	i.logger.Info("picture changed event — forcing avatar resync",
+		"jid", identifier, "new_picture_id", pictureID, "removed", removed,
+		"contact_id", contact.ID)
+
+	go i.syncAvatar(ds, r, contact.ID, jid, instance)
+}
+
 // maybeAvatarSync decide si lanzar el sync de avatar para un JID. Si el
 // tracker dice que toca (primera vez, o TTL expirado), spawnea goroutine
 // fire-and-forget. Si no, no hace nada.

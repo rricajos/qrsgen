@@ -39,6 +39,12 @@ type PictureHandler func(ctx context.Context, instance string, jid types.JID, pi
 type WAResolver interface {
 	// ContactName devuelve el nombre cacheado para un JID, o "" si no hay info.
 	ContactName(jid types.JID) string
+	// IsContactSaved devuelve true si el JID está guardado en la libreta de
+	// contactos del dueño del bot — es decir, si tiene FullName o FirstName
+	// en el contact store de whatsmeow. PushName solo (self-set por el
+	// propio usuario) NO cuenta como "guardado". La cadena es:
+	// Google Contacts → libreta del móvil → WhatsApp app → whatsmeow.
+	IsContactSaved(jid types.JID) bool
 	// GroupSubject devuelve el subject (nombre visible) de un grupo, o ("", false)
 	// si no es un grupo o no se pudo resolver. Se cachea con TTL para evitar
 	// pegarle al server WA en cada mensaje.
@@ -311,6 +317,29 @@ func (c *Conn) GetProfilePicture(ctx context.Context, jid types.JID) ([]byte, st
 		mime = "image/jpeg" // default para fotos WA
 	}
 	return data, mime, nil
+}
+
+// IsContactSaved devuelve true si el JID está guardado en la libreta de
+// contactos del bot — es decir, si tiene FullName o FirstName en el
+// contact store de whatsmeow. El PushName (auto-asignado por el propio
+// usuario en su WhatsApp) NO cuenta como "guardado".
+//
+// La cadena para que esto funcione es:
+// Google Contacts → libreta del móvil → app WhatsApp → whatsmeow store.
+// Si en algún punto la sincronización falla, devolverá false aunque
+// el contacto exista en Google Contacts.
+//
+// Para JIDs de grupos siempre devuelve false (los grupos no tienen
+// FullName/FirstName en el contact store, ese campo es para personas).
+func (c *Conn) IsContactSaved(jid types.JID) bool {
+	if c.client == nil || c.client.Store == nil || c.client.Store.Contacts == nil {
+		return false
+	}
+	info, err := c.client.Store.Contacts.GetContact(context.Background(), jid.ToNonAD())
+	if err != nil || !info.Found {
+		return false
+	}
+	return info.FullName != "" || info.FirstName != ""
 }
 
 // GetProfilePictureID es una variante cheap de GetProfilePicture que solo

@@ -17,6 +17,7 @@ type fakeResolver struct {
 	lidByPN   map[string]types.JID // pn.String() → lid JID
 	groupSubj map[string]string    // group jid (no-AD).String() → subject
 	pfp       map[string]fakePFP   // jid (no-AD).String() → profile picture
+	savedJIDs map[string]bool      // jid (no-AD).String() → IsContactSaved
 }
 
 // fakePFP simula el retorno de GetProfilePicture / GetProfilePictureID
@@ -65,6 +66,13 @@ func (f *fakeResolver) ContactName(jid types.JID) string {
 		return ""
 	}
 	return f.names[jid.ToNonAD().String()]
+}
+
+func (f *fakeResolver) IsContactSaved(jid types.JID) bool {
+	if f == nil {
+		return false
+	}
+	return f.savedJIDs[jid.ToNonAD().String()]
 }
 
 func (f *fakeResolver) GroupSubject(jid types.JID) (string, bool) {
@@ -373,6 +381,34 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		got := applyGroupSenderPrefix("", msg, nil)
 		want := "**~Jean Paul** `+34640047775`"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("saved contact → only name, no phone block", func(t *testing.T) {
+		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
+		r := &fakeResolver{
+			names:     map[string]string{senderPN.String(): "Jean Paul"},
+			savedJIDs: map[string]bool{senderPN.String(): true},
+		}
+		got := applyGroupSenderPrefix("hola", msg, r)
+		want := "**~Jean Paul**\nhola"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("saved LID resolved to saved PN → only name", func(t *testing.T) {
+		// LID anónimo, sin name directo. Resolver mapea a PN guardado en agenda.
+		msg := mkGroupMsg(groupJID, senderLID, "Anon")
+		r := &fakeResolver{
+			pnByLID:   map[string]types.JID{senderLID.String(): senderPN},
+			names:     map[string]string{senderPN.String(): "Jean Paul"},
+			savedJIDs: map[string]bool{senderPN.String(): true},
+		}
+		got := applyGroupSenderPrefix("hola", msg, r)
+		want := "**~Jean Paul**\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}

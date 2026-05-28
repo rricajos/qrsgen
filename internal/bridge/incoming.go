@@ -726,22 +726,36 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	}
 
 	name := ""
+	saved := false
 	if r != nil {
-		// Preferimos el contacto resuelto (FullName/FirstName del store) si
-		// existe; cae al push name del evento si no hay nada.
 		name = r.ContactName(sender.ToNonAD())
+		saved = r.IsContactSaved(sender.ToNonAD())
+		// LID sin nombre o sin saved: intentar via PN.
+		if sender.Server == types.HiddenUserServer && (name == "" || !saved) {
+			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
+				if name == "" {
+					name = r.ContactName(pn)
+				}
+				if !saved {
+					saved = r.IsContactSaved(pn)
+				}
+			}
+		}
 	}
 	if name == "" {
 		name = msg.Info.PushName
+		// PushName NO cuenta como "saved" — viene del propio sender, no
+		// de la libreta del bot owner. saved queda false aunque haya name.
 	}
 
 	var prefix string
 	switch {
+	case saved && name != "":
+		// Contacto en agenda: solo nombre, el agente ya sabe quién es.
+		prefix = "**~" + name + "**"
 	case phoneDigits != "" && name != "":
-		// Tilde + name en bold + em-space (U+2003) + teléfono en code
-		// block. El em-space es Unicode "wide space" que markdown no
-		// colapsa, dando separación visual entre el bold y el code
-		// que un espacio normal no consigue.
+		// Push name + teléfono code block para identificar al desconocido.
+		// em-space (U+2003) entre name bold y phone code para respiración visual.
 		prefix = "**~" + name + "** `" + formatE164(phoneDigits) + "`"
 	case name != "":
 		prefix = "**~" + name + "**:"

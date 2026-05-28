@@ -4,6 +4,64 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-05-28
+
+Distingue contactos guardados en la libreta del bot vs solo push name.
+Los contactos en agenda se postean al downstream con solo el nombre
+(el agente ya sabe quién es); los desconocidos siguen con el bloque
+de teléfono code para identificarlos.
+
+### Added
+
+- **`WAResolver.IsContactSaved(jid) bool`** — nuevo método de la
+  interfaz. Devuelve true si el JID tiene `FullName` o `FirstName`
+  en el contact store de whatsmeow (lo que indica que está en la
+  libreta del móvil del bot, originada típicamente desde Google
+  Contacts → Android sync → WhatsApp app). PushName auto-asignado
+  por el propio usuario NO cuenta como "saved".
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora omite el bloque de teléfono
+  cuando `IsContactSaved` es true**. Formato resultante:
+
+  ```
+  Contacto en agenda:        **~Jean Paul**
+                              <body>
+
+  Solo push name (anónimo):  **~Richard** `+34604021705`
+                              <body>
+  ```
+
+- Lookup LID → PN: si el sender llega como LID y no es saved/no
+  tiene name, se intenta resolver al PN equivalente vía `PNForLID`
+  y se re-chequea allí. Maneja correctamente el caso de senders
+  hidden que sí están en la libreta del bot via su número.
+
+### Behavior
+
+- **Sin nuevas env vars**. La distinción es automática basada en
+  el contact store de whatsmeow. Si tu móvil pareado no tiene
+  Google Contacts sync activo, ningún contacto será "saved" y se
+  comportará igual que v0.31.x (siempre muestra teléfono).
+- **Grupos siempre van con teléfono** porque los grupos no se
+  guardan en la libreta como contactos individuales (FullName/
+  FirstName están vacíos para JIDs `@g.us`).
+- **Push name no rompe nada**: si el contacto solo tiene PushName
+  (no está en agenda), se sigue mostrando el formato anterior con
+  bloque de teléfono.
+
+### Migration notes
+
+- Sin breaking changes. Es UX puro: el formato cambia solo para
+  contactos que el bot tiene en su libreta. Parsers regex deben
+  manejar ambos casos:
+  - `\*\*~[^*]+\*\*` (saved, solo nombre)
+  - `\*\*~[^*]+\*\* \`\+\d+\`` (unsaved, con teléfono)
+- **`WAResolver` añade un método** (`IsContactSaved`). Mocks externos
+  del interface necesitan implementarlo. Trivial: `return false`
+  mantiene el comportamiento v0.31.x (siempre teléfono).
+
 ## [0.31.3] - 2026-05-28
 
 Bulk re-sync endpoint para backfillear avatares de contactos viejos

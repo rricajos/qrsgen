@@ -4,6 +4,27 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.29.7] - 2026-05-28
+
+UX tweak final del prefijo de grupo: middle dot como separador
+visible (markdown colapsa N espacios a 1) + teléfono compacto sin
+espacio entre CC y national.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora usa `**~<Name>** · _+<digits>_`**
+  con middle dot (·, U+00B7) entre name y teléfono. Razón: Chatwoot
+  colapsa los espacios consecutivos a uno solo en render. Dot
+  explícito siempre se ve.
+- **`formatE164` simplificado al mínimo**: `"34604021705" → "+34604021705"`.
+  El espacio entre CC y national también era ruido cuando el teléfono
+  está adyacente al nombre — `+` ya marca el inicio del número.
+
+### Removed
+
+- **`detectCountryCode` + tablas `ccLen1/2/3`** — dead code tras
+  simplificar formatE164. ~30 LoC menos.
+
 ## [0.29.6] - 2026-05-28
 
 UX micro-tweak: 3 espacios entre nombre y teléfono en lugar de 2.

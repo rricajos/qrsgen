@@ -427,13 +427,13 @@ func filenameFromMime(mime, prefix, defaultExt string) string {
 // applyGroupSenderPrefix añade al body un prefijo identificando al
 // remitente dentro del grupo. Formato actual:
 //
-//	**~Richard**   _+34 604021705_
+//	**~Richard** · _+34604021705_
 //	<body>
 //
-// Tilde + nombre en bold (foreground, estilo WhatsApp), TRES espacios,
-// teléfono italic (background). El tilde delante del nombre matchea
-// la estética que WhatsApp usa para indicar remitente. Chatwoot
-// renderiza markdown `**...**` como bold y `_..._` como italic.
+// Tilde + nombre en bold (foreground, estilo WhatsApp), middle dot
+// (·, U+00B7) como separador visible que no colapsa con markdown,
+// teléfono italic (background) compacto. Chatwoot renderiza `**...**`
+// bold y `_..._` italic.
 //
 // Degradaciones:
 //   - sin teléfono: "**~<name>**:\n<body>"
@@ -468,9 +468,9 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	var prefix string
 	switch {
 	case phoneDigits != "" && name != "":
-		// Tilde + name en bold + TRES espacios + teléfono italic. El
-		// tilde dentro del bold imita la convención visual de WhatsApp.
-		prefix = "**~" + name + "**   _" + formatE164(phoneDigits) + "_"
+		// Tilde + name en bold + middle dot + teléfono italic. El dot
+		// es separador visible (markdown colapsa N espacios a 1).
+		prefix = "**~" + name + "** · _" + formatE164(phoneDigits) + "_"
 	case name != "":
 		prefix = "**~" + name + "**:"
 	case phoneDigits != "":
@@ -484,75 +484,16 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	return prefix + "\n" + body
 }
 
-// formatE164 toma "34604021705" → "+34 604021705". Separa el country
-// code del national number con un solo espacio; el national queda
-// compacto. Si no detecta CC válido, devuelve el número entero compacto
-// con prefijo "+".
+// formatE164 toma "34604021705" → "+34604021705". Devuelve el número
+// compacto con `+` delante. (Versiones anteriores separaban CC con
+// espacio; resultaba ruido visual al lado del nombre — el `+` ya
+// marca el inicio).
 func formatE164(digits string) string {
 	if digits == "" {
 		return ""
 	}
-	cc := detectCountryCode(digits)
-	if cc == "" {
-		return "+" + digits
-	}
-	rest := digits[len(cc):]
-	if rest == "" {
-		return "+" + cc
-	}
-	return "+" + cc + " " + rest
+	return "+" + digits
 }
-
-// detectCountryCode devuelve el CC en E.164 reconocido al inicio de
-// digits, o "" si no matchea ninguno. Cubre los países operativos del
-// proyecto + EU + Latam comunes. Para CCs no listados, devuelve "" y
-// el caller deja el número compacto.
-func detectCountryCode(digits string) string {
-	// Probamos primero 3-dígit, luego 2, luego 1. Sets para lookup O(1).
-	if len(digits) >= 3 {
-		if _, ok := ccLen3[digits[:3]]; ok {
-			return digits[:3]
-		}
-	}
-	if len(digits) >= 2 {
-		if _, ok := ccLen2[digits[:2]]; ok {
-			return digits[:2]
-		}
-	}
-	if len(digits) >= 1 {
-		if _, ok := ccLen1[digits[:1]]; ok {
-			return digits[:1]
-		}
-	}
-	return ""
-}
-
-// CCs de longitud 1 según ITU-T E.164.
-var ccLen1 = map[string]struct{}{
-	"1": {}, // NANP (US/CA/Caribbean)
-	"7": {}, // RU/KZ
-}
-
-// CCs de longitud 2: subset común — EU + Latam + Asia operacional.
-var ccLen2 = map[string]struct{}{
-	"20": {}, "27": {}, "30": {}, "31": {}, "32": {}, "33": {},
-	"34": {}, "36": {}, "39": {}, "40": {}, "41": {}, "43": {},
-	"44": {}, "45": {}, "46": {}, "47": {}, "48": {}, "49": {},
-	"51": {}, "52": {}, "53": {}, "54": {}, "55": {}, "56": {},
-	"57": {}, "58": {}, "60": {}, "61": {}, "62": {}, "63": {},
-	"64": {}, "65": {}, "66": {}, "81": {}, "82": {}, "84": {},
-	"86": {}, "90": {}, "91": {}, "92": {}, "93": {}, "94": {},
-	"95": {}, "98": {},
-}
-
-// CCs de longitud 3: subset común (Portugal, Israel, Emiratos, etc).
-var ccLen3 = map[string]struct{}{
-	"350": {}, "351": {}, "352": {}, "353": {}, "354": {}, "355": {},
-	"356": {}, "357": {}, "358": {}, "359": {}, "370": {}, "371": {},
-	"372": {}, "373": {}, "385": {}, "386": {}, "420": {}, "421": {},
-	"961": {}, "962": {}, "971": {}, "972": {}, "974": {}, "977": {},
-}
-
 
 // isSupportedChatServer indica si procesamos eventos de este tipo de chat.
 // Solo aceptamos 1-on-1 (PN/LID) y grupos. Broadcasts, newsletter, bot, etc. se ignoran.

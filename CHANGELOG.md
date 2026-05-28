@@ -4,6 +4,26 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-05-28
+
+UX tweak: teléfono en inline code block en lugar de italic + separador.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora usa `**~<Name>** \`+digits\``**
+  con el teléfono envuelto en backticks (inline code) en lugar de
+  underscores (italic). Chatwoot renderiza inline code con fondo
+  distintivo y fuente monospace, lo que separa visualmente el
+  teléfono del nombre sin necesitar el dot `·` que añadimos en
+  v0.29.7. Se ve más limpio y profesional.
+- **Caso degenerate phone-only** ahora también va en code:
+  `` `+digits`: `` en lugar de `_+digits_:`.
+
+### Migration notes
+
+- Cambio puramente cosmético. Parsers regex actualizar al nuevo
+  patrón `\*\*~[^*]+\*\* \`\+\d+\`` si dependían del italic.
+
 ## [0.30.0] - 2026-05-28
 
 Suprime el header de remitente en mensajes consecutivos del mismo

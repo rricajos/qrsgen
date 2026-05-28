@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.30.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
+| `QRSGEN_VERSION` | `0.30.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |
@@ -25,7 +25,7 @@
 | `PUBLIC_STATS_ENABLED` | `false` | Si `true`, habilita `GET /api/public/stats` (sin auth, telemetría agregada). Ver [Telemetría pública](public-stats.md). |
 | `PUBLIC_STATS_ALLOW_ORIGIN` | (vacío) | Header `Access-Control-Allow-Origin` para el endpoint público. Ejemplo: `https://rricajos.github.io`. |
 | `OUTBOX_ENCRYPTION_KEY` | (vacío) | AES-256 key (32 bytes en base64 estándar) para cifrar payloads del outbox en reposo. Si vacío, payloads se guardan en claro (compat). Ver [Outbox encryption](../security/outbox-encryption.md). Desde v0.27.0. |
-| `QRSGEN_GROUP_PREFIX_SENDER` | `true` | Si `true`, mensajes incoming de grupos se postean a downstream con prefijo `**~<Name>** · _+CC NNNNNNNNN_\n<body>` (nombre bold + dos espacios + teléfono italic con solo el CC separado) para distinguir participantes en una misma conv. Pon a `false` si tu integración parsea el body raw. Desde v0.29.0 (formato actualizado en v0.29.7). |
+| `QRSGEN_GROUP_PREFIX_SENDER` | `true` | Si `true`, mensajes incoming de grupos se postean a downstream con prefijo `**~<Name>** `+CC NNNNNNNNN`\n<body>` (nombre bold + dos espacios + teléfono italic con solo el CC separado) para distinguir participantes en una misma conv. Pon a `false` si tu integración parsea el body raw. Desde v0.29.0 (formato actualizado en v0.30.1). |
 | `QRSGEN_GROUP_HEADER_TTL` | `10m` | Suprime el header de remitente en mensajes consecutivos del mismo participante dentro de un grupo, si caen dentro de este TTL. Replica la convención de WhatsApp (header en el primer msg del burst, nada en los siguientes). `0` desactiva la feature (header siempre). Desde v0.30.0. |
 | `DEDUP_ENABLED` | `true` | |
 | `DEDUP_WINDOW_MS` | `10000` | Ventana LID-twin dedup. |

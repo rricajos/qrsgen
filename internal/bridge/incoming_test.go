@@ -281,7 +281,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("PN sender (Spain) with push name → bold name + italic phone", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "**~Jean Paul** · _+34640047775_\nhola"
+		want := "**~Jean Paul** `+34640047775`\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -291,7 +291,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "")
 		r := &fakeResolver{names: map[string]string{senderPN.String(): "Jean Paul (CRM)"}}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "**~Jean Paul (CRM)** · _+34640047775_\nhola"
+		want := "**~Jean Paul (CRM)** `+34640047775`\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -303,7 +303,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			pnByLID: map[string]types.JID{senderLID.String(): senderPN},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "**~Anon** · _+34640047775_\nhola"
+		want := "**~Anon** `+34640047775`\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -321,7 +321,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("PN sender no name → italic phone + colon", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "_+34640047775_:\nhola"
+		want := "`+34640047775`:\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -330,7 +330,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("empty body keeps prefix without trailing newline", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		got := applyGroupSenderPrefix("", msg, nil)
-		want := "**~Jean Paul** · _+34640047775_"
+		want := "**~Jean Paul** `+34640047775`"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}

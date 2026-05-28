@@ -59,6 +59,13 @@ type Config struct {
 	// (sin nonce) siguen entregándose en claro — backward compat. Si vacío
 	// (default) no se cifra. Desde v0.27.0.
 	OutboxEncryptionKey string `env:"OUTBOX_ENCRYPTION_KEY"`
+
+	// GroupPrefixSender controla si qrsgen, al postear a downstream un
+	// mensaje incoming de un grupo, prefija el body con la identidad del
+	// participante (`+phone - Name:\n<body>`). Default true: sin él, los
+	// mensajes de múltiples senders dentro de una misma conv del grupo se
+	// ven idénticos. Desde v0.29.0.
+	GroupPrefixSender bool `env:"QRSGEN_GROUP_PREFIX_SENDER" envDefault:"true"`
 }
 
 func Load() (Config, error) {

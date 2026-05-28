@@ -30,15 +30,24 @@ type Incoming struct {
 	logger  *slog.Logger
 	resolve InboxResolver
 	usage   UsageRecorder
+
+	// groupPrefixSender controla si los mensajes incoming de un grupo se
+	// posteán a downstream con prefijo de remitente ("+34 ... - Name:\n<body>").
+	// Default true porque sin él, multi-sender en una misma conv del downstream
+	// son indistinguibles. Se puede desactivar con QRSGEN_GROUP_PREFIX_SENDER=false.
+	groupPrefixSender bool
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
 func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logger, resolve InboxResolver) *Incoming {
-	return &Incoming{ds: ds, dedup: dedup, logger: logger, resolve: resolve}
+	return &Incoming{ds: ds, dedup: dedup, logger: logger, resolve: resolve, groupPrefixSender: true}
 }
 
 // SetUsage attaches a usage recorder. Pass nil to disable.
 func (i *Incoming) SetUsage(u UsageRecorder) { i.usage = u }
+
+// SetGroupPrefixSender controla el prefijo de remitente en mensajes de grupo.
+func (i *Incoming) SetGroupPrefixSender(v bool) { i.groupPrefixSender = v }
 
 func (i *Incoming) incUsageIn(instance string) {
 	if i.usage != nil {
@@ -145,21 +154,42 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 
 	rs := resolveSender(msg, r)
 	fromMe := msg.Info.IsFromMe
+	isGroup := msg.Info.Chat.Server == types.GroupServer
 
 	otherJID := msg.Info.Chat.ToNonAD()
 	contactName := ""
 	if r != nil {
-		contactName = r.ContactName(otherJID)
-		// Si chat es LID, intenta también el PN para sacar el nombre (a veces
-		// el contact store está poblado solo en una de las dos formas).
-		if contactName == "" && otherJID.Server == types.HiddenUserServer {
-			if pn, ok := r.PNForLID(otherJID); ok {
-				contactName = r.ContactName(pn)
+		if isGroup {
+			// Para grupos el "contact" sintético en downstream representa al
+			// grupo entero — su nombre visible debe ser el subject del grupo,
+			// no el push name del primer participante que mande mensaje.
+			if subj, ok := r.GroupSubject(otherJID); ok {
+				contactName = subj
+			}
+		} else {
+			contactName = r.ContactName(otherJID)
+			// Si chat es LID, intenta también el PN para sacar el nombre (a veces
+			// el contact store está poblado solo en una de las dos formas).
+			if contactName == "" && otherJID.Server == types.HiddenUserServer {
+				if pn, ok := r.PNForLID(otherJID); ok {
+					contactName = r.ContactName(pn)
+				}
 			}
 		}
 	}
-	if contactName == "" && !fromMe {
+	if contactName == "" && !fromMe && !isGroup {
+		// Sin group subject conocido caemos a "" (sync usa pickName con phone/LID).
+		// Solo aplicamos push name a 1-on-1 — en grupo el push name es del
+		// participante, no del grupo, y daría título incorrecto a la conv.
 		contactName = msg.Info.PushName
+	}
+
+	// En grupos, prefijar la identidad del participante al body para que
+	// múltiples senders dentro de la misma conv del downstream sean
+	// distinguibles. Solo aplica a mensajes incoming (los fromMe del agente
+	// no necesitan prefijo).
+	if i.groupPrefixSender && isGroup && !fromMe {
+		content = applyGroupSenderPrefix(content, msg, r)
 	}
 
 	metrics.MessagesTotal.WithLabelValues("in", instance, i.ds.OwnerTagFor(ctx, instance)).Inc()
@@ -392,6 +422,52 @@ func filenameFromMime(mime, prefix, defaultExt string) string {
 		ext = "jpg"
 	}
 	return prefix + "." + ext
+}
+
+// applyGroupSenderPrefix añade al body un prefijo identificando al
+// remitente dentro del grupo. Formato: "+<phone> - <name>:\n<body>" cuando
+// hay phone (PN) y push name; degrada a solo name o solo phone si falta uno.
+// Si no hay identificación posible (ni phone ni name ni LID), devuelve el
+// body sin tocar — mejor sin prefijo que con basura.
+func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolver) string {
+	sender := msg.Info.Sender
+	phone := ""
+	switch sender.Server {
+	case types.DefaultUserServer:
+		phone = "+" + sender.User
+	case types.HiddenUserServer:
+		if r != nil {
+			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
+				phone = "+" + pn.User
+			}
+		}
+	}
+
+	name := ""
+	if r != nil {
+		// Preferimos el contacto resuelto (FullName/FirstName del store) si
+		// existe; cae al push name del evento si no hay nada.
+		name = r.ContactName(sender.ToNonAD())
+	}
+	if name == "" {
+		name = msg.Info.PushName
+	}
+
+	var prefix string
+	switch {
+	case phone != "" && name != "":
+		prefix = phone + " - " + name + ":"
+	case name != "":
+		prefix = name + ":"
+	case phone != "":
+		prefix = phone + ":"
+	default:
+		return body
+	}
+	if body == "" {
+		return prefix
+	}
+	return prefix + "\n" + body
 }
 
 // isSupportedChatServer indica si procesamos eventos de este tipo de chat.

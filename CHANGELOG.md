@@ -4,6 +4,50 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-05-28
+
+Conversaciones de WhatsApp en grupo se reflejan correctamente en
+downstream: el nombre del grupo va al título de la conv, y cada
+mensaje incoming lleva prefijo identificando al participante.
+
+### Added
+
+- **`wameow.WAResolver.GroupSubject(jid)`** — nuevo método de la
+  interfaz que resuelve el subject (nombre visible) de un grupo
+  via `client.GetGroupInfo()`. Implementación con cache TTL de 10
+  min para positivos / 1 min para negativos: GetGroupInfo es un
+  round-trip al server WA y no queremos hacerlo por cada mensaje.
+- **`QRSGEN_GROUP_PREFIX_SENDER`** (default `true`) — env var nueva
+  que controla si qrsgen prefija el body de los mensajes incoming
+  de grupos con la identidad del remitente. Sin él, en una misma
+  conv del downstream múltiples participantes son indistinguibles.
+  Formato: `+<phone> - <name>:\n<body>` cuando hay teléfono y push
+  name; degrada a uno solo si falta el otro. Si el participante
+  no es identificable (LID sin mapping ni push name), el body se
+  postea sin prefijo en lugar de basura.
+- **Tests nuevos** en `internal/bridge/incoming_test.go` cubriendo
+  los 6 cases de `applyGroupSenderPrefix` (PN, LID resolvable, LID
+  no resolvable, body vacío, sin identificación posible) +
+  `GroupSubject` en el `fakeResolver`.
+
+### Changed
+
+- **`internal/bridge/incoming.go` Handle ahora distingue grupos**.
+  Para `chat.Server == g.us` consulta `GroupSubject(chat)` primero
+  (en lugar de `ContactName`, que solo cubre contactos individuales
+  porque `Store.Contacts` no indexa grupos). Si el subject no
+  resuelve, NO cae a `PushName` del participante (eso pondría el
+  nombre del primer remitente como título del grupo entero).
+
+### Migration notes
+
+- **Sin breaking changes de API**. La nueva env var tiene default
+  `true` — si tu integración n8n parseaba el body raw sin esperar
+  el prefijo `+34… - Name:\n`, ponla a `false` o ajusta tu parser.
+- **`WAResolver` añade un método nuevo** (`GroupSubject`). Si tienes
+  un mock externo del interfaz, necesitas añadirlo. Implementación
+  trivial que devuelva `("", false)` mantiene compat.
+
 ## [0.28.5] - 2026-05-27
 
 Public error codes: contrato estable para que integradores pattern-

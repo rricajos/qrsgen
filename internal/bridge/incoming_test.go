@@ -12,9 +12,10 @@ import (
 
 // fakeResolver implementa wameow.WAResolver para tests determinísticos.
 type fakeResolver struct {
-	names   map[string]string    // jid (no-AD).String() → contact name
-	pnByLID map[string]types.JID // lid.String() → pn JID
-	lidByPN map[string]types.JID // pn.String() → lid JID
+	names     map[string]string    // jid (no-AD).String() → contact name
+	pnByLID   map[string]types.JID // lid.String() → pn JID
+	lidByPN   map[string]types.JID // pn.String() → lid JID
+	groupSubj map[string]string    // group jid (no-AD).String() → subject
 }
 
 func (f *fakeResolver) ContactName(jid types.JID) string {
@@ -22,6 +23,17 @@ func (f *fakeResolver) ContactName(jid types.JID) string {
 		return ""
 	}
 	return f.names[jid.ToNonAD().String()]
+}
+
+func (f *fakeResolver) GroupSubject(jid types.JID) (string, bool) {
+	if f == nil || f.groupSubj == nil || jid.Server != types.GroupServer {
+		return "", false
+	}
+	v, ok := f.groupSubj[jid.ToNonAD().String()]
+	if !ok || v == "" {
+		return "", false
+	}
+	return v, true
 }
 
 func (f *fakeResolver) PNForLID(lid types.JID) (types.JID, bool) {
@@ -242,5 +254,105 @@ func TestExtractTextContent(t *testing.T) {
 	// nil message
 	if got := extractTextContent(&events.Message{}); got != "" {
 		t.Errorf("nil message = %q, want empty", got)
+	}
+}
+
+// mkGroupMsg construye un events.Message como si llegara desde un grupo.
+// chat es el JID del grupo (@g.us), sender es el participante.
+func mkGroupMsg(chat, sender types.JID, pushName string) *events.Message {
+	return &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:           chat,
+				Sender:         sender,
+				IsFromMe:       false,
+				AddressingMode: types.AddressingModePN,
+			},
+			PushName: pushName,
+		},
+	}
+}
+
+func TestApplyGroupSenderPrefix(t *testing.T) {
+	groupJID := types.NewJID("120363111222333444", types.GroupServer)
+	senderPN := types.NewJID("34640047775", types.DefaultUserServer)
+	senderLID := types.NewJID("99887766554433221100", types.HiddenUserServer)
+
+	t.Run("PN sender with push name → full prefix", func(t *testing.T) {
+		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
+		got := applyGroupSenderPrefix("hola", msg, nil)
+		want := "+34640047775 - Jean Paul:\nhola"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("PN sender empty push name, resolver knows contact name", func(t *testing.T) {
+		msg := mkGroupMsg(groupJID, senderPN, "")
+		r := &fakeResolver{names: map[string]string{senderPN.String(): "Jean Paul (CRM)"}}
+		got := applyGroupSenderPrefix("hola", msg, r)
+		want := "+34640047775 - Jean Paul (CRM):\nhola"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("LID sender resolved to PN via resolver", func(t *testing.T) {
+		msg := mkGroupMsg(groupJID, senderLID, "Anon")
+		r := &fakeResolver{
+			pnByLID: map[string]types.JID{senderLID.String(): senderPN},
+		}
+		got := applyGroupSenderPrefix("hola", msg, r)
+		want := "+34640047775 - Anon:\nhola"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("LID sender unresolvable, only push name", func(t *testing.T) {
+		msg := mkGroupMsg(groupJID, senderLID, "Pseudo")
+		got := applyGroupSenderPrefix("hola", msg, nil)
+		want := "Pseudo:\nhola"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("empty body keeps prefix without trailing newline", func(t *testing.T) {
+		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
+		got := applyGroupSenderPrefix("", msg, nil)
+		want := "+34640047775 - Jean Paul:"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no identification possible — body unchanged", func(t *testing.T) {
+		// Sender LID sin resolver y sin push name: no podemos identificar.
+		// Mejor no prefijar que prefijar basura.
+		msg := mkGroupMsg(groupJID, senderLID, "")
+		got := applyGroupSenderPrefix("hola", msg, nil)
+		if got != "hola" {
+			t.Errorf("got %q, want %q", got, "hola")
+		}
+	})
+}
+
+func TestFakeResolver_GroupSubject(t *testing.T) {
+	groupJID := types.NewJID("120363111222333444", types.GroupServer)
+	userJID := types.NewJID("34640047775", types.DefaultUserServer)
+	r := &fakeResolver{groupSubj: map[string]string{groupJID.String(): "IA LA CASA CLOT (GROUP)"}}
+
+	if name, ok := r.GroupSubject(groupJID); !ok || name != "IA LA CASA CLOT (GROUP)" {
+		t.Errorf("group hit: got (%q, %v), want (%q, true)", name, ok, "IA LA CASA CLOT (GROUP)")
+	}
+	// Non-group JID nunca debe acertar.
+	if name, ok := r.GroupSubject(userJID); ok || name != "" {
+		t.Errorf("non-group: got (%q, %v), want (\"\", false)", name, ok)
+	}
+	// Group sin entrada → miss.
+	other := types.NewJID("999@g.us", types.GroupServer)
+	if name, ok := r.GroupSubject(other); ok || name != "" {
+		t.Errorf("group miss: got (%q, %v), want (\"\", false)", name, ok)
 	}
 }

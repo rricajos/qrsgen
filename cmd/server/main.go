@@ -137,6 +137,7 @@ func main() {
 		return cfg.DownstreamInboxID
 	}
 	incoming := bridge.NewIncomingDynamic(dsRegistry, dedup, logger, resolveInbox)
+	incoming.SetGroupPrefixSender(cfg.GroupPrefixSender)
 
 	onMsg := func(ctx context.Context, instance string, msg *events.Message, r wameow.WAResolver) {
 		incoming.Handle(ctx, instance, msg, r)

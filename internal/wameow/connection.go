@@ -31,6 +31,10 @@ type MessageHandler func(ctx context.Context, instance string, msg *events.Messa
 type WAResolver interface {
 	// ContactName devuelve el nombre cacheado para un JID, o "" si no hay info.
 	ContactName(jid types.JID) string
+	// GroupSubject devuelve el subject (nombre visible) de un grupo, o ("", false)
+	// si no es un grupo o no se pudo resolver. Se cachea con TTL para evitar
+	// pegarle al server WA en cada mensaje.
+	GroupSubject(jid types.JID) (string, bool)
 	// PNForLID intenta resolver el JID PN equivalente a un LID. Devuelve el JID y true si lo conoce.
 	PNForLID(lid types.JID) (types.JID, bool)
 	// LIDForPN intenta resolver el JID LID equivalente a un PN. Devuelve el JID y true si lo conoce.
@@ -76,7 +80,26 @@ type Conn struct {
 	lastQRPNG []byte
 	lastQRAt  time.Time
 	qrCancel  context.CancelFunc
+
+	groupSubjMu    sync.RWMutex
+	groupSubjCache map[string]groupSubjectEntry
 }
+
+// groupSubjectEntry guarda el subject resuelto + el deadline del TTL.
+// Cacheamos también las negativas (name=="") para no machacar el server
+// si el grupo no resuelve por X motivo, con TTL más corto.
+type groupSubjectEntry struct {
+	name  string
+	until time.Time
+}
+
+// Group subject cache TTLs. Tras un cambio de nombre en el grupo, los
+// mensajes posteriores pueden seguir mostrando el nombre antiguo durante
+// hasta groupSubjectTTL. Vale la pena por la reducción de round-trips.
+const (
+	groupSubjectTTL    = 10 * time.Minute
+	groupSubjectNegTTL = 1 * time.Minute
+)
 
 // NewContainer crea el sqlstore.Container compartido por todas las instancias.
 func NewContainer(ctx context.Context, dsn string) (*sqlstore.Container, error) {
@@ -97,11 +120,12 @@ func NewConn(name string, device *store.Device, logger *slog.Logger, onMsg Messa
 	client.EnableAutoReconnect = true
 	client.InitialAutoReconnect = true
 	c := &Conn{
-		name:        name,
-		client:      client,
-		logger:      logger.With("instance", name),
-		onMessage:   onMsg,
-		onLifecycle: onLifecycle,
+		name:           name,
+		client:         client,
+		logger:         logger.With("instance", name),
+		onMessage:      onMsg,
+		onLifecycle:    onLifecycle,
+		groupSubjCache: make(map[string]groupSubjectEntry),
 	}
 	client.AddEventHandler(c.handle)
 	return c
@@ -172,6 +196,43 @@ func (c *Conn) ContactName(jid types.JID) string {
 		return info.BusinessName
 	}
 	return ""
+}
+
+// GroupSubject devuelve el nombre del grupo cacheado o lo resuelve via
+// client.GetGroupInfo() si no está en cache (o expiró). Cachea positivos
+// y negativos con TTLs distintos.
+//
+// Para JIDs que no son @g.us devuelve ("", false) sin tocar el server.
+func (c *Conn) GroupSubject(jid types.JID) (string, bool) {
+	if c.client == nil || jid.Server != types.GroupServer {
+		return "", false
+	}
+	key := jid.ToNonAD().String()
+
+	c.groupSubjMu.RLock()
+	if e, ok := c.groupSubjCache[key]; ok && time.Now().Before(e.until) {
+		c.groupSubjMu.RUnlock()
+		return e.name, e.name != ""
+	}
+	c.groupSubjMu.RUnlock()
+
+	info, err := c.client.GetGroupInfo(jid.ToNonAD())
+	if err != nil || info == nil {
+		c.groupSubjMu.Lock()
+		c.groupSubjCache[key] = groupSubjectEntry{name: "", until: time.Now().Add(groupSubjectNegTTL)}
+		c.groupSubjMu.Unlock()
+		return "", false
+	}
+	// info.Name es el subject del grupo (promoted field de GroupName embebido en GroupInfo).
+	name := info.Name
+	ttl := groupSubjectTTL
+	if name == "" {
+		ttl = groupSubjectNegTTL
+	}
+	c.groupSubjMu.Lock()
+	c.groupSubjCache[key] = groupSubjectEntry{name: name, until: time.Now().Add(ttl)}
+	c.groupSubjMu.Unlock()
+	return name, name != ""
 }
 
 // PNForLID intenta mapear un JID LID a su PN. Devuelve la JID y true si lo conoce.

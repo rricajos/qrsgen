@@ -261,6 +261,56 @@ func (c *Client) CreateConversation(ctx context.Context, req CreateConversationR
 	return &conv, nil
 }
 
+// UploadContactAvatar sube una imagen como avatar del contacto en el downstream.
+// Usa multipart/form-data con el campo `avatar` (formato esperado por la API
+// PUT /api/v1/accounts/:account/contacts/:id del downstream). El mime
+// determina la extensión del filename — image/png → avatar.png, otros →
+// avatar.jpg. Si la respuesta es >= 400 devuelve error con el body.
+func (c *Client) UploadContactAvatar(ctx context.Context, contactID int, data []byte, mime string) error {
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+
+	filename := "avatar.jpg"
+	if mime == "image/png" {
+		filename = "avatar.png"
+	}
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="avatar"; filename=%q`, filename))
+	if mime != "" {
+		header.Set("Content-Type", mime)
+	}
+	part, err := mw.CreatePart(header)
+	if err != nil {
+		return fmt.Errorf("multipart create part: %w", err)
+	}
+	if _, err := part.Write(data); err != nil {
+		return fmt.Errorf("multipart write data: %w", err)
+	}
+	if err := mw.Close(); err != nil {
+		return fmt.Errorf("multipart close: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v1/accounts/%d/contacts/%d", c.baseURL, c.accountID, contactID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPut, url, &body)
+	if err != nil {
+		return fmt.Errorf("new request: %w", err)
+	}
+	httpReq.Header.Set("api_access_token", c.token)
+	httpReq.Header.Set("Content-Type", mw.FormDataContentType())
+
+	res, err := c.http.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("do: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("PUT avatar: HTTP %d body=%s", res.StatusCode, string(respBody))
+	}
+	return nil
+}
+
 // UpdateMessageSourceID hace PATCH del source_id de un mensaje. Útil para enlazar
 // el mensaje saliente con el WAID generado por whatsmeow.
 func (c *Client) UpdateMessageSourceID(ctx context.Context, conversationID, messageID int, sourceID string) error {

@@ -16,6 +16,25 @@ type fakeResolver struct {
 	pnByLID   map[string]types.JID // lid.String() → pn JID
 	lidByPN   map[string]types.JID // pn.String() → lid JID
 	groupSubj map[string]string    // group jid (no-AD).String() → subject
+	pfp       map[string]fakePFP   // jid (no-AD).String() → profile picture
+}
+
+// fakePFP simula el retorno de GetProfilePicture en tests.
+type fakePFP struct {
+	data []byte
+	mime string
+	err  error
+}
+
+func (f *fakeResolver) GetProfilePicture(_ context.Context, jid types.JID) ([]byte, string, error) {
+	if f == nil || f.pfp == nil {
+		return nil, "", nil
+	}
+	e, ok := f.pfp[jid.ToNonAD().String()]
+	if !ok {
+		return nil, "", nil
+	}
+	return e.data, e.mime, e.err
 }
 
 func (f *fakeResolver) ContactName(jid types.JID) string {

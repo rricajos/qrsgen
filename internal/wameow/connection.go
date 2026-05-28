@@ -5,7 +5,9 @@ package wameow
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -35,6 +37,11 @@ type WAResolver interface {
 	// si no es un grupo o no se pudo resolver. Se cachea con TTL para evitar
 	// pegarle al server WA en cada mensaje.
 	GroupSubject(jid types.JID) (string, bool)
+	// GetProfilePicture descarga la foto de perfil de un JID (usuario o grupo).
+	// Devuelve (bytes, mime, nil) si hay foto, ([], "", nil) si no hay (caso
+	// común, no es error), o (nil, "", err) si falla la consulta o descarga.
+	// Hace round-trip al server WA + HTTP GET — usar con timeout corto.
+	GetProfilePicture(ctx context.Context, jid types.JID) ([]byte, string, error)
 	// PNForLID intenta resolver el JID PN equivalente a un LID. Devuelve el JID y true si lo conoce.
 	PNForLID(lid types.JID) (types.JID, bool)
 	// LIDForPN intenta resolver el JID LID equivalente a un PN. Devuelve el JID y true si lo conoce.
@@ -240,6 +247,53 @@ func (c *Conn) GroupSubject(jid types.JID) (string, bool) {
 	c.groupSubjCache[key] = groupSubjectEntry{name: name, until: time.Now().Add(ttl)}
 	c.groupSubjMu.Unlock()
 	return name, name != ""
+}
+
+// GetProfilePicture descarga la foto de perfil completa del JID (user o group).
+// Hace dos calls: GetProfilePictureInfo (round-trip al server WA) + HTTP GET
+// a la URL devuelta. Timeout interno de 10s — el caller decide su propio TTL.
+//
+// Para JIDs sin foto, devuelve ([], "", nil) — no es error, es estado válido.
+// Errores solo cuando la query o el download fallan inesperadamente.
+func (c *Conn) GetProfilePicture(ctx context.Context, jid types.JID) ([]byte, string, error) {
+	if c.client == nil {
+		return nil, "", fmt.Errorf("get profile picture: client nil")
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	info, err := c.client.GetProfilePictureInfo(fetchCtx, jid.ToNonAD(), &whatsmeow.GetProfilePictureParams{})
+	if err != nil {
+		return nil, "", fmt.Errorf("get profile picture info: %w", err)
+	}
+	if info == nil || info.URL == "" {
+		return nil, "", nil // no avatar configurado
+	}
+
+	req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, info.URL, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("download request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("download: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("download status %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("read body: %w", err)
+	}
+
+	mime := resp.Header.Get("Content-Type")
+	if mime == "" {
+		mime = "image/jpeg" // default para fotos WA
+	}
+	return data, mime, nil
 }
 
 // PNForLID intenta mapear un JID LID a su PN. Devuelve la JID y true si lo conoce.

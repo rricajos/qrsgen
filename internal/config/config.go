@@ -74,6 +74,13 @@ type Config struct {
 	// muestra quién habla). 0 = feature desactivada, header siempre.
 	// Default "10m". Desde v0.30.0.
 	GroupHeaderTTL time.Duration `env:"QRSGEN_GROUP_HEADER_TTL" envDefault:"10m"`
+
+	// AvatarSync: si true, qrsgen descarga la foto WhatsApp del contacto/
+	// grupo al crear el contact en downstream y la sube como avatar.
+	// Fire-and-forget (no bloquea el msg). false → contact queda con el
+	// letter avatar autogenerado por el downstream. Default true.
+	// Desde v0.31.0.
+	AvatarSync bool `env:"QRSGEN_AVATAR_SYNC" envDefault:"true"`
 }
 
 func Load() (Config, error) {

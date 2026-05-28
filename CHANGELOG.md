@@ -4,6 +4,47 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-05-28
+
+Sincroniza la foto de perfil de WhatsApp al avatar del contacto en
+el downstream. Aplica tanto a contactos 1-on-1 (foto del usuario)
+como a grupos (foto del grupo). Reemplaza los letter-avatars
+autogenerados por Chatwoot por las fotos reales.
+
+### Added
+
+- **`WAResolver.GetProfilePicture(ctx, jid) ([]byte, string, error)`** —
+  nuevo método de la interfaz. Hace `client.GetProfilePictureInfo` +
+  HTTP GET a la URL devuelta. Devuelve `([], "", nil)` cuando el JID
+  no tiene foto configurada (estado válido, no es error).
+- **`Client.UploadContactAvatar(ctx, contactID, data, mime)`** —
+  PUT multipart a `/api/v1/accounts/X/contacts/Y` con el avatar.
+- **`Incoming.syncAvatar(ds, r, contactID, jid)`** — orquesta el sync
+  fire-and-forget. Spawn en goroutine tras `CreateContact` exitoso.
+- **`QRSGEN_AVATAR_SYNC`** (default `true`) — env var nueva.
+  Setear a `false` desactiva la feature; los contactos siguen creándose
+  pero sin avatar (Chatwoot pinta su letter-avatar default).
+
+### Behavior
+
+- **Solo en contact-creation**. Si el contacto ya existía en downstream,
+  qrsgen NO refresca el avatar — un cambio de foto en WhatsApp tras la
+  creación no se propaga. Refresh periódico queda para v0.31.1.
+- **Fire-and-forget**. Errores de WA (foto privada, account restringida)
+  o downstream (upload rechazado) loguean warning pero no bloquean el
+  flujo del mensaje. El contact se crea aunque el avatar falle.
+- **Timeouts**: 10s para fetch desde WA, 30s overall para todo el sync.
+- **No bloquea el msg processing**. La goroutine corre paralela al
+  envío del mensaje a downstream.
+
+### Migration notes
+
+- Sin breaking changes. La feature está ON por default — espera ver
+  fotos reales en convs nuevas tras deploy. Convs/contactos existentes
+  no se actualizan (no hay bulk sync; v0.31.2 si se quiere).
+- **`WAResolver` añade un método**. Mocks externos del interface
+  necesitan implementarlo. Trivial: return `nil, "", nil`.
+
 ## [0.30.2] - 2026-05-28
 
 UX tweak: em-space (U+2003) entre nombre y code block del teléfono.

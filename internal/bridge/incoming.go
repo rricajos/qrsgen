@@ -42,11 +42,16 @@ type Incoming struct {
 	// Suprime el header si el sender es el mismo del mensaje anterior
 	// (dentro del TTL configurable). nil = desactivado, header siempre.
 	groupTracker *groupSenderTracker
+
+	// avatarSync controla si tras CreateContact qrsgen intenta sincronizar
+	// la foto de perfil de WhatsApp al avatar del downstream. Fire-and-forget,
+	// no bloquea el flujo del mensaje. Default true.
+	avatarSync bool
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
 func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logger, resolve InboxResolver) *Incoming {
-	return &Incoming{ds: ds, dedup: dedup, logger: logger, resolve: resolve, groupPrefixSender: true}
+	return &Incoming{ds: ds, dedup: dedup, logger: logger, resolve: resolve, groupPrefixSender: true, avatarSync: true}
 }
 
 // SetUsage attaches a usage recorder. Pass nil to disable.
@@ -64,6 +69,44 @@ func (i *Incoming) SetGroupHeaderTTL(ttl time.Duration) {
 		return
 	}
 	i.groupTracker = newGroupSenderTracker(ttl)
+}
+
+// SetAvatarSync controla si tras crear un contacto en downstream qrsgen
+// dispara una sincronización (background) de la foto WhatsApp como avatar
+// del contacto. Default true.
+func (i *Incoming) SetAvatarSync(v bool) { i.avatarSync = v }
+
+// syncAvatar descarga la foto de perfil del JID y la sube como avatar al
+// contacto en el downstream. Fire-and-forget — diseñado para correr en
+// goroutine. Errores se loguean como warning, no afectan el flujo principal.
+//
+// Esta función no se preocupa por el tipo de JID: funciona igual para
+// usuarios individuales (foto de perfil del usuario) y para grupos
+// (foto del grupo). Es el caller quien decide qué JID pasar.
+func (i *Incoming) syncAvatar(ds *downstream.Client, r wameow.WAResolver, contactID int, jid types.JID) {
+	if r == nil || ds == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	data, mime, err := r.GetProfilePicture(ctx, jid)
+	if err != nil {
+		i.logger.Warn("avatar sync: get profile picture failed",
+			"err", err, "contact_id", contactID, "jid", jid.String())
+		return
+	}
+	if len(data) == 0 {
+		// No hay foto configurada en WhatsApp. Estado válido, no es error.
+		return
+	}
+	if err := ds.UploadContactAvatar(ctx, contactID, data, mime); err != nil {
+		i.logger.Warn("avatar sync: upload to downstream failed",
+			"err", err, "contact_id", contactID, "size", len(data))
+		return
+	}
+	i.logger.Info("avatar synced",
+		"contact_id", contactID, "size", len(data), "mime", mime, "jid", jid.String())
 }
 
 func (i *Incoming) incUsageIn(instance string) {
@@ -282,6 +325,15 @@ func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs re
 		contact, err = ds.CreateContact(ctx, req)
 		if err != nil {
 			return fmt.Errorf("create contact: %w", err)
+		}
+		// Avatar sync en background: descarga la foto WhatsApp y la sube como
+		// avatar del contact. Solo en contact-creation — si más adelante
+		// quieres refresh periódico, va en otra minor con tracking de
+		// avatar_id en DB. Fire-and-forget, errores solo loguean warning.
+		if i.avatarSync && r != nil {
+			if chatJID, parseErr := types.ParseJID(identifier); parseErr == nil {
+				go i.syncAvatar(ds, r, contact.ID, chatJID)
+			}
 		}
 	}
 

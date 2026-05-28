@@ -20,7 +20,22 @@ increase(qrsgen_lifecycle_events_total{event="ban_risk"}[10m]) > 0
 
 # Outbox creciendo (instancia probablemente caída)
 increase(qrsgen_lifecycle_events_total{event="outgoing_expired"}[1h]) > 0
+
+# Tasa de errores downstream en features real-time > 10% durante 5 min
+# (avatar / reaction / typing / read_receipt — desde v0.35.0)
+(
+  sum by (feature) (rate(qrsgen_realtime_events_total{result="ds_error"}[5m]))
+  /
+  sum by (feature) (rate(qrsgen_realtime_events_total[5m]))
+) > 0.10
+
+# Burst de wa_error en avatares (sesión WA degradada)
+increase(qrsgen_realtime_events_total{feature="avatar",result="wa_error"}[10m]) > 20
 ```
+
+Las queries de `qrsgen_realtime_events_total` y más sugerencias de
+paneles Grafana están documentadas en
+[Observabilidad](../api/observability.md#qrsgen_realtime_events_total-v0350).
 
 ## Glosario
 

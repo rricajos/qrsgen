@@ -184,6 +184,7 @@ Prometheus scrape. Sin auth.
 | `qrsgen_active_instances` | gauge | – | Instancias en `connected` o `ready`. |
 | `qrsgen_total_instances` | gauge | – | Total gestionadas. |
 | `qrsgen_version_info` | gauge (info) | `version` | Fijo a 1; permite join en Grafana para mostrar versión activa. Desde v0.28.2. |
+| `qrsgen_realtime_events_total` | counter | `feature`, `result`, `instance` | Eventos real-time del bridge (avatar/reaction/typing/read_receipt). Desde v0.35.0. |
 
 Plus métricas estándar Go runtime (`go_*`, `process_*`).
 
@@ -196,6 +197,116 @@ multi-tenant:
 ```promql
 sum by (owner_tag) (rate(qrsgen_messages_total{direction="out"}[5m]))
 ```
+
+---
+
+## `qrsgen_realtime_events_total` (v0.35.0)
+
+Counter unificado para las cuatro features real-time del bridge
+(avatar sync, reacciones, typing, read receipts). Reemplaza la
+ausencia previa de telemetría por feature: hasta v0.34.x los flujos
+real-time solo escribían logs.
+
+### Labels
+
+| Label | Valores | Significado |
+|---|---|---|
+| `feature` | `avatar` \| `reaction` \| `typing` \| `read_receipt` | Feature real-time que disparó el incremento. |
+| `result` | ver tabla siguiente | Outcome de la operación. |
+| `instance` | nombre de instancia | Para separar por número conectado. |
+
+### Valores de `result`
+
+| Valor | Significado |
+|---|---|
+| `ok` | Operación completada exitosamente (POST al downstream 2xx). |
+| `no_contact` | Contacto inexistente en downstream — no hay a quién apuntar. |
+| `no_conv` | Conversación no encontrada o no abierta (typing/receipt sobre conv cerrada). |
+| `throttled` | Filtrado por anti-spam in-memory (typing tracker `minInterval=4s`, avatar tracker TTL). |
+| `filtered` | Descartado por tipo (receipt `delivered`/`played`/`sender` — solo `read`/`read-self` se propagan). |
+| `wa_miss` | WhatsApp no tiene la info pedida (foto privada, contacto sin avatar). |
+| `wa_error` | Llamada a whatsmeow falló (timeout, sesión inválida). |
+| `ds_error` | Downstream rechazó el POST (4xx/5xx). |
+
+### Wired-in
+
+Los handlers que incrementan el counter:
+
+| Handler | Feature | Resultados emitidos |
+|---|---|---|
+| `Incoming.syncAvatar` | `avatar` | `ok`, `wa_miss`, `wa_error`, `ds_error`, `throttled` |
+| `Incoming.handleReaction` | `reaction` | `ok`, `no_contact`, `no_conv`, `ds_error` |
+| `Incoming.HandleChatPresence` | `typing` | `ok`, `no_contact`, `no_conv`, `throttled`, `ds_error` |
+| `Incoming.HandleReceipt` | `read_receipt` | `ok`, `no_contact`, `no_conv`, `filtered`, `ds_error` |
+
+### Cardinalidad
+
+`4 features × ~8 result × N instancias`. Despliegues típicos
+(1–10 instancias) generan **32–320 series** — totalmente manejable
+por un Prometheus modesto. No combina con `owner_tag` a propósito:
+si necesitas vista por tenant, agrégala con join sobre el gauge
+`qrsgen_active_instances` o mapea `instance → owner_tag` en Grafana.
+
+### Ejemplos PromQL
+
+```promql
+# Tasa de error downstream por feature (5 min)
+sum by (feature) (rate(qrsgen_realtime_events_total{result="ds_error"}[5m]))
+
+# Cobertura de avatar: % de avatars con foto real vs wa_miss
+sum(rate(qrsgen_realtime_events_total{feature="avatar",result="ok"}[1h]))
+/
+sum(rate(qrsgen_realtime_events_total{feature="avatar",result=~"ok|wa_miss"}[1h]))
+
+# Efectividad del throttle de typing (objetivo: >50%)
+sum(rate(qrsgen_realtime_events_total{feature="typing",result="throttled"}[5m]))
+/
+sum(rate(qrsgen_realtime_events_total{feature="typing"}[5m]))
+
+# Receipts filtrados por tipo no accionable (delivered/played/sender)
+sum by (instance) (rate(qrsgen_realtime_events_total{feature="read_receipt",result="filtered"}[15m]))
+```
+
+### Paneles Grafana sugeridos
+
+- **Error rate per feature** — line chart con
+  `sum by (feature) (rate(…{result="ds_error"}[5m]))`. Una línea por
+  feature, eje Y en errors/s.
+- **Outcome breakdown stacked** — stacked area per `result` filtrado a
+  una feature concreta vía variable `$feature`. Permite ver cómo se
+  distribuye el tráfico entre `ok` / `throttled` / `filtered` / errores.
+- **Avatar coverage gauge** — single-stat con la query de cobertura
+  (`ok / (ok+wa_miss)`). Thresholds: <70% amarillo, <40% rojo.
+- **Typing throttle effectiveness gauge** — single-stat con la ratio
+  `throttled / total`. Threshold: <30% amarillo (throttle inefectivo).
+- **Instances activity heatmap** — heatmap por `instance` con
+  `sum by (instance) (rate(…[5m]))` para detectar instancias mudas o
+  inundadas.
+
+### Alerting sugerido
+
+Añadir a [`operations/alerting.md`](../operations/alerting.md):
+
+```promql
+# ds_error rate > 10% sobre tráfico total real-time durante 5 min
+(
+  sum by (feature) (rate(qrsgen_realtime_events_total{result="ds_error"}[5m]))
+  /
+  sum by (feature) (rate(qrsgen_realtime_events_total[5m]))
+) > 0.10
+
+# Burst de wa_error en avatares (sesión WA degradada)
+increase(qrsgen_realtime_events_total{feature="avatar",result="wa_error"}[10m]) > 20
+
+# Typing tracker dejó de throttlear (regresión de configuración)
+sum(rate(qrsgen_realtime_events_total{feature="typing",result="throttled"}[10m]))
+/
+sum(rate(qrsgen_realtime_events_total{feature="typing"}[10m]))
+< 0.20
+```
+
+Disparar `for: 5m` mínimo en todas para evitar flapping en picos de
+tráfico.
 
 ---
 
@@ -247,3 +358,25 @@ errores). Para tasas se calcula `rate(counter[5m])`.
 
 **Gauge** (Prometheus): métrica que sube y baja (instancias activas).
 Refleja un valor instantáneo.
+
+**Realtime event (qrsgen)**: cada outcome de las features real-time
+(avatar/reaction/typing/read_receipt) que el bridge propaga al
+downstream. Cada handler emite exactamente un incremento del counter
+`qrsgen_realtime_events_total` con el `result` adecuado por entrada
+procesada — útil para calcular tasas de éxito por feature sin parsear
+logs.
+
+**`wa_miss` vs `wa_error`**: `wa_miss` significa que WhatsApp respondió
+correctamente pero no había info disponible (foto privada, contacto sin
+avatar) — es operación normal, no fallo. `wa_error` es fallo de la
+llamada a whatsmeow — sí es problema y debería alertarse si pico.
+
+**`filtered` (real-time)**: la entrada llegó válida pero se descartó por
+política de qrsgen (ej. receipt de tipo `delivered` cuando solo
+propagamos `read`/`read-self`). No es error — es comportamiento
+diseñado.
+
+**`throttled` (real-time)**: la entrada se descartó por anti-spam
+in-memory (typing tracker con `minInterval=4s`, avatar tracker con
+TTL). Una tasa alta de `throttled` es **buena señal**: el throttle
+está protegiendo al downstream.

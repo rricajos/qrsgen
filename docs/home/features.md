@@ -130,6 +130,18 @@ agregado ("alguien está escribiendo..."); privacy settings del sender
 pueden ocultar receipts (cobertura parcial). Detalles en
 [Typing indicators y read receipts](../integrations/presence-and-receipts.md).
 
+## Observabilidad de features real-time
+
+Desde **v0.35.0**, las cuatro features real-time (avatar sync,
+reacciones, typing, read receipts) emiten al counter Prometheus
+unificado `qrsgen_realtime_events_total{feature,result,instance}`.
+Permite calcular en Grafana tasas de éxito (`ok`), cobertura
+(`ok` vs `wa_miss`), efectividad del throttle (`throttled / total`)
+y errores downstream (`ds_error`) por feature sin parsear logs.
+Cardinalidad ~32–320 series para despliegues típicos. Catálogo
+completo, queries y alerting sugerido en
+[Observabilidad — `qrsgen_realtime_events_total`](../api/observability.md#qrsgen_realtime_events_total-v0350).
+
 ## HMAC opcional del webhook
 
 `WEBHOOK_HMAC_SECRET` activa firma HMAC-SHA256 obligatoria en el

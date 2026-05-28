@@ -269,11 +269,16 @@ func (c *Client) CreateConversation(ctx context.Context, req CreateConversationR
 // Útil para bulk-resync: iterar páginas y disparar avatar sync para cada
 // contacto. NO mantengas página abierta en lecturas largas — cada llamada
 // es una request HTTP nueva.
+//
+// Nota: usa el endpoint canónico de Chatwoot
+// `/contacts?inbox_id={id}&page={n}`. El path antiguo
+// `/inboxes/{id}/contacts` (v0.31.3) devolvía 404 — esa ruta NO existe
+// en la API de Chatwoot.
 func (c *Client) ListContactsByInbox(ctx context.Context, inboxID, page int) ([]Contact, bool, error) {
 	if page < 1 {
 		page = 1
 	}
-	path := fmt.Sprintf("/inboxes/%d/contacts?page=%d", inboxID, page)
+	path := fmt.Sprintf("/contacts?inbox_id=%d&page=%d", inboxID, page)
 	data, err := c.request(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, false, err

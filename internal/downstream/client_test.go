@@ -267,3 +267,63 @@ func TestDownloadBlob_4xx(t *testing.T) {
 		t.Fatal("expected error on 404")
 	}
 }
+
+func TestListContactsByInbox_URLShape(t *testing.T) {
+	// Verifica que el endpoint usa el path canónico de Chatwoot
+	// `/contacts?inbox_id=X&page=Y` y NO el `/inboxes/X/contacts` que
+	// devolvía 404 (bug arreglado en v0.32.1).
+	var gotPath, gotQuery string
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"payload":[{"id":1,"name":"x","identifier":"34600000000@s.whatsapp.net"}],"meta":{"count":1}}`))
+	})
+
+	contacts, hasMore, err := c.ListContactsByInbox(context.Background(), 11, 3)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	wantPath := "/api/v1/accounts/7/contacts"
+	if gotPath != wantPath {
+		t.Errorf("path = %q, want %q", gotPath, wantPath)
+	}
+	// El order de los query params no está garantizado, pero ambos deben estar.
+	if !strings.Contains(gotQuery, "inbox_id=11") {
+		t.Errorf("query missing inbox_id=11: %q", gotQuery)
+	}
+	if !strings.Contains(gotQuery, "page=3") {
+		t.Errorf("query missing page=3: %q", gotQuery)
+	}
+	if len(contacts) != 1 {
+		t.Errorf("got %d contacts, want 1", len(contacts))
+	}
+	if hasMore {
+		t.Errorf("hasMore = true on single contact, want false")
+	}
+}
+
+func TestListContactsByInbox_HasMoreOnFullPage(t *testing.T) {
+	// 15 contactos en una página → hasMore=true (page_size típico de Chatwoot).
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Construir un payload con 15 contactos válidos.
+		var sb strings.Builder
+		sb.WriteString(`{"payload":[`)
+		for i := 0; i < 15; i++ {
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			sb.WriteString(`{"id":1,"name":"x","identifier":"34600000000@s.whatsapp.net"}`)
+		}
+		sb.WriteString(`]}`)
+		_, _ = w.Write([]byte(sb.String()))
+	})
+	_, hasMore, err := c.ListContactsByInbox(context.Background(), 11, 1)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !hasMore {
+		t.Errorf("hasMore = false on full page (15), want true")
+	}
+}

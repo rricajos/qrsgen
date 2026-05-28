@@ -4,6 +4,44 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-05-28
+
+Bugfix del bulk avatar resync endpoint (v0.31.3): la ruta usada en
+Chatwoot no existe y devolvía 404, haciendo que el endpoint fallara
+con HTTP 500 inmediatamente.
+
+### Fixed
+
+- **`Client.ListContactsByInbox`** ahora usa el endpoint canónico de
+  Chatwoot `GET /accounts/{a}/contacts?inbox_id={i}&page={n}` en
+  lugar de `GET /accounts/{a}/inboxes/{i}/contacts?page={n}` que NO
+  existe en la API. Con esto `POST /api/instances/:name/avatars/resync`
+  funciona correctamente — itera todos los contactos del inbox y
+  dispara el sync de avatar por cada uno.
+- 2 tests nuevos en `internal/downstream/client_test.go`:
+  - Verifica que el URL shape es el canónico (`/contacts?inbox_id=X&page=Y`)
+  - Verifica que `hasMore=true` cuando la página tiene 15 contactos
+    (page_size típico de Chatwoot)
+
+### Impact
+
+- El sync per-message (response a cada mensaje incoming) NO estaba
+  afectado — funcionaba correctamente desde v0.31.0. Solo el bulk
+  endpoint introducido en v0.31.3 estaba roto.
+- Operadores que no usaron el bulk endpoint vieron sus avatares
+  poblarse orgánicamente vía el path per-message (con o sin
+  `QRSGEN_AVATAR_REFRESH_TTL=24h` activo).
+- Tras este fix, el bulk endpoint puede usarse para backfillear
+  contactos viejos sin esperar a que vuelvan a escribir.
+
+### Migration notes
+
+- Sin breaking changes. Es un bugfix puro. Upgradear desde v0.31.3
+  → v0.32.1 lo arregla automáticamente.
+- Operadores que no necesiten el bulk (porque ya están viviendo
+  con el sync per-message) pueden seguir en v0.31.x sin afectación
+  funcional.
+
 ## [0.32.0] - 2026-05-28
 
 Distingue contactos guardados en la libreta del bot vs solo push name.

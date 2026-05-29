@@ -1,13 +1,14 @@
 # Formato del prefijo de grupo
 
-A partir de **v0.39.5**, el prefijo que qrsgen antepone al body de los
-mensajes de grupo siempre va envuelto en un **inline code block**
-(backticks) con la línea de header (nombre bold + tab(s) + teléfono),
-y el teléfono se incluye **siempre**. El único punto en el que el
-formato cambia según el estado del contact store es el **tilde `~`
-delante del nombre**: aparece solo cuando el remitente **no está
-guardado** en la libreta del número conectado. Esto replica la
-convención de la propia UI de WhatsApp.
+A partir de **v0.39.6**, el prefijo que qrsgen antepone al body de los
+mensajes de grupo va envuelto en un **inline code block** (backticks)
+con la estructura `` `<teléfono> · <~?><nombre>` ``: teléfono primero,
+separador middle dot `·` (U+00B7), y nombre al final. El teléfono se
+incluye **siempre**. El único punto en el que el formato cambia según
+el estado del contact store es el **tilde `~` delante del nombre**:
+aparece solo cuando el remitente **no está guardado** en la libreta
+del número conectado. Esto replica la convención de la propia UI de
+WhatsApp.
 
 > **Read-only sobre WhatsApp**: qrsgen solo lee
 > `client.Store.Contacts.GetContact`. No edita la libreta del móvil ni
@@ -19,10 +20,10 @@ convención de la propia UI de WhatsApp.
 
 | Caso | Formato del prefijo | Versión |
 |---|---|---|
-| Saved, nombre corto (≤12 runes) | `` `**Jean Paul**\t\t+34604021705` `` | v0.39.5 |
-| Saved, nombre largo (>12 runes) | `` `**Ivan Madrid Sánchez**\t+34633185248` `` | v0.39.5 |
-| No saved, nombre corto | `` `**~Marcelo Lopez**\t+34663504782` `` | v0.39.5 |
-| No saved, nombre largo | `` `**~Anon Pseudonym User**\t+34611111111` `` | v0.39.5 |
+| Saved | `` `+34604021705 · Jean Paul` `` | v0.39.6 |
+| Saved, nombre largo | `` `+34633185248 · Ivan Madrid Sánchez` `` | v0.39.6 |
+| No saved | `` `+34663504782 · ~Marcelo Lopez` `` | v0.39.6 |
+| No saved, nombre largo | `` `+34611111111 · ~Anon Pseudonym User` `` | v0.39.6 |
 | Sin nombre, solo teléfono | `+34604021705:` | v0.39.2 |
 | Sin nombre y sin teléfono | (body sin tocar) | v0.31.x y posteriores |
 
@@ -32,33 +33,31 @@ convención de la propia UI de WhatsApp.
 > por el propio sender). Para contactos saved (FullName o FirstName en
 > el contact store) el nombre va plano, sin tilde. Replica la
 > convención de la app WA: en tu chat de grupo, los nombres con `~`
-> son los que tu libreta no conoce. Entre v0.39.4 y antes el `~` se
-> ponía siempre, lo que perdía esa señal.
+> son los que tu libreta no conoce.
 >
 > **Code block wrap (v0.39.4)**: toda la línea de header va dentro de
-> un par de backticks. Los `**` dejan de procesarse como bold markdown
-> (inline code suprime el formato interno) y aparecen como caracteres
-> literales, pero a cambio Chatwoot renderiza toda la línea con fuente
+> un par de backticks. Chatwoot renderiza toda la línea con fuente
 > monoespaciada y fondo sutil — el contraste visual con el body sigue
-> siendo claro y los teléfonos quedan alineados al carácter.
+> siendo claro.
 >
-> **Separador y formato del teléfono**: desde **v0.39.2** el separador
-> entre el nombre bold y el número es un **tab `\t` (U+0009)** en lugar
-> del em-space (U+2003) previo. Desde **v0.39.3** el número de tabs
-> depende del largo del nombre medido con `utf8.RuneCountInString`
-> (los acentos cuentan una sola vez: "Sánchez" = 7 runes). Cutoff
-> hardcoded en **12 runes**:
+> **Orden teléfono → nombre y separador `·` (v0.39.6)**: el teléfono
+> va **primero** (formato E.164, longitud predecible), seguido del
+> middle dot `·` (U+00B7) con espacios a ambos lados como separador, y
+> el nombre al final. Chatwoot preserva el `·` literal dentro del inline
+> code y lo renderiza monoespaciado, así que la columna del separador
+> queda visualmente estable porque la longitud de los E.164 varía poco
+> entre senders. El nombre, de largo arbitrario, ocupa la cola de la
+> línea — donde la variabilidad no rompe alineación.
 >
-> - Nombre **≤ 12 runes** → **2 tabs** (`\t\t`).
-> - Nombre **> 12 runes** → **1 tab** (`\t`).
->
-> Así los teléfonos quedan alineados visualmente cuando senders con
-> nombres de distinto largo se mezclan en el mismo grupo.
->
-> **Nota sobre runes y el tilde**: el cálculo del número de tabs se
-> hace sobre el nombre **sin** el `~`. El tilde se prepende después de
-> decidir la cantidad de tabs, así que añadirlo o quitarlo no
-> desalinea los teléfonos.
+> **Sin `**bold**` ni tabs (v0.39.6)**: Chatwoot **no** procesa
+> `**bold**` dentro de inline code (los asteriscos quedaban literales)
+> y **colapsa los tabs `\t` a un único espacio** dentro del code block,
+> de modo que la heurística de 1/2 tabs según `utf8.RuneCountInString`
+> introducida en v0.39.3 no producía alineación real en el render.
+> v0.39.6 elimina los `**`, los tabs y el cálculo de runes; el
+> contraste visual se obtiene íntegramente del code block + monoespacio
+> de Chatwoot, y el orden phone-first sustituye a la alineación basada
+> en tabs.
 
 El comportamiento es **automático**: no hay env var nuevo. Desde
 v0.39.5 el único bit que depende del contact store es la presencia
@@ -172,22 +171,10 @@ semántica al downstream (Chatwoot) para que el agente sepa, de un
 vistazo, si el nombre que ve viene de la libreta del bot owner o lo
 puso el propio sender.
 
-El teléfono **sigue presente siempre** (hereda v0.39.4). Las tabs y
-el code block wrap no cambian.
-
-```
-`**Jean Paul**\t\t+34604021705`     ← saved (FullName en libreta)
-hola buenas
-
-`**~Marcelo Lopez**\t+34663504782`  ← no saved (solo PushName)
-hola buenas
-
-`**~Anon**\t\t+34611111111`         ← no saved
-hola buenas
-
-`**Ivan Madrid Sánchez**\t+34633185248`  ← saved
-buenas
-```
+El teléfono **sigue presente siempre** (hereda v0.39.4). En esta
+versión las tabs y el formato `**Name**\t+phone` heredados de v0.39.3
+/ v0.39.4 no cambian — v0.39.6 los reemplaza por el formato
+phone-first con `·`.
 
 **Implementación**:
 
@@ -203,14 +190,89 @@ buenas
   (los pone el bot owner, no el sender). Senders con solo PushName
   conservan el `~`.
 
+### v0.39.6 — reordena el prefijo: `phone · name`, sin bold ni tabs
+
+Decisión pragmática basada en observación directa del render de
+Chatwoot en producción:
+
+1. Chatwoot **no procesa `**bold**` dentro de inline code**: los
+   asteriscos se renderizan como caracteres literales en lugar de
+   negrita.
+2. Chatwoot **colapsa los tabs `\t` a un único espacio** dentro del
+   code block, anulando la heurística de 1/2 tabs según
+   `utf8.RuneCountInString` introducida en v0.39.3.
+3. Chatwoot **preserva caracteres como `·` (U+00B7) y `~` literales**
+   dentro del code block.
+
+Resultado: los formatos v0.39.2–v0.39.5 que dependían de bold + tabs
+para crear contraste visual y alineación de columnas no rendían como
+se asumía. v0.39.6 rediseña el header alrededor de lo que Chatwoot
+**sí** preserva.
+
+**Nuevo formato**: `` `<phone> · <~?><name>` ``
+
+- **Saved**: `` `+34604021705 · Jean Paul` `` (sin tilde)
+- **No saved**: `` `+34663504782 · ~Marcelo Lopez` `` (con tilde)
+
+Estructura:
+
+- **Teléfono primero**, formato E.164 (`+<código país><número>`). Da
+  una posición de columna consistente porque la longitud del E.164 es
+  predecible (típicamente 12–15 caracteres, ±2 entre países).
+- **Separador `·` (middle dot, U+00B7)** con espacio a cada lado.
+  Chatwoot lo preserva literal dentro del code block; no colapsa como
+  los tabs.
+- **Nombre al final**. Como ocupa la cola de la línea, su longitud
+  variable no descuadra ninguna columna previa.
+- **Tilde `~` precede al nombre solo si no saved** (la lógica de
+  v0.39.5 se mantiene íntegra — solo cambia el orden y los
+  separadores).
+- **Todo envuelto en backticks** (inline code block, hereda v0.39.4):
+  Chatwoot lo renderiza monoespaciado con fondo sutil, dando contraste
+  visual con el body sin depender de `**bold**`.
+
+**Eliminado en v0.39.6**:
+
+- Marcadores `**` de bold markdown (no se renderizan dentro de inline
+  code en Chatwoot).
+- Separador por tabs `\t` (Chatwoot los colapsa a un único espacio).
+- Heurística de tab count variable con `utf8.RuneCountInString`
+  (innecesaria al desaparecer los tabs).
+
+Ejemplo de render esperado en Chatwoot:
+
+```
+`+34604021705 · Jean Paul`     ← saved (FullName en libreta)
+hola buenas
+
+`+34663504782 · ~Marcelo Lopez`  ← no saved (solo PushName)
+hola buenas
+
+`+34611111111 · ~Anon`            ← no saved
+hola buenas
+
+`+34633185248 · Ivan Madrid Sánchez`  ← saved
+buenas
+```
+
+**Implementación**:
+
+- `applyGroupSenderPrefix` construye el prefix como
+  `"`" + phone + " · " + tilde + name + "`"` (con `tilde = "~"` si
+  `!saved`, `""` si `saved`).
+- La rama LID → PN fallback de v0.39.5 se mantiene tal cual; solo
+  cambia cómo se ensambla el string final.
+- `utf8.RuneCountInString` deja de invocarse en este path.
+
 ### Resumen del bit saved/unsaved a través de versiones
 
-| Versión | `~` se pone | Teléfono se muestra |
-|---|---|---|
-| v0.31.x | siempre | siempre |
-| v0.32.0–v0.39.3 | siempre | solo si no saved |
-| v0.39.4 | siempre | siempre |
-| **v0.39.5** | **solo si no saved** | **siempre** |
+| Versión | `~` se pone | Teléfono se muestra | Orden |
+|---|---|---|---|
+| v0.31.x | siempre | siempre | `**~name**` + ``\`+phone\``` |
+| v0.32.0–v0.39.3 | siempre | solo si no saved | `**~name**\t(\t)+phone` |
+| v0.39.4 | siempre | siempre | `` `**~name**\t(\t)+phone` `` |
+| v0.39.5 | solo si no saved | siempre | `` `**<~?>name**\t(\t)+phone` `` |
+| **v0.39.6** | **solo si no saved** | **siempre** | `` `+phone · <~?>name` `` (phone-first, `·`, sin bold ni tabs) |
 
 ## `IsContactSaved`: vuelve a consultarse, pero solo para el tilde
 
@@ -280,9 +342,10 @@ independientemente del resultado de `IsContactSaved`.
 
 Si el sender del mensaje es a su vez un JID de grupo (caso raro:
 forwards, anuncios de canal-grupo), el path no cambia: se renderiza
-nombre + tab(s) + el "teléfono" (que sería el ID del grupo).
-`IsContactSaved` devuelve `false` por construcción para groupJIDs, así
-que desde v0.39.5 estos se rinderizan con `~` por defecto.
+`` `<groupJID> · <~?><name>` ``, donde el "teléfono" pasa a ser el ID
+del grupo. `IsContactSaved` devuelve `false` por construcción para
+groupJIDs, así que desde v0.39.5 estos se renderizan con `~` por
+defecto.
 
 ## Verificar que funciona
 
@@ -291,9 +354,9 @@ los logs del downstream deberían mostrar ambos formatos:
 
 ```bash
 docker logs qrsgen 2>&1 | grep "incoming sync" | tail
-# → ... content="`**Jean Paul**\t\t+34622222222`\nhola buenas" ...        (saved)
-# → ... content="`**~Marcelo Lopez**\t+34663504782`\nhola buenas" ...     (no saved)
-# → ... content="`**Ivan Madrid Sánchez**\t+34633185248`\nbuenas" ...     (saved)
+# → ... content="`+34622222222 · Jean Paul`\nhola buenas" ...        (saved)
+# → ... content="`+34663504782 · ~Marcelo Lopez`\nhola buenas" ...   (no saved)
+# → ... content="`+34633185248 · Ivan Madrid Sánchez`\nbuenas" ...   (saved)
 ```
 
 Si todos los senders aparecen con `~` (o ninguno) revisa que la
@@ -335,11 +398,15 @@ teléfono va siempre, independientemente.
   Chatwoot, ese cambio se queda en Chatwoot. qrsgen no propaga edits al
   contact store de WA ni a la libreta del móvil del bot.
 - **Sin opt-out por env var**. No hay flag para volver al formato sin
-  code block, al branching saved/omit-phone, ni al `~` siempre de
-  v0.39.4. Si necesitas un formato anterior, considera abrir un issue.
+  code block, al branching saved/omit-phone, al `~` siempre de
+  v0.39.4 ni al orden `**name**<tabs>+phone` de v0.39.2–v0.39.5. Si
+  necesitas un formato anterior, considera abrir un issue.
 - **Render del code block depende del downstream**. Chatwoot pinta
-  inline code monoespaciado con fondo gris claro. Otros downstreams
-  pueden renderizarlo de forma distinta o ignorar los backticks.
+  inline code monoespaciado con fondo gris claro, preserva `·` y `~`
+  literales, no procesa `**bold**` y colapsa tabs a un único espacio
+  dentro del bloque — todas las decisiones de v0.39.6 se calibraron
+  para Chatwoot. Otros downstreams pueden renderizarlo de forma
+  distinta o ignorar los backticks.
 
 ## Glosario
 
@@ -381,23 +448,28 @@ v0.39.5).
 **Bot owner**: dueño del número de WhatsApp que tiene la sesión
 emparejada con qrsgen.
 
-**Separador del prefijo (v0.39.2)**: tab `\t` (U+0009) entre el nombre
-bold y el teléfono. Reemplaza al em-space (U+2003) previo.
+**Separador del prefijo (v0.39.2, retirado en v0.39.6)**: tab `\t`
+(U+0009) entre el nombre bold y el teléfono. Reemplazó al em-space
+(U+2003) previo. v0.39.6 lo retira porque Chatwoot colapsa tabs a un
+único espacio dentro del code block.
 
-**Tab count variable (v0.39.3)**: regla que elige 2 tabs si
-`utf8.RuneCountInString(name) ≤ 12` y 1 tab si `> 12`. Persigue
-alinear visualmente los teléfonos cuando senders con nombres de
-distinto largo intercambian mensajes en el mismo grupo.
+**Tab count variable (v0.39.3, retirado en v0.39.6)**: regla que
+elegía 2 tabs si `utf8.RuneCountInString(name) ≤ 12` y 1 tab si
+`> 12`. Pretendía alinear visualmente los teléfonos cuando senders
+con nombres de distinto largo intercambiaban mensajes en el mismo
+grupo. v0.39.6 elimina la heurística (Chatwoot colapsaba los tabs a
+un espacio, así que la alineación no se materializaba) y la sustituye
+por el orden phone-first con `·`.
 
 **Code block wrap del header (v0.39.4)**: envoltorio con backticks de
-toda la línea `**Name**<tabs>+phone` (o `**~Name**<tabs>+phone` para
-no saved desde v0.39.5). Chatwoot la renderiza monoespaciada con
-fondo sutil; los `**` aparecen literales porque inline code suprime el
-formato interno.
+toda la línea de header. Chatwoot la renderiza monoespaciada con
+fondo sutil. Se mantiene en v0.39.6 (cambia lo que va dentro, no el
+wrap).
 
 **Teléfono siempre presente (v0.39.4)**: revierte el branching
 saved/omit-phone introducido en v0.32.0. El header incluye el número
-para todos los senders, saved o no. Se mantiene tal cual en v0.39.5.
+para todos los senders, saved o no. Se mantiene tal cual en v0.39.5
+y v0.39.6.
 
 **Tilde `~` solo para no saved (v0.39.5)**: el `~` antes del nombre
 aparece únicamente cuando `IsContactSaved(jid) == false` (no hay
@@ -405,4 +477,15 @@ FullName ni FirstName en el contact store; el nombre viene del
 PushName del sender). Replica la convención de la propia UI de
 WhatsApp y sirve al agente del downstream como señal visual de qué
 nombre viene de la libreta del bot owner y cuál se lo puso el propio
-sender.
+sender. La semántica se mantiene en v0.39.6 (solo cambia la posición
+del tilde en el header, ahora prefijado al nombre que va al final).
+
+**Orden phone-first con `·` (v0.39.6)**: el header pasa de
+`` `**<~?>name**<tabs>+phone` `` a `` `+phone · <~?>name` ``. Motivo:
+Chatwoot no procesa `**bold**` dentro de inline code (los asteriscos
+quedaban literales) y colapsa tabs a un único espacio (la heurística
+de v0.39.3 no producía alineación real). El nuevo orden aprovecha que
+los E.164 tienen longitud predecible para dar columna estable al
+inicio de cada header, usa middle dot `·` (U+00B7) como separador que
+Chatwoot preserva literal, y deja el nombre — el componente más
+variable — al final, donde su longitud no descuadra nada.

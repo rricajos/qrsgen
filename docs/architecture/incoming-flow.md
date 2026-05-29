@@ -25,7 +25,7 @@ bridge/incoming.go:
         │                                  body = "**<tilde><name>** reaccionó con <emoji>"
         │                                          (tilde = "~" si !IsContactSaved, "" si saved — v0.39.5)
         │                                          (en grupo: header en code block,
-        │                                           "`**<tilde><name>**<tabs>+<E164>` reaccionó con <emoji>";
+        │                                           "`+<E164> · <tilde><name>` reaccionó con <emoji>" — v0.39.6;
         │                                           o "_quitó su reacción_" si text=="")
         │                                  POST incoming con
         │                                    source_id="WAID:reaction:<ID>"
@@ -50,14 +50,16 @@ bridge/incoming.go:
         │           saved = resolver.IsContactSaved(jid)   (v0.39.5)
         │             ├─ si LID y !saved: PNForLID → re-check IsContactSaved con PN
         │           tilde = "" si saved, "~" si !saved      (v0.39.5)
-        │           prefix = "`**<tilde><name>**<tabs>+<E164>`"
+        │           prefix = "`+<E164> · <tilde><name>`"   (v0.39.6)
         │           (v0.39.4: header completo envuelto en inline code block
         │            con backticks; teléfono SIEMPRE presente.
         │            v0.39.5: el tilde se prepende SOLO si el contacto no está
         │            guardado — replica la convención de la UI de WhatsApp.
-        │            tabs: 2 si runes(name)≤12, 1 si >12 — v0.39.3 — se calculan
-        │            sobre el nombre sin el `~` para no desalinear;
-        │            separador tab \t U+0009 — v0.39.2)
+        │            v0.39.6: el orden pasa a phone-first, separador middle
+        │            dot " · " (U+00B7), nombre al final. Se eliminan los **
+        │            de bold y los tabs porque Chatwoot no procesa bold dentro
+        │            de inline code y colapsa los tabs a un único espacio —
+        │            la heurística runes/tabs de v0.39.3 deja de aplicar)
         │ construye payload {content, attachments, source_id: WAID:..., ...}
         │ POST al endpoint downstream
         ▼
@@ -124,14 +126,15 @@ reformatee a otro shape si tu downstream no usa Channel::Api.
 `inbox_id` se obtiene de `bridge_instance.inbox_id` para esa instancia;
 si está `NULL` o `0`, cae al `DOWNSTREAM_INBOX_ID` global.
 
-## Prefijo de grupo (v0.39.5: code block + teléfono siempre + tilde solo si no saved)
+## Prefijo de grupo (v0.39.6: code block + phone-first + middle dot + tilde solo si no saved)
 
 Para mensajes cuyo `chat.Server == g.us` (grupos), antes del POST al
 downstream qrsgen llama `applyGroupSenderPrefix(body, msg, resolver)`.
-Desde **v0.39.5** la función vuelve a consultar `IsContactSaved` (que
-se había retirado en v0.39.4), pero solo para decidir si prepende el
-tilde `~` al nombre. El teléfono se sigue incluyendo siempre (hereda
-v0.39.4).
+Desde **v0.39.6** la función construye el header como
+`` `+<E164> · <tilde><name>` ``: teléfono primero, middle dot `·`
+(U+00B7) con espacios a ambos lados como separador, y nombre al final.
+Mantiene la lógica de `IsContactSaved` para el tilde introducida en
+v0.39.5 — solo cambia el ensamblado del string.
 
 ```
 saved = resolver.IsContactSaved(jid)
@@ -139,20 +142,22 @@ if jid es LID y !saved:
     pn = resolver.PNForLID(jid)
     if pn != "": saved = resolver.IsContactSaved(pn)  ← LID/PN fallback
 tilde = "~" if !saved else ""
+prefix = "`" + "+" + e164 + " · " + tilde + name + "`"
 ```
 
 - **Name + phone, saved** (sin tilde):
-  `` `**<name>**<tabs>+<E164>`\n<body> ``
+  `` `+<E164> · <name>`\n<body> ``
 - **Name + phone, no saved** (con tilde):
-  `` `**~<name>**<tabs>+<E164>`\n<body> ``
+  `` `+<E164> · ~<name>`\n<body> ``
 
   Toda la línea de header va dentro de un par de backticks (inline
-  code block, v0.39.4). El separador entre nombre y teléfono es **tab
-  `\t` (U+0009)** (v0.39.2) y el número de tabs depende de
-  `utf8.RuneCountInString(name)`: **2 tabs** si `≤ 12`, **1 tab** si
-  `> 12` (v0.39.3) — calculado sobre el nombre sin `~` para no
-  desalinear. Alinea los teléfonos cuando senders con nombres de
-  distinto largo se mezclan en el mismo grupo.
+  code block, v0.39.4). El separador es **middle dot `·` (U+00B7)**
+  con un espacio a cada lado. Chatwoot lo preserva literal dentro del
+  code block, a diferencia de los tabs `\t` (que colapsa a un único
+  espacio) y de los `**bold**` (que no procesa dentro de inline code y
+  quedan como asteriscos literales). El orden phone-first aprovecha
+  la longitud predecible del E.164 para dar columna estable; el
+  nombre, de largo variable, ocupa la cola y no descuadra nada.
 
 - **Solo name** (sin phone): `**<tilde><name>**:\n<body>` —
   degenerado, sin code block.
@@ -171,8 +176,11 @@ LID anonimizado.
   sin phone).
 - v0.39.4: no se consultaba; el prefijo era idéntico para saved y
   unsaved, siempre con `~` y siempre con phone.
-- **v0.39.5**: vuelve a consultarse, pero condiciona solo el **tilde
+- v0.39.5: vuelve a consultarse, pero condiciona solo el **tilde
   `~`** del nombre. El teléfono se sigue incluyendo siempre.
+- **v0.39.6**: misma semántica que v0.39.5; solo cambia el orden y
+  los separadores del header (`+phone · <~?>name`) y desaparecen los
+  `**` y los tabs.
 
 Detalles e histórico en
 [Formato del prefijo de grupo](../integrations/group-sender-format.md).
@@ -200,9 +208,9 @@ se descartaban. `handleReaction`:
 - Construye el body con uno de los formatos (siendo `<tilde>` = `"~"`
   si !saved, `""` si saved — v0.39.5):
   - 1:1 (no grupo): `**<tilde><name>** reaccionó con <emoji>`
-  - Grupo (v0.39.5): `` `**<tilde><name>**<tabs>+<E164>` reaccionó con <emoji> ``
-    (header completo en code block; tabs: 2 si `runes(name)≤12`, 1 si
-    `>12`, calculadas sobre el nombre sin `~`)
+  - Grupo (v0.39.6): `` `+<E164> · <tilde><name>` reaccionó con <emoji> ``
+    (header completo en code block; phone-first, separador middle dot
+    `·` (U+00B7) con espacios; sin `**bold**` ni tabs)
   - Retracted (text=""): `**<tilde><name>** _quitó su reacción_`
 - POSTea con `message_type: "incoming"` y
   `source_id: "WAID:reaction:<msg.Info.ID>"` — namespace separado del
@@ -426,10 +434,13 @@ block con backticks y teléfono siempre presente, sin consultar
 consultar `IsContactSaved` pero **solo para decidir si prepende el
 tilde `~`** al nombre: contactos saved (FullName/FirstName) van sin
 tilde, contactos solo PushName van con `~`. El teléfono sigue
-incluyéndose siempre (no se revierte el cambio de v0.39.4). Separador
-tab `\t` (U+0009) desde v0.39.2; número de tabs variable (2 si
-`utf8.RuneCountInString(name) ≤ 12`, 1 si `> 12`) desde v0.39.3, sobre
-el nombre sin `~`.
+incluyéndose siempre (no se revierte el cambio de v0.39.4). Desde
+**v0.39.6** el header se reordena a `` `+<E164> · <~?>name` ``
+(phone-first, middle dot `·` (U+00B7) como separador) y se eliminan
+los marcadores `**bold**` y los tabs `\t` porque Chatwoot no procesa
+bold dentro de inline code y colapsa los tabs a un único espacio
+dentro del code block — la heurística de tab count variable de
+v0.39.3 deja de tener efecto y se retira del path.
 
 **`handleReaction`**: handler en `bridge.Incoming` (desde v0.33.0) que
 intercepta `ReactionMessage` antes del path normal de texto/media y

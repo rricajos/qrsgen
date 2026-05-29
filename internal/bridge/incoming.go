@@ -815,11 +815,15 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 	// prefijar el body con un blockquote del mensaje citado. Da contexto
 	// al agente para saber a qué se está respondiendo sin tener que
 	// buscar el msg original arriba en la conv.
+	// v0.44.2: separador entre el blockquote y el reply body baja a
+	// "\n" (era "\n\n") — el doble salto generaba un gap excesivo
+	// entre el citado y la respuesta. Chatwoot cierra el blockquote
+	// con el primer \n no-> y mantiene el reply pegado debajo.
 	if quoted := formatQuotedBlock(msg, r); quoted != "" {
 		if content == "" {
 			content = quoted
 		} else {
-			content = quoted + "\n\n" + content
+			content = quoted + "\n" + content
 		}
 	}
 
@@ -1782,16 +1786,22 @@ func formatQuotedBlock(msg *events.Message, r wameow.WAResolver) string {
 		}
 	}
 
-	header := "> _↩️ respondiendo:_"
+	// v0.44.2: header + primera línea del quoted en la MISMA línea del
+	// blockquote. v0.42.0 las metía en líneas `>` separadas, pero
+	// Chatwoot mete gap visual entre líneas dentro de un blockquote
+	// → header y texto citado salían separados. Pegándolos en una
+	// sola línea quedan visualmente unidos.
+	headerInline := "_↩️ respondiendo:_"
 	if authorName != "" {
-		header = "> _↩️ respondiendo a " + authorName + ":_"
+		headerInline = "_↩️ respondiendo a " + authorName + ":_"
 	}
-	// Prefijar cada línea del quoted text con "> ".
 	lines := strings.Split(text, "\n")
-	for idx, l := range lines {
-		lines[idx] = "> " + l
+	out := make([]string, 0, len(lines))
+	out = append(out, "> "+headerInline+" "+lines[0])
+	for _, l := range lines[1:] {
+		out = append(out, "> "+l)
 	}
-	return header + "\n" + strings.Join(lines, "\n")
+	return strings.Join(out, "\n")
 }
 
 // formatPollContent serializa un PollCreationMessage a un body legible

@@ -53,7 +53,7 @@ func TestFormatQuotedBlock_PlainTextReply(t *testing.T) {
 		names: map[string]string{author.String(): "Pepito"},
 	}
 	got := formatQuotedBlock(msg, r)
-	want := "> _↩️ respondiendo a Pepito:_\n> hola, qué tal"
+	want := "> _↩️ respondiendo a Pepito:_ hola, qué tal"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}
@@ -81,7 +81,7 @@ func TestFormatQuotedBlock_NoResolverFallsBackToPhone(t *testing.T) {
 	msg := mkQuotedTextMsg(chat, sender, author.String(), "msg cita", "msg reply")
 	got := formatQuotedBlock(msg, nil)
 	// Sin resolver: nombre cae a phone E.164.
-	want := "> _↩️ respondiendo a +34600000099:_\n> msg cita"
+	want := "> _↩️ respondiendo a +34600000099:_ msg cita"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}
@@ -93,7 +93,7 @@ func TestFormatQuotedBlock_NoParticipantNoName(t *testing.T) {
 	// 1:1 chat: el Participant es nil porque el author es la otra parte.
 	msg := mkQuotedTextMsg(chat, sender, "", "qué tal", "bien")
 	got := formatQuotedBlock(msg, nil)
-	want := "> _↩️ respondiendo:_\n> qué tal"
+	want := "> _↩️ respondiendo:_ qué tal"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}
@@ -123,7 +123,7 @@ func TestFormatQuotedBlock_MultilineQuotedTextPrefixesEachLine(t *testing.T) {
 
 	msg := mkQuotedTextMsg(chat, sender, author.String(), "linea1\nlinea2\nlinea3", "ok")
 	got := formatQuotedBlock(msg, nil)
-	want := "> _↩️ respondiendo a +34600000099:_\n> linea1\n> linea2\n> linea3"
+	want := "> _↩️ respondiendo a +34600000099:_ linea1\n> linea2\n> linea3"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}

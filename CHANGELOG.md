@@ -4,6 +4,40 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.44.2] - 2026-05-29
+
+UX tweak sobre el quote/reply context (v0.42.0). Chatwoot renderiza
+con gap visual entre líneas `>` dentro de un blockquote y el `\n\n`
+entre el blockquote y el reply body daba demasiado aire. Ahora:
+
+1. Header del quote y primera línea del texto citado salen en la
+   **misma línea** del blockquote → quedan pegados visualmente.
+2. Separador entre blockquote y reply baja de `\n\n` a `\n` → reply
+   directamente debajo del citado sin paragraph gap.
+
+### Changed
+
+- **`formatQuotedBlock` line layout**:
+  - Antes: `> _↩️ respondiendo a X:_\n> texto citado`
+  - Ahora: `> _↩️ respondiendo a X:_ texto citado`
+- **Separador quote→body en `handleMessage`**: `quoted + "\n\n" + content`
+  → `quoted + "\n" + content`.
+- Multiline citado: la primera línea va pegada al header; las
+  siguientes mantienen `\n> ` prefix.
+
+### Tests
+
+- Actualizados los 4 cases afectados (`PlainTextReply`,
+  `NoResolverFallsBackToPhone`, `NoParticipantNoName`,
+  `MultilineQuotedText`). Los 8 cases de `TestFormatQuotedBlock`
+  pasan con el nuevo layout.
+
+### Migration notes
+
+- Sin breaking changes. Parsers regex sobre el formato del quote
+  necesitan actualizarse de `^> _↩️ respondiendo a (.*):_\n> (.*)$`
+  a `^> _↩️ respondiendo a (.*):_ (.*)$`.
+
 ## [0.44.1] - 2026-05-29
 
 Bug fix: el bot reply no reseteaba el `groupTracker` de burst, así que

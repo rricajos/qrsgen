@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.44.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.44.1 (fix: bot reply resetea correctamente el burst del groupTracker — el siguiente msg del usuario vuelve a llevar header). |
+| `QRSGEN_VERSION` | `0.44.2` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.44.2 (UX: quote/reply context más compacto — header y texto citado pegados en la misma línea, y reply pegado al blockquote). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

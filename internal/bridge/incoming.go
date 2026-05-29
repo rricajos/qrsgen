@@ -1086,7 +1086,48 @@ func extractTextContent(msg *events.Message) string {
 	if ext := msg.Message.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
 		return ext.GetText()
 	}
+	// Location messages se renderizan como link + label legible.
+	// Solo aplicamos si el msg trae LocationMessage; live locations
+	// (isLive=true) salen igual — el agente ve un link estático con
+	// las coords del último update recibido.
+	if loc := msg.Message.GetLocationMessage(); loc != nil {
+		return formatLocationContent(loc)
+	}
 	return ""
+}
+
+// formatLocationContent serializa un LocationMessage a un body legible
+// con link a Google Maps. Si el mensaje incluye Name/Address de WhatsApp
+// (POI o lugar guardado), los antepone para contexto. Si IsLive, lo marca
+// como live location en el header.
+func formatLocationContent(loc *waE2E.LocationMessage) string {
+	lat := loc.GetDegreesLatitude()
+	lng := loc.GetDegreesLongitude()
+	// Evita coordenadas 0,0 vacías — formato no útil.
+	if lat == 0 && lng == 0 {
+		return ""
+	}
+	header := "📍 Ubicación compartida"
+	if loc.GetIsLive() {
+		header = "📍 Ubicación en vivo"
+	}
+
+	parts := []string{header}
+	if name := loc.GetName(); name != "" {
+		parts = append(parts, "**"+name+"**")
+	}
+	if addr := loc.GetAddress(); addr != "" {
+		parts = append(parts, addr)
+	}
+	// Link a Google Maps — formato universal que todos los browsers
+	// abren bien. Lat/lng con 6 decimales (precisión ~10cm).
+	link := fmt.Sprintf("https://maps.google.com/?q=%.6f,%.6f", lat, lng)
+	parts = append(parts, link)
+
+	if cmt := loc.GetComment(); cmt != "" {
+		parts = append(parts, "_"+cmt+"_")
+	}
+	return strings.Join(parts, "\n")
 }
 
 func pickName(resolvedName string, rs resolvedSender) string {

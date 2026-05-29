@@ -307,6 +307,77 @@ func TestExtractTextContent(t *testing.T) {
 	}
 }
 
+func TestFormatLocationContent(t *testing.T) {
+	lat := 41.385064
+	lng := 2.173404
+	t.Run("plain lat/lng → header + maps link", func(t *testing.T) {
+		loc := &waE2E.LocationMessage{
+			DegreesLatitude:  &lat,
+			DegreesLongitude: &lng,
+		}
+		got := formatLocationContent(loc)
+		want := "📍 Ubicación compartida\nhttps://maps.google.com/?q=41.385064,2.173404"
+		if got != want {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("with name and address → header + bold name + address + link", func(t *testing.T) {
+		name := "La Sagrada Familia"
+		addr := "Carrer de Mallorca 401, Barcelona"
+		loc := &waE2E.LocationMessage{
+			DegreesLatitude:  &lat,
+			DegreesLongitude: &lng,
+			Name:             &name,
+			Address:          &addr,
+		}
+		got := formatLocationContent(loc)
+		want := "📍 Ubicación compartida\n**La Sagrada Familia**\nCarrer de Mallorca 401, Barcelona\nhttps://maps.google.com/?q=41.385064,2.173404"
+		if got != want {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("live location → header dice en vivo", func(t *testing.T) {
+		isLive := true
+		loc := &waE2E.LocationMessage{
+			DegreesLatitude:  &lat,
+			DegreesLongitude: &lng,
+			IsLive:           &isLive,
+		}
+		got := formatLocationContent(loc)
+		want := "📍 Ubicación en vivo\nhttps://maps.google.com/?q=41.385064,2.173404"
+		if got != want {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("with comment → italic al final", func(t *testing.T) {
+		cmt := "nos vemos aquí"
+		loc := &waE2E.LocationMessage{
+			DegreesLatitude:  &lat,
+			DegreesLongitude: &lng,
+			Comment:          &cmt,
+		}
+		got := formatLocationContent(loc)
+		want := "📍 Ubicación compartida\nhttps://maps.google.com/?q=41.385064,2.173404\n_nos vemos aquí_"
+		if got != want {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("zero lat/lng → empty (invalid location)", func(t *testing.T) {
+		zero := 0.0
+		loc := &waE2E.LocationMessage{
+			DegreesLatitude:  &zero,
+			DegreesLongitude: &zero,
+		}
+		if got := formatLocationContent(loc); got != "" {
+			t.Errorf("zero coords: got %q, want empty", got)
+		}
+	})
+}
+
 // mkGroupMsg construye un events.Message como si llegara desde un grupo.
 // chat es el JID del grupo (@g.us), sender es el participante.
 func mkGroupMsg(chat, sender types.JID, pushName string) *events.Message {

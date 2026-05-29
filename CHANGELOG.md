@@ -4,6 +4,48 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-05-28
+
+Soporte para mensajes de ubicación de WhatsApp. Antes se veían vacíos
+en el downstream; ahora aparecen con link a Google Maps + opcionalmente
+nombre del lugar (POI), dirección y comment del cliente.
+
+### Added
+
+- **`formatLocationContent`** helper en `internal/bridge/incoming.go`.
+  Extrae lat/lng del `LocationMessage` y genera un body legible con
+  link directo a Google Maps. Incluye:
+  - Header `📍 Ubicación compartida` (o `📍 Ubicación en vivo` si IsLive)
+  - Nombre del POI en bold (si lo provee el cliente)
+  - Dirección textual (si la provee)
+  - Link `https://maps.google.com/?q=LAT,LNG` con precisión 6 decimales
+  - Comment del cliente en italic (si lo añadió)
+- **`extractTextContent` ahora delega en `formatLocationContent`** cuando
+  el mensaje tiene `LocationMessage` no-nil — antes caía a "msg sin
+  contenido" y se ignoraba.
+
+### Behavior
+
+- **Live locations** (cuando el cliente envía ubicación actualizable
+  por tiempo limitado): cada update genera un mensaje nuevo con el
+  header "en vivo". qrsgen no aggrega ni edita el msg anterior — la
+  conv en Chatwoot recibe N snapshots, uno por update WA.
+- **Coordenadas 0,0** se ignoran (location inválida o vacía).
+- **Compatibilidad con Google Maps**: el link funciona en cualquier
+  cliente (móvil, web, etc.) y ofrece direcciones automáticas.
+
+### Tests
+
+- 5 sub-tests en `TestFormatLocationContent` cubriendo: lat/lng pelado,
+  con name+address, live, con comment, coordenadas inválidas (0,0).
+
+### Migration notes
+
+- Sin breaking changes. Mensajes de location que antes se descartaban
+  ahora aparecen con contenido. Si tu integración n8n parseaba el
+  body raw esperando mensajes vacíos para detectar location, ajusta
+  el matching (el patrón `^📍 ` es el indicador canónico).
+
 ## [0.35.0] - 2026-05-28
 
 Observability: contador Prometheus unificado para los eventos

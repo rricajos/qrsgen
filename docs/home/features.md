@@ -102,10 +102,10 @@ switch via `QRSGEN_REACTIONS_SYNC` (default `true`). Las reacciones
 del propio bot owner (`IsFromMe=true`) se ignoran. Detalles en
 [Sincronización de reacciones](../integrations/reactions-sync.md).
 
-## Typing indicators y read receipts
+## Typing indicators, read receipts y mark-as-read bidireccional
 
-Desde **v0.34.0** y **v0.34.1**, qrsgen propaga al downstream dos
-señales de interacción en tiempo real que antes se descartaban:
+Desde **v0.34.0**, **v0.34.1** y **v0.39.0**, qrsgen propaga señales
+de interacción en tiempo real en ambas direcciones:
 
 - **Typing indicators (v0.34.0)** — cuando el cliente WhatsApp empieza
   a escribir (`composing`) o se detiene (`paused`), qrsgen llama
@@ -114,21 +114,34 @@ señales de interacción en tiempo real que antes se descartaban:
   de estado siempre emiten, mismo estado dentro de 4s se silencia para
   no inundar al downstream con keystrokes repetidos. Master switch via
   `QRSGEN_TYPING_SYNC` (default `true`).
-- **Read receipts (v0.34.1)** — cuando el cliente abre el chat y lee
-  los mensajes del agente, qrsgen llama `POST /update_last_seen` con
-  `agent_last_seen_at` y `contact_last_seen_at` ambos igual al
+- **Read receipts incoming (v0.34.1)** — cuando el cliente abre el chat
+  y lee los mensajes del agente, qrsgen llama `POST /update_last_seen`
+  con `agent_last_seen_at` y `contact_last_seen_at` ambos igual al
   timestamp del receipt. La UI marca los mensajes del agente como
   leídos (equivalente al doble tick azul). Solo se propagan `read` y
   `read-self`; `delivered`, `played`, `sender` se ignoran por menos
   accionables. Master switch via `QRSGEN_READ_RECEIPTS_SYNC` (default
   `true`).
+- **Mark-as-read outgoing (v0.39.0)** — cierra el ciclo bidireccional:
+  cuando el agente abre la conversación en Chatwoot y la marca como
+  leída, qrsgen propaga `MarkRead` a WhatsApp para que el cliente
+  remoto vea el doble check azul sobre sus mensajes incoming. qrsgen
+  registra cada WAID en un tracker in-memory (`waidTracker`) tras un
+  `PostMessage` exitoso, y al recibir el webhook `conversation_updated`
+  drena los WAIDs `≤ agent_last_seen_at` y llama `client.MarkRead()` de
+  whatsmeow. **Requiere suscribir el evento `conversation_updated`** en
+  el webhook de Chatwoot (sin esa config el feature no rompe, solo no
+  marca). Master switch via `QRSGEN_MARK_AS_READ_OUTGOING` (default
+  `true`).
 
-Ambas son fire-and-forget, read-only sobre WhatsApp (no se envía
-`MarkRead` de vuelta), y comparten arquitectura platform-agnostic vía
-`downstream.Client`. Limitaciones: grupos solo muestran un indicador
-agregado ("alguien está escribiendo..."); privacy settings del sender
-pueden ocultar receipts (cobertura parcial). Detalles en
-[Typing indicators y read receipts](../integrations/presence-and-receipts.md).
+Las tres son fire-and-forget. Desde v0.39.0 el `MarkRead` outgoing es la
+única excepción a la convención "read-only sobre WhatsApp"; typing y
+edición de perfil siguen siendo read-only. Limitaciones: grupos solo
+muestran un indicador agregado ("alguien está escribiendo..."); privacy
+settings del sender pueden ocultar receipts (cobertura parcial); el
+`waidTracker` es in-memory y se pierde en restart, así que mensajes
+leídos durante downtime no se marcan retroactivamente en WA. Detalles
+en [Presencia y read receipts](../integrations/presence-and-receipts.md).
 
 ## Soporte de contenido de mensajes (location, polls, media polish)
 
@@ -310,6 +323,29 @@ reproducido). qrsgen filtra por `Type` y solo propaga `read` y
 deduplica los POSTs `toggle_typing_status` al downstream. Cambios de
 estado siempre emiten; mismo estado dentro de `minInterval` (default
 4s) NO emite.
+
+**Mark-as-read outgoing (v0.39.0)**: propagación de la lectura del
+agente en Chatwoot hacia WhatsApp via `client.MarkRead()` de whatsmeow.
+Es el inverso de read receipts incoming (v0.34.1) y cierra el ciclo
+bidireccional del doble check azul. Controlado por
+`QRSGEN_MARK_AS_READ_OUTGOING`. Requiere que el webhook de Chatwoot
+suscriba el evento `conversation_updated` además de `message_created`.
+
+**`waidTracker`**: estructura in-memory per-conversación introducida en
+v0.39.0 que registra los WAIDs de mensajes incoming junto con su
+timestamp, para drenarlos cuando el agente lea en el downstream.
+Compartida entre `bridge.Incoming` (registra) y `bridge.Outgoing`
+(drena). Cap de 50 entradas/conv (FIFO) y reset on restart.
+
+**`ReadMarker`**: interfaz minimal de qrsgen (v0.39.0) con un solo
+método `MarkRead(ctx, chat, sender, messageIDs, ts)`. Desacopla
+`bridge.Outgoing` del cliente WA concreto e implementada por
+`wameow.Conn.MarkRead`.
+
+**`conversation_updated`**: webhook que Chatwoot emite cuando algo
+cambia en una conversación (lectura, asignación, etiquetas). qrsgen
+suscribe este evento desde v0.39.0 para detectar el
+`agent_last_seen_at` y disparar `MarkRead` outgoing.
 
 **`LocationMessage`**: payload de WhatsApp cuando el cliente comparte
 una ubicación. Trae `DegreesLatitude`/`DegreesLongitude` y

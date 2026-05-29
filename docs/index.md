@@ -25,8 +25,9 @@ Tu webhook endpoint
 - **[Características destacadas](home/features.md)** — outbox,
   BanWatcher, audit log, usage tracking, HMAC, hardening, avatar sync,
   formato adaptativo del prefijo de grupo, sincronización de reacciones,
-  typing indicators y read receipts, observabilidad de features
-  real-time, soporte para location, polls y media polish.
+  typing indicators, read receipts y mark-as-read bidireccional,
+  observabilidad de features real-time, soporte para location, polls y
+  media polish.
 - **[Por dónde empezar](home/getting-started.md)** — caminos para
   integrar, entender, desplegar u operar.
 - **[Estado del proyecto](home/status.md)** — telemetría en vivo

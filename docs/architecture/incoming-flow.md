@@ -54,6 +54,9 @@ Tu sistema recibe el POST y procesa
         │
         └─ usage.IncIn(instance)
         └─ metric qrsgen_messages_total{direction="in"}++
+        └─ waidTracker.RecordIncoming(convID, WAID, ts)  (v0.39.0)
+              ──► luego drenado por conversation_updated
+                  para disparar MarkRead → WA (doble check azul)
         └─ maybeAvatarSync(jid)  ──► goroutine (fire-and-forget)
                                        │
                                        ▼
@@ -248,6 +251,70 @@ el siguiente `read` corregirá el `last_seen_at` si el POST falla.
 Detalles en
 [Typing indicators y read receipts](../integrations/presence-and-receipts.md).
 
+## Mark-as-read outgoing (v0.39.0) — cierra el ciclo bidireccional
+
+Desde v0.39.0 el flujo incoming registra cada mensaje en un tracker
+in-memory tras `PostMessage` exitoso para permitir que el path
+**outgoing** (webhook `conversation_updated` desde Chatwoot) propague
+`MarkRead` a WhatsApp cuando el agente lee. Es el inverso del
+v0.34.1 (read receipts incoming).
+
+```
+sync() incoming, tras PostMessage exitoso:
+        │
+        └─ waidTracker.RecordIncoming(convID, msg.Info.ID, msg.Info.Timestamp)
+                cap 50 entradas/conv (FIFO al desbordar)
+
+────────────────────────────────────────────────────────────────────
+
+POST /api/instances/{name}/webhook (Chatwoot envía conversation_updated)
+        │
+        ▼
+bridge.Outgoing.HandleWebhook:
+        │ event == "conversation_updated"?
+        │ payload.Conversation.AgentLastSeenAt > 0?
+        │     (si no, ignorar — Chatwoot emite el evento por muchos
+        │      motivos: cambio de etiqueta, asignación, status...)
+        ▼
+waids := waidTracker.DrainBefore(convID, agent_last_seen_at)
+        │ devuelve los WAIDs con ts ≤ cutoff (idempotente: la siguiente
+        │ llamada con mismo cutoff devuelve [])
+        ▼
+ReadMarker.MarkRead(ctx, chat, sender, waids, agent_last_seen_at)
+        │ wameow.Conn.MarkRead → client.MarkRead() de whatsmeow
+        ▼
+Cliente WA ve doble check azul sobre los mensajes incluidos
+```
+
+**Componentes nuevos** (v0.39.0):
+
+- `wameow.Conn.MarkRead(ctx, chat, sender, messageIDs, ts)` — wrapper
+  fino sobre `client.MarkRead()` de whatsmeow. Idempotente.
+- `bridge.waidTracker` — tracker in-memory per-conv. Métodos
+  `RecordIncoming` (llamado por incoming `sync()`) y `DrainBefore`
+  (llamado por outgoing `HandleWebhook`).
+- `bridge.ReadMarker` — interfaz pequeña con un solo método; desacopla
+  `Outgoing` del cliente WA real.
+- `bridge.Outgoing.EnableMarkAsRead(waids, marker)` — wire en
+  `main.go`.
+- `bridge.Incoming.EnableMarkAsRead()` devuelve `*waidTracker`; el
+  mismo tracker se inyecta en `Outgoing.EnableMarkAsRead` para que
+  ambas direcciones compartan estado.
+- `WebhookPayload.Conversation.AgentLastSeenAt` /
+  `ContactLastSeenAt` — campos nuevos parseados del webhook.
+- `senderAdapter.MarkRead` en `main.go` puentea hacia `wameow.Conn`.
+
+**Configuración REQUERIDA en Chatwoot**: el webhook (mismo endpoint
+que ya se usa para `message_created`) debe suscribir adicionalmente
+`conversation_updated`. Sin esa config el feature no rompe, solo no
+opera (qrsgen nunca recibe la señal de cuándo el agente leyó).
+
+Master switch `QRSGEN_MARK_AS_READ_OUTGOING` (default `true`). Sin
+retry: tracker in-memory + idempotencia natural cubren el caso
+fallido. Restart pierde el historial — mensajes leídos durante
+downtime no se marcan retroactivamente en WA (cosmético). Detalles en
+[Mark-as-read outgoing (v0.39.0)](../integrations/presence-and-receipts.md#mark-as-read-outgoing-v0390).
+
 ## Side effect: avatar sync
 
 Tras el POST al downstream, `sync()` llama también a `maybeAvatarSync`
@@ -336,3 +403,28 @@ estado siempre emiten; mismo estado dentro de `minInterval` (default
 Chatwoot que registra cuándo el contacto vio la conversación por
 última vez. qrsgen lo actualiza con el `receipt.Timestamp` de los
 read receipts entrantes.
+
+**`agent_last_seen_at`**: campo de la conversación en el modelo de
+Chatwoot que registra cuándo el agente vio la conversación por última
+vez. Llega en el webhook `conversation_updated` y desde v0.39.0 qrsgen
+lo usa como cutoff para drenar el `waidTracker` y disparar `MarkRead`
+hacia WhatsApp.
+
+**`waidTracker`** (v0.39.0): tracker in-memory per-conversación que
+guarda los WAIDs de mensajes incoming junto con su timestamp para
+permitir `MarkRead` outgoing cuando el agente lee. Métodos
+`RecordIncoming(convID, waid, ts)` (llamado en `sync()` incoming tras
+`PostMessage`) y `DrainBefore(convID, cutoffTS)` (llamado en
+`HandleWebhook` outgoing al recibir `conversation_updated`). Cap por
+defecto de 50 entradas/conv (FIFO). Reset on restart.
+
+**`ReadMarker`** (v0.39.0): interfaz minimal (un solo método
+`MarkRead(ctx, chat, sender, messageIDs, ts)`) que desacopla
+`bridge.Outgoing` del cliente WA concreto. Implementada por
+`wameow.Conn.MarkRead`.
+
+**`conversation_updated`**: webhook emitido por Chatwoot cuando algo
+cambia en una conversación. Desde v0.39.0 qrsgen lo procesa para
+detectar `agent_last_seen_at` y disparar `MarkRead` outgoing. Requiere
+suscripción explícita en la configuración del webhook (no viene por
+defecto).

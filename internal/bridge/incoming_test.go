@@ -542,23 +542,22 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 		}
 	})
 
-	t.Run("saved contact → phone always shown (v0.39.4 reverts hide-on-saved)", func(t *testing.T) {
-		// Desde v0.39.4 el teléfono se muestra SIEMPRE, esté el contacto
-		// en agenda o no. Antes (v0.32.0..v0.39.3) se omitía si saved=true.
+	t.Run("saved contact → name without tilde (v0.39.5)", func(t *testing.T) {
+		// Desde v0.39.5: contactos guardados en agenda van sin ~ delante
+		// del nombre. Teléfono se sigue mostrando siempre (v0.39.4).
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		r := &fakeResolver{
 			names:     map[string]string{senderPN.String(): "Jean Paul"},
 			savedJIDs: map[string]bool{senderPN.String(): true},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`**~Jean Paul**\t\t+34640047775`\nhola"
+		want := "`**Jean Paul**\t\t+34640047775`\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 
-	t.Run("LID resolved to PN → phone shown", func(t *testing.T) {
-		// LID anónimo, sin name directo. Resolver mapea a PN.
+	t.Run("saved LID resolved to saved PN → name without tilde", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderLID, "Anon")
 		r := &fakeResolver{
 			pnByLID:   map[string]types.JID{senderLID.String(): senderPN},
@@ -566,7 +565,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			savedJIDs: map[string]bool{senderPN.String(): true},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`**~Jean Paul**\t\t+34640047775`\nhola"
+		want := "`**Jean Paul**\t\t+34640047775`\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}

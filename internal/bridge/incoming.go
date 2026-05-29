@@ -1062,24 +1062,37 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	}
 
 	name := ""
+	saved := false
 	if r != nil {
 		name = r.ContactName(sender.ToNonAD())
-		// LID sin nombre: intentar via PN. v0.39.4: ya no consultamos
-		// IsContactSaved porque siempre mostramos el teléfono.
-		if sender.Server == types.HiddenUserServer && name == "" {
+		saved = r.IsContactSaved(sender.ToNonAD())
+		// LID sin nombre o sin saved: intentar via PN.
+		if sender.Server == types.HiddenUserServer && (name == "" || !saved) {
 			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
-				name = r.ContactName(pn)
+				if name == "" {
+					name = r.ContactName(pn)
+				}
+				if !saved {
+					saved = r.IsContactSaved(pn)
+				}
 			}
 		}
 	}
 	if name == "" {
 		name = msg.Info.PushName
+		// PushName NO cuenta como saved (auto-asignado por el remitente,
+		// no por el dueño del bot).
 	}
 
-	// v0.39.4: el header completo va en code block (backticks) — pierde
-	// el bold de los `**` (markdown no procesa dentro de inline code) pero
-	// gana el background distintivo monospace de Chatwoot para el bloque
-	// entero. Siempre mostramos teléfono (sin omitir por IsContactSaved).
+	// v0.39.4: header completo wrapped en code block.
+	// v0.39.5: ~ delante del nombre SOLO si el contacto NO está guardado.
+	// Replica el convention de WhatsApp donde los contactos en agenda
+	// no llevan tilde y los conocidos solo por push name sí lo llevan.
+	nameMark := "**~" + name + "**"
+	if saved {
+		nameMark = "**" + name + "**"
+	}
+
 	var prefix string
 	switch {
 	case phoneDigits != "" && name != "":
@@ -1090,9 +1103,9 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 		if utf8.RuneCountInString(name) <= 12 {
 			tabs = "		"
 		}
-		prefix = "`**~" + name + "**" + tabs + formatE164(phoneDigits) + "`"
+		prefix = "`" + nameMark + tabs + formatE164(phoneDigits) + "`"
 	case name != "":
-		prefix = "`**~" + name + "**:`"
+		prefix = "`" + nameMark + ":`"
 	case phoneDigits != "":
 		prefix = "`" + formatE164(phoneDigits) + ":`"
 	default:

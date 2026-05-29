@@ -4,6 +4,43 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.5] - 2026-05-28
+
+Tilde (`~`) delante del nombre solo cuando el contacto NO está
+guardado en agenda — replica la convention de WhatsApp donde los
+contactos en la libreta del bot no llevan tilde y los conocidos
+solo por push name sí lo llevan.
+
+### Changed
+
+- **`applyGroupSenderPrefix` reintroduce la lectura de
+  `IsContactSaved`** (eliminada en v0.39.4). Pero esta vez no afecta
+  a la presencia del teléfono — solo al prefijo `~`:
+  - Contacto saved: `` `**Jean Paul**\t\t+34604021705` `` (sin `~`)
+  - No saved:       `` `**~Jean Paul**\t\t+34604021705` `` (con `~`)
+- El teléfono se sigue mostrando SIEMPRE (v0.39.4 stays).
+- Lookup LID → PN: si el sender es LID y no es saved/no tiene name,
+  se intenta resolver al PN equivalente vía `PNForLID` y se
+  re-chequea allí. Mismo patrón que v0.32.0/v0.39.3.
+
+### Examples
+
+```
+Saved (Google Contacts → libreta → WA):
+  `**Richard**		+34604021705`
+  (mensaje)
+
+No saved (solo push name):
+  `**~Marcelo Lopez**	+34663504782`
+  (mensaje)
+```
+
+### Migration notes
+
+- Sin breaking changes en API. Si tu integración parseaba el `~`
+  como indicador absoluto de "es un grupo", ahora puede no aparecer
+  — usa los backticks como delimitador del header en su lugar.
+
 ## [0.39.4] - 2026-05-28
 
 Dos cambios en el prefijo de grupo:

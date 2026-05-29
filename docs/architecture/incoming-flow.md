@@ -21,10 +21,11 @@ bridge/incoming.go:
         │                                          │
         │                                          ▼
         │                                  resuelve sender + conv
-        │                                  aplica name resolver
-        │                                    (IsContactSaved + LID/PN)
+        │                                  aplica name resolver (LID/PN)
         │                                  body = "**~<name>** reaccionó con <emoji>"
-        │                                          (o "_quitó su reacción_")
+        │                                          (en grupo: header en code block,
+        │                                           "`**~<name>**<tabs>+<E164>` reaccionó con <emoji>";
+        │                                           o "_quitó su reacción_" si text=="")
         │                                  POST incoming con
         │                                    source_id="WAID:reaction:<ID>"
         │                                          │
@@ -45,10 +46,11 @@ bridge/incoming.go:
         │        ├─ AudioMessage       ──► sanitizeMime + default audio/ogg
         │        └─ StickerMessage     ──► default image/webp si mime vacío
         │ si grupo: applyGroupSenderPrefix(body, msg, resolver)
-        │           ├─ IsContactSaved(sender)? ──► sí: prefix = "**~<name>**"
-        │           └─                             no: prefix = "**~<name>**<tabs>+<E164>"
-        │                                              (tabs: 2 si runes(name)≤12, 1 si >12 — v0.39.3;
-        │                                               teléfono en plano sin backticks — v0.39.2)
+        │           prefix = "`**~<name>**<tabs>+<E164>`"
+        │           (v0.39.4: header completo envuelto en inline code block
+        │            con backticks; teléfono SIEMPRE presente — IsContactSaved
+        │            ya no se consulta. tabs: 2 si runes(name)≤12, 1 si >12 —
+        │            v0.39.3; separador tab \t U+0009 — v0.39.2)
         │ construye payload {content, attachments, source_id: WAID:..., ...}
         │ POST al endpoint downstream
         ▼
@@ -115,31 +117,38 @@ reformatee a otro shape si tu downstream no usa Channel::Api.
 `inbox_id` se obtiene de `bridge_instance.inbox_id` para esa instancia;
 si está `NULL` o `0`, cae al `DOWNSTREAM_INBOX_ID` global.
 
-## Prefijo de grupo (saved/unsaved branching)
+## Prefijo de grupo (formato unificado v0.39.4)
 
 Para mensajes cuyo `chat.Server == g.us` (grupos), antes del POST al
 downstream qrsgen llama `applyGroupSenderPrefix(body, msg, resolver)`.
-Esta función decide el formato del prefix según si el sender está
-guardado en la libreta del bot owner (vía `WAResolver.IsContactSaved`,
-que consulta `client.Store.Contacts.GetContact` de whatsmeow):
+Desde **v0.39.4** la función ya no consulta `IsContactSaved`: el
+formato es el mismo para todos los senders, saved o no.
 
-- **Saved + name disponible**: `**~<name>**\n<body>` — el agente ya
-  sabe quién es; omitimos el teléfono.
-- **No saved + name + phone** (v0.39.2 + v0.39.3):
-  `**~<name>**<tabs>+<E164>\n<body>` — separador **tab `\t` (U+0009)**
-  y teléfono en plano (sin code block backticks). El número de tabs
-  depende de `utf8.RuneCountInString(name)`: **2 tabs** si `≤ 12`,
-  **1 tab** si `> 12`. Alinea los teléfonos visualmente cuando senders
-  con nombres de distinto largo se mezclan en el mismo grupo.
-- **Solo name** (sin phone): `**~<name>**:\n<body>`.
-- **Solo phone** (sin name): `+<E164>:\n<body>` — desde v0.39.2 también
-  en plano, sin backticks.
+- **Name + phone** (caso normal):
+  `` `**~<name>**<tabs>+<E164>`\n<body> `` — toda la línea de header
+  va dentro de un par de backticks (inline code block, v0.39.4). El
+  separador entre nombre y teléfono es **tab `\t` (U+0009)** (v0.39.2)
+  y el número de tabs depende de `utf8.RuneCountInString(name)`:
+  **2 tabs** si `≤ 12`, **1 tab** si `> 12` (v0.39.3). Alinea los
+  teléfonos cuando senders con nombres de distinto largo se mezclan
+  en el mismo grupo.
+- **Solo name** (sin phone): `**~<name>**:\n<body>` — degenerado, sin
+  code block.
+- **Solo phone** (sin name): `+<E164>:\n<body>` — degenerado, sin
+  backticks (desde v0.39.2).
 
-Si el sender llega como LID y la primera consulta no es saved o no
-tiene nombre, qrsgen intenta resolver el LID a PN vía `PNForLID` y
-re-pregunta `IsContactSaved`/`ContactName` sobre el PN. Cubre
-contactos guardados por número que llegan anonimizados en grupos.
-Detalles en
+Si el sender llega como LID, qrsgen sigue resolviendo a PN vía
+`PNForLID` para obtener `ContactName` y phone presentables. Lo que ya
+no se hace es preguntar `IsContactSaved` para decidir si omitir el
+teléfono — desde v0.39.4 el teléfono se incluye siempre.
+
+**Cambio respecto a v0.32.0..v0.39.3**: en ese rango, contactos
+saved (FullName o FirstName en el contact store) mostraban solo el
+nombre, sin teléfono. v0.39.4 revierte esa rama. `IsContactSaved`
+sigue en la interfaz `WAResolver` pero `applyGroupSenderPrefix` no lo
+llama.
+
+Detalles e histórico en
 [Formato del prefijo de grupo](../integrations/group-sender-format.md).
 
 ## Reacciones (handleReaction)
@@ -158,14 +167,15 @@ se descartaban. `handleReaction`:
 
 - Resuelve sender + conversación por el mismo camino que un mensaje
   normal (LID↔PN, contact lookup en downstream).
-- Aplica el name resolver de `applyGroupSenderPrefix` incluyendo
-  `IsContactSaved` (v0.32.0) para decidir si incluye teléfono.
-- Construye el body con uno de tres formatos:
-  - `**~<name>** reaccionó con <emoji>` (saved)
-  - `**~<name>**<tabs>+<E164> reaccionó con <emoji>` (no saved en
-    grupo; v0.39.2/v0.39.3: tab(s) + teléfono en plano, 2 tabs si
-    `runes(name)≤12`, 1 tab si `>12`)
-  - `**~<name>** _quitó su reacción_` (text="" → retracted)
+- Aplica el name resolver compartido con `applyGroupSenderPrefix`.
+  Desde v0.39.4 ese resolver ya no consulta `IsContactSaved` para
+  decidir si incluye teléfono — siempre lo incluye en grupos.
+- Construye el body con uno de los formatos:
+  - 1:1 (no grupo): `**~<name>** reaccionó con <emoji>`
+  - Grupo (v0.39.4): `` `**~<name>**<tabs>+<E164>` reaccionó con <emoji> ``
+    (header completo en code block; tabs: 2 si `runes(name)≤12`, 1 si
+    `>12`)
+  - Retracted (text=""): `**~<name>** _quitó su reacción_`
 - POSTea con `message_type: "incoming"` y
   `source_id: "WAID:reaction:<msg.Info.ID>"` — namespace separado del
   mensaje target para evitar colisión en el dedup del downstream.
@@ -379,14 +389,16 @@ avatar del contacto. Corre en paralelo al POST del mensaje. Gated
 por un tracker in-memory que usa TTL + comparación de `info.ID` para
 minimizar tráfico.
 
-**Prefijo de grupo adaptativo**: rama de decisión en
-`applyGroupSenderPrefix` (desde v0.32.0) que omite el teléfono cuando
-el sender está guardado en la libreta del bot owner. Detectado vía
-`IsContactSaved` contra el contact store de whatsmeow. Desde v0.39.2
-el separador entre nombre y teléfono es **tab `\t` (U+0009)** y el
-teléfono se renderiza en **plano** (sin code block backticks). Desde
-v0.39.3 el número de tabs es variable: 2 si `utf8.RuneCountInString(name) ≤ 12`,
-1 si `> 12`.
+**Prefijo de grupo**: header que `applyGroupSenderPrefix` antepone
+al body para mensajes de grupo. Desde v0.32.0 hasta v0.39.3 fue
+adaptativo (omitía el teléfono para senders guardados, vía
+`IsContactSaved`). Desde **v0.39.4** el formato es único para todos:
+`` `**~<name>**<tabs>+<E164>` `` con toda la línea de header envuelta
+en un inline code block (backticks) y el teléfono siempre presente.
+`IsContactSaved` sigue en la interfaz `WAResolver` pero
+`applyGroupSenderPrefix` ya no lo consulta. Separador tab `\t`
+(U+0009) desde v0.39.2; número de tabs variable (2 si
+`utf8.RuneCountInString(name) ≤ 12`, 1 si `> 12`) desde v0.39.3.
 
 **`handleReaction`**: handler en `bridge.Incoming` (desde v0.33.0) que
 intercepta `ReactionMessage` antes del path normal de texto/media y

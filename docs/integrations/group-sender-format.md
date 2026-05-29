@@ -1,12 +1,10 @@
-# Formato adaptativo del prefijo de grupo
+# Formato del prefijo de grupo
 
-A partir de **v0.32.0**, el prefijo que qrsgen antepone al body de los
-mensajes de grupo se adapta según si el remitente está guardado en la
-libreta de contactos del número conectado o no. Si el agente (humano o
-bot) ya sabe quién es por el nombre, el bloque de teléfono se omite —
-ya no aporta información. Si solo conocemos al sender por su push name,
-se mantiene el código de teléfono para que el agente pueda
-identificarlo.
+A partir de **v0.39.4**, el prefijo que qrsgen antepone al body de los
+mensajes de grupo tiene un único formato: la línea completa de header
+(nombre bold + tab(s) + teléfono) va envuelta en **inline code block**
+con backticks. El teléfono se incluye **siempre**, sin importar si el
+remitente está guardado en la libreta del número conectado.
 
 > **Read-only sobre WhatsApp**: qrsgen solo lee
 > `client.Store.Contacts.GetContact`. No edita la libreta del móvil ni
@@ -16,23 +14,26 @@ identificarlo.
 
 ## TL;DR
 
-| Estado del contacto | Formato del prefijo | Versión |
+| Caso | Formato del prefijo | Versión |
 |---|---|---|
-| **Guardado** (FullName o FirstName en libreta) | `**~Jean Paul**` | v0.32.0 |
-| **Solo push name**, nombre corto (≤12 runes) | `**~Richard**\t\t+34604021705` | v0.39.3 |
-| **Solo push name**, nombre largo (>12 runes) | `**~Ivan Madrid Sánchez**\t+34633185248` | v0.39.3 |
+| Nombre corto (≤12 runes) | `` `**~Richard**\t\t+34604021705` `` | v0.39.4 |
+| Nombre largo (>12 runes) | `` `**~Ivan Madrid Sánchez**\t+34633185248` `` | v0.39.4 |
 | Sin nombre, solo teléfono | `+34604021705:` | v0.39.2 |
 | Sin nombre y sin teléfono | (body sin tocar) | v0.31.x y posteriores |
 
+> **Code block wrap (v0.39.4)**: toda la línea de header va dentro de
+> un par de backticks. Los `**` dejan de procesarse como bold markdown
+> (inline code suprime el formato interno) y aparecen como caracteres
+> literales, pero a cambio Chatwoot renderiza toda la línea con fuente
+> monoespaciada y fondo sutil — el contraste visual con el body sigue
+> siendo claro y los teléfonos quedan alineados al carácter.
+>
 > **Separador y formato del teléfono**: desde **v0.39.2** el separador
 > entre el nombre bold y el número es un **tab `\t` (U+0009)** en lugar
-> del em-space (U+2003) previo, y el teléfono va en **plano** (sin code
-> block backticks) — el `+` ya lo identifica visualmente y algunos
-> renderers de Chatwoot daban más separación al tab.
->
-> Desde **v0.39.3** el número de tabs depende del largo del nombre
-> medido con `utf8.RuneCountInString` (los acentos cuentan una sola vez:
-> "Sánchez" = 7 runes). Cutoff hardcoded en **12 runes**:
+> del em-space (U+2003) previo. Desde **v0.39.3** el número de tabs
+> depende del largo del nombre medido con `utf8.RuneCountInString`
+> (los acentos cuentan una sola vez: "Sánchez" = 7 runes). Cutoff
+> hardcoded en **12 runes**:
 >
 > - Nombre **≤ 12 runes** → **2 tabs** (`\t\t`).
 > - Nombre **> 12 runes** → **1 tab** (`\t`).
@@ -40,16 +41,13 @@ identificarlo.
 > Así los teléfonos quedan alineados visualmente cuando senders con
 > nombres de distinto largo se mezclan en el mismo grupo.
 
-El comportamiento es **automático**: no hay env var nuevo. La decisión
-depende del estado del contact store de whatsmeow en el momento de la
-recepción.
+El comportamiento es **automático**: no hay env var nuevo. Desde
+v0.39.4 el formato no depende del estado del contact store: el header
+se construye igual para todos los senders.
 
-## Antes y después
+## Histórico de versiones
 
-Mismo grupo, dos remitentes: **Jean Paul** (en la libreta del móvil
-conectado) y **Richard** (solo conocido por su push name).
-
-### v0.31.x — siempre se mostraba el teléfono
+### v0.31.x — formato fijo con teléfono en code block
 
 ```
 **~Jean Paul** `+34611111111`
@@ -59,67 +57,67 @@ hola buenas
 hola buenas
 ```
 
-Aunque el agente ya tenía a Jean Paul en agenda, el body seguía
-incluyendo el bloque code con el número — ruido visual y duplica info
-que el panel del downstream ya muestra al lado de la conversación.
+El bloque de teléfono iba en code block; el nombre quedaba como bold
+markdown plano. Siempre se mostraba el número.
 
-### v0.32.0 — adaptativo (separador em-space + code block)
+### v0.32.0 — adaptativo según saved/unsaved (revertido en v0.39.4)
 
-```
-**~Jean Paul**
-hola buenas
+A partir de v0.32.0 y hasta v0.39.3, qrsgen consultaba
+`IsContactSaved(jid)` y, cuando el remitente estaba en la libreta del
+número conectado, **omitía el teléfono** del header — el agente solo
+veía `**~Jean Paul**`. Para senders no guardados se mantenía
+`**~Richard** ...+34604021705`.
 
-**~Richard** `+34604021705`
-hola buenas
-```
-
-- Jean Paul: solo nombre. El agente ya sabe quién es; no necesita ver
-  el teléfono en cada mensaje.
-- Richard: nombre + teléfono. Como el bot owner no tiene a Richard en
-  agenda, el código de teléfono permite identificarlo o decidir si
-  guardarlo.
+La idea era reducir ruido visual cuando el agente ya tenía la persona
+identificada por nombre. En la práctica, perder el teléfono para
+contactos guardados complicaba el cross-reference en setups
+multi-plataforma (mismo número con varias entradas, integración con
+CRMs externos). **v0.39.4 revierte esta rama**: el teléfono se muestra
+siempre.
 
 ### v0.39.2 — tab `\t` + teléfono en plano
 
-Mismo branching saved/unsaved, pero el separador entre nombre y
-teléfono pasa a ser un **tab (U+0009)** y el número se renderiza en
-**plano** (sin backticks):
-
-```
-**~Jean Paul**
-hola buenas
-
-**~Richard**\t+34604021705
-hola buenas
-```
-
-El caso degenerado "solo teléfono" también pierde los backticks:
-`+34604021705:` en lugar de `` `+34604021705`: ``.
+El separador entre nombre y teléfono pasa a ser **tab (U+0009)** y el
+número pierde los backticks (se renderiza en plano). El branching
+saved/unsaved seguía vigente en esta versión.
 
 ### v0.39.3 — tab count variable según largo del nombre
 
-Para alinear visualmente los teléfonos cuando senders con nombres de
-distinto largo intercambian mensajes en el mismo grupo, el número de
-tabs ahora depende de `utf8.RuneCountInString(name)`:
+El número de tabs pasa a depender de `utf8.RuneCountInString(name)`:
+**2 tabs** si `≤ 12` runes, **1 tab** si `> 12`. Persigue alinear
+visualmente los teléfonos en grupos con senders de nombres mixtos.
+El branching saved/unsaved seguía vigente.
+
+### v0.39.4 — code block wrap + teléfono siempre
+
+Dos cambios sobre v0.39.3:
+
+1. **Header envuelto en inline code block**. Toda la línea
+   `**~Name**\t\t+phone` queda entre backticks. Chatwoot la pinta
+   monoespaciada con fondo sutil; los `**` aparecen literales pero el
+   tratamiento visual del code block aporta la jerarquía.
+2. **Teléfono siempre presente**. `applyGroupSenderPrefix` deja de
+   consultar `IsContactSaved` para decidir el formato del prefijo.
+   Saved y unsaved comparten ahora el mismo header.
 
 ```
-**~Richard**\t\t+34604021705
+`**~Richard**\t\t+34604021705`
 hola buenas
 
-**~Anon**\t\t+34611111111
+`**~Anon**\t\t+34611111111`
 hola buenas
 
-**~Jean Paul**\t\t+34622222222
+`**~Jean Paul**\t\t+34622222222`
 hola buenas
 
-**~La Casa Agency**\t+34655555555
+`**~La Casa Agency**\t+34655555555`
 buenas
 
-**~Ivan Madrid Sánchez**\t+34633185248
+`**~Ivan Madrid Sánchez**\t+34633185248`
 buenas
 ```
 
-Cutoff hardcoded en **12 runes**:
+Tabla de runes y tabs (sin cambios respecto a v0.39.3):
 
 | Nombre | Runes | Tabs |
 |---|---|---|
@@ -132,7 +130,13 @@ Cutoff hardcoded en **12 runes**:
 `utf8.RuneCountInString` cuenta runes (no bytes), así que los acentos
 suman una sola unidad ("Sánchez" = 7 runes, no 8).
 
-## La cadena "saved"
+## `IsContactSaved`: sigue existiendo en el resolver
+
+El método `IsContactSaved(jid)` permanece en la interfaz `WAResolver`
+y sigue consultando `client.Store.Contacts.GetContact` de whatsmeow.
+Lo que cambió en v0.39.4 es que **`applyGroupSenderPrefix` ya no lo
+llama** para decidir el formato del prefijo de grupo. Otros callers
+(si los hay en el futuro) pueden seguir usándolo.
 
 Para que qrsgen considere un JID como guardado, el nombre debe llegar
 hasta el contact store interno de whatsmeow. La ruta es:
@@ -154,13 +158,7 @@ IsContactSaved(jid) → true
 ```
 
 qrsgen **no** se integra con Google Contacts. Solo lee lo que whatsmeow
-ya tiene cacheado del backend de WhatsApp. Si en algún punto de la
-cadena falla la sync (cuenta Google sin contactos sincronizados, app
-WhatsApp con permiso de contactos denegado, etc.), el JID aparecerá
-como no guardado aunque tú lo veas perfectamente identificado en tu
-móvil personal.
-
-## Qué cuenta como "guardado"
+ya tiene cacheado del backend de WhatsApp.
 
 `IsContactSaved` consulta `info.Found && (info.FullName != "" || info.FirstName != "")`:
 
@@ -171,62 +169,42 @@ móvil personal.
 | `PushName` | **No** | Auto-asignado por el propio sender en su WhatsApp |
 | `BusinessName` | **No** | Display name de cuentas WA Business |
 
-La distinción clave: **FullName/FirstName los pone el dueño del número
-conectado**; **PushName lo pone el sender**. El primero es una decisión
-del bot owner de "conozco a esta persona"; el segundo es self-reported
-y no aporta confianza.
+La distinción sigue siendo válida conceptualmente
+(**FullName/FirstName los pone el dueño del número conectado**;
+**PushName lo pone el sender**), aunque desde v0.39.4 no afecta al
+formato del prefijo de grupo.
 
 ## Caso especial: LID → PN fallback
 
 Con Multi-Device, el sender de un mensaje de grupo puede llegar como
 LID (identificador anónimo, server `lid`) en vez de PN (server
-`s.whatsapp.net`). qrsgen primero pregunta `IsContactSaved(lid)`; si el
-LID no está en la libreta o no tiene nombre, **resuelve el LID a su PN**
-vía `PNForLID` y vuelve a preguntar `IsContactSaved(pn)` y
-`ContactName(pn)`.
+`s.whatsapp.net`). qrsgen sigue resolviendo el LID a su PN vía
+`PNForLID` para obtener un `ContactName` y un teléfono presentables.
+Lo que ya no consulta es `IsContactSaved` con el resultado del
+fallback para decidir si omitir el teléfono — desde v0.39.4 el
+teléfono va siempre.
 
-Cubre el caso real: tienes un contacto guardado por su número en la
-libreta, pero WhatsApp lo entrega anonymizado al grupo. Sin el
-fallback, todos los contactos guardados aparecerían como "solo push
-name" cuando mandan mensajes de grupo desde un cliente Multi-Device.
-
-## Grupos como sender: siempre unsaved
+## Grupos como sender
 
 Si el sender del mensaje es a su vez un JID de grupo (caso raro:
-forwards, anuncios de canal-grupo), `IsContactSaved` devuelve `false`
-por construcción. Los grupos no tienen `FullName`/`FirstName` en el
-contact store — esos campos solo aplican a personas. Tampoco tiene
-sentido lógico: "guardar un grupo en la agenda" no es una operación
-que el usuario realice en el móvil.
-
-Consecuencia práctica: si por algún flujo extraño llega un mensaje cuyo
-sender es un groupJID, el prefix usa el path no-saved (incluye el
-"teléfono" — que en realidad sería el ID de grupo).
+forwards, anuncios de canal-grupo), el path no cambia: se renderiza
+nombre + tab(s) + el "teléfono" (que sería el ID del grupo). En v0.39.3
+y anteriores `IsContactSaved` devolvía `false` por construcción para
+groupJIDs; ahora ese check no se hace.
 
 ## Verificar que funciona
 
-Tras un mensaje de grupo enviado por un contacto guardado en el móvil
-conectado, los logs del downstream deberían mostrar el body sin
-teléfono:
+Tras un mensaje de grupo enviado por un contacto cualquiera (saved o
+no), los logs del downstream deberían mostrar el header envuelto en
+backticks con teléfono presente:
 
 ```bash
-# El body que qrsgen POSTea al downstream (visible en Chatwoot
-# como contenido del mensaje):
 docker logs qrsgen 2>&1 | grep "incoming sync" | tail
-# → ... content="**~Jean Paul**\nhola buenas" ...
+# → ... content="`**~Jean Paul**\t\t+34622222222`\nhola buenas" ...
+# → ... content="`**~Ivan Madrid Sánchez**\t+34633185248`\nbuenas" ...
 ```
 
-Si en cambio el sender está fuera de la agenda, verás nombre + tab(s) +
-teléfono en plano (1 ó 2 tabs según el largo del nombre desde v0.39.3):
-
-```
-... content="**~Richard**\t\t+34604021705\nhola buenas" ...
-... content="**~Ivan Madrid Sánchez**\t+34633185248\nhola buenas" ...
-```
-
-Para inspeccionar directamente el contact store de whatsmeow (qué
-contactos están guardados según el último sync con Meta), consulta la
-tabla `whatsmeow_contacts` en la DB:
+Para inspeccionar directamente el contact store de whatsmeow:
 
 ```sql
 SELECT their_jid, full_name, first_name, push_name
@@ -236,53 +214,36 @@ ORDER BY full_name NULLS LAST
 LIMIT 20;
 ```
 
-Un JID con `full_name` o `first_name` no nulo es lo que qrsgen
-considera "guardado".
-
-## Cómo hacer que un contacto sea "saved"
-
-1. Abre la libreta del móvil conectado (el que tiene la sesión WA
-   Multi-Device emparejada).
-2. Añade el contacto con su nombre real (o edítalo si ya estaba pero
-   solo con número).
-3. Asegúrate de que la cuenta Google del móvil sincroniza contactos
-   (Ajustes → Cuentas → Google → Sincronizar contactos).
-4. Espera unos minutos a que la app WhatsApp del móvil propague el
-   cambio al backend Meta.
-5. El próximo mensaje de grupo del contacto debería llegar al downstream
-   sin el bloque de teléfono.
-
-No es necesario reiniciar qrsgen ni la sesión: whatsmeow refresca el
-contact store en background.
+Sigue siendo útil para diagnosticar por qué un sender llega con
+`PushName` en lugar de `FullName` (el nombre que se muestra en el
+prefijo depende de esto), aunque ya no condiciona si el teléfono
+aparece o no.
 
 ## Modos de fallo
 
 | Situación | Resultado |
 |---|---|
-| Google Contacts sync deshabilitado en el móvil | Contacto no llega a la app WA → aparece como no guardado. |
-| App WhatsApp sin permiso "Acceder a contactos" | Igual: no llega al backend, no llega al store. |
-| Contacto recién añadido (segundos atrás) | Puede tardar minutos en propagarse al store de whatsmeow. Primer mensaje aún saldrá con teléfono. |
-| Contacto guardado solo con apodo/emoji | Cuenta como saved si está en `FullName` o `FirstName`. qrsgen no juzga la calidad del nombre. |
-| Sender llega como LID anonymizado | Si el PN resuelto via `PNForLID` sí está guardado, se considera saved. |
-| Sender LID sin posibilidad de resolver a PN | Path no-saved (se incluye el bloque de teléfono si hay phoneDigits). |
+| Google Contacts sync deshabilitado en el móvil | El contacto aparece con PushName en lugar de FullName/FirstName. Teléfono igual visible (siempre lo es desde v0.39.4). |
+| App WhatsApp sin permiso "Acceder a contactos" | Igual: no llega FullName al store, se muestra PushName. |
+| Contacto recién añadido (segundos atrás) | Puede tardar minutos en propagarse al store de whatsmeow. Hasta entonces se ve PushName. |
+| Sender llega como LID anonymizado | Se resuelve a PN vía `PNForLID` para obtener nombre y teléfono. |
+| Sender LID sin posibilidad de resolver a PN | Se muestra el PushName que llegó en el evento; teléfono si está disponible. |
 
 ## Caveats
 
-- **El bot owner manda**. Lo que cuente como "saved" es lo que el dueño
-  del número conectado tiene en la libreta. Si quien opera el sistema
-  downstream (los agentes) no ve algunos contactos por nombre, el
-  problema está en la libreta del móvil del bot, no en qrsgen.
+- **El bot owner sigue mandando sobre el nombre mostrado**. Lo que
+  cuente como nombre canónico (FullName, FirstName, PushName) depende
+  de la libreta del dueño del número conectado. Desde v0.39.4 esto
+  solo afecta a qué string aparece tras `**~`; el teléfono va siempre.
 - **No write-back**. Si un agente edita el nombre del contacto en
   Chatwoot, ese cambio se queda en Chatwoot. qrsgen no propaga edits al
   contact store de WA ni a la libreta del móvil del bot.
-- **Cambio asimétrico de comportamiento**. Un contacto que pasa de
-  no-saved a saved (lo añades a la libreta) deja de mostrar el teléfono
-  en los siguientes mensajes. No hay reescritura retroactiva de los
-  bodies ya entregados al downstream.
-- **Sin opt-out por env var**. Si necesitas el formato pre-v0.32.0
-  (siempre con teléfono) por razones de tooling downstream, fuerza
-  todos los contactos como no guardados — no hay flag para
-  deshabilitar la branching saved/unsaved. Considera abrir un issue.
+- **Sin opt-out por env var**. No hay flag para volver al formato sin
+  code block ni al branching saved/unsaved. Si necesitas el formato
+  pre-v0.39.4, considera abrir un issue.
+- **Render del code block depende del downstream**. Chatwoot pinta
+  inline code monoespaciado con fondo gris claro. Otros downstreams
+  pueden renderizarlo de forma distinta o ignorar los backticks.
 
 ## Glosario
 
@@ -293,12 +254,12 @@ y WhatsApp.
 
 **FullName / FirstName**: campos del contact store de whatsmeow que
 representan el nombre que el dueño del número conectado puso en su
-libreta. Si están vacíos, el contacto no está "guardado" desde la
-perspectiva del bot owner.
+libreta. Desde v0.39.4 ya no condicionan si aparece el teléfono en el
+prefijo; solo influyen en qué string se muestra como nombre.
 
 **PushName**: nombre que el propio sender configura en su WhatsApp
-("Tu nombre" en ajustes). Llega en cada mensaje. NO cuenta como
-"guardado" porque no representa una decisión del bot owner.
+("Tu nombre" en ajustes). Llega en cada mensaje. Se usa como fallback
+de display si no hay FullName/FirstName.
 
 **LID** (Linked Identifier): identificador anónimo que WhatsApp asigna
 a un cliente Multi-Device. Sirve para enrutar sin exponer el PN real
@@ -311,21 +272,28 @@ Es lo que coincide con la entrada de libreta y con el contact store.
 al PN equivalente. Cuando whatsmeow ya conoce la relación (porque el
 sender envió alguna vez como PN), devuelve el match.
 
-**Bot owner**: dueño del número de WhatsApp que tiene la sesión
-emparejada con qrsgen. Es quien decide qué contactos quedan
-"guardados" añadiéndolos a la libreta de su móvil.
+**`IsContactSaved`**: método del `WAResolver` que indica si un JID
+tiene `FullName` o `FirstName` en el contact store de whatsmeow. Sigue
+formando parte de la interfaz desde v0.32.0, pero **desde v0.39.4
+`applyGroupSenderPrefix` no lo consulta**: el formato del prefijo de
+grupo es el mismo para saved y unsaved.
 
-**Adaptativo (prefijo)**: convención de v0.32.0 donde el formato del
-prefix depende del estado del contacto. Antes era un único formato
-fijo con teléfono siempre presente.
+**Bot owner**: dueño del número de WhatsApp que tiene la sesión
+emparejada con qrsgen.
 
 **Separador del prefijo (v0.39.2)**: tab `\t` (U+0009) entre el nombre
-bold y el teléfono en el path no-saved. Reemplaza al em-space (U+2003)
-previo. El teléfono va en plano (sin code block backticks) — el `+`
-basta para identificarlo visualmente.
+bold y el teléfono. Reemplaza al em-space (U+2003) previo.
 
 **Tab count variable (v0.39.3)**: regla que elige 2 tabs si
 `utf8.RuneCountInString(name) ≤ 12` y 1 tab si `> 12`. Persigue
 alinear visualmente los teléfonos cuando senders con nombres de
-distinto largo intercambian mensajes en el mismo grupo. Cutoff
-hardcoded en 12 runes.
+distinto largo intercambian mensajes en el mismo grupo.
+
+**Code block wrap del header (v0.39.4)**: envoltorio con backticks de
+toda la línea `**~Name**<tabs>+phone`. Chatwoot la renderiza
+monoespaciada con fondo sutil; los `**` aparecen literales porque
+inline code suprime el formato interno.
+
+**Teléfono siempre presente (v0.39.4)**: revierte el branching
+saved/omit-phone introducido en v0.32.0. El header incluye el número
+para todos los senders, saved o no.

@@ -52,34 +52,37 @@ Más un endpoint `POST /api/instances/:name/avatars/resync` (v0.31.3) para
 **backfill** de contactos viejos (creados antes de v0.31.x o inactivos).
 Detalles completos en [Avatar sync](../integrations/avatar-sync.md).
 
-## Formato adaptativo del prefijo de grupo
+## Formato del prefijo de grupo
 
-Desde v0.32.0, el prefijo que qrsgen antepone al body de mensajes de
-grupo se adapta según si el remitente está guardado en la libreta del
-número conectado:
+Desde **v0.39.4**, el prefijo que qrsgen antepone al body de mensajes
+de grupo tiene un único formato para todos los senders: la línea de
+header (nombre bold + tab(s) + teléfono) va envuelta en un **inline
+code block** con backticks, y el teléfono se incluye **siempre**, esté
+o no guardado el contacto.
 
-- **Contacto en agenda** (FullName o FirstName en whatsmeow): solo nombre.
+- **Nombre corto** (≤12 runes, 2 tabs):
   ```
-  **~Jean Paul**
+  `**~Richard**\t\t+34604021705`
   hola buenas
   ```
-- **Solo push name** (no guardado): nombre + tab(s) + teléfono en plano
-  (v0.39.2). Desde **v0.39.3** el número de tabs depende del largo del
-  nombre con `utf8.RuneCountInString` (cutoff 12 runes): nombres
-  cortos llevan 2 tabs, nombres largos 1 tab — alinea los teléfonos
-  visualmente cuando varios senders se intercalan.
+- **Nombre largo** (>12 runes, 1 tab):
   ```
-  **~Richard**\t\t+34604021705
-  hola buenas
-
-  **~Ivan Madrid Sánchez**\t+34633185248
+  `**~Ivan Madrid Sánchez**\t+34633185248`
   buenas
   ```
 
-Sin env vars: el comportamiento depende del estado del contact store
-de whatsmeow, que se nutre de la cadena Google Contacts → libreta del
-móvil → app WA → whatsmeow. Cubre el caso LID-anonymizado-en-grupos
-resolviendo a PN antes de decidir. Detalles en
+Chatwoot renderiza el header como monoespaciado con fondo sutil; los
+`**` aparecen literales porque inline code suprime el formato interno,
+pero el tratamiento visual del code block aporta la jerarquía. El
+número de tabs sigue dependiendo de `utf8.RuneCountInString(name)`
+(cutoff 12 runes, regla introducida en v0.39.3) para alinear los
+teléfonos cuando varios senders se intercalan.
+
+**Cambio respecto a v0.39.3**: hasta v0.39.3, `IsContactSaved`
+determinaba si se omitía el teléfono para contactos guardados; v0.39.4
+revierte esa rama — el número se muestra siempre. `IsContactSaved`
+sigue en la interfaz `WAResolver` pero `applyGroupSenderPrefix` ya no
+lo consulta. Sin env vars. Detalles e histórico en
 [Formato del prefijo de grupo](../integrations/group-sender-format.md).
 
 ## Sincronización de reacciones WhatsApp
@@ -89,24 +92,24 @@ Desde v0.33.0, cuando un usuario reacciona a un mensaje en WhatsApp
 un nuevo mensaje incoming. Antes de esta versión los eventos
 `ReactionMessage` se descartaban silenciosamente.
 
-- **Contacto en agenda**:
+- **Reacción en chat 1:1**:
   ```
   **~Jean Paul** reaccionó con 👍
   ```
-- **Sender no guardado en grupo** (formato v0.39.2/v0.39.3: tab(s) +
-  teléfono en plano):
+- **Reacción en grupo** (formato v0.39.4: header en code block con
+  tab(s) + teléfono siempre presente):
   ```
-  **~Richard**\t\t+34604021705 reaccionó con ❤️
+  `**~Richard**\t\t+34604021705` reaccionó con ❤️
   ```
 - **Reacción retirada**:
   ```
   **~Jean Paul** _quitó su reacción_
   ```
 
-Mismo path platform-agnostic (`downstream.Router.PostMessage`), mismo
-name resolver con `IsContactSaved` que el prefijo de grupo. Master
-switch via `QRSGEN_REACTIONS_SYNC` (default `true`). Las reacciones
-del propio bot owner (`IsFromMe=true`) se ignoran. Detalles en
+Mismo path platform-agnostic (`downstream.Router.PostMessage`) y mismo
+resolver de nombre que el prefijo de grupo. Master switch via
+`QRSGEN_REACTIONS_SYNC` (default `true`). Las reacciones del propio
+bot owner (`IsFromMe=true`) se ignoran. Detalles en
 [Sincronización de reacciones](../integrations/reactions-sync.md).
 
 ## Typing indicators, read receipts y mark-as-read bidireccional
@@ -277,18 +280,22 @@ Chatwoot) generan con las iniciales del nombre cuando no hay imagen
 configurada. El avatar sync los reemplaza por las fotos reales de WA.
 
 **Prefijo de grupo**: línea que qrsgen antepone al body de cada
-mensaje de grupo identificando al sender (nombre + opcionalmente
-teléfono). Permite al agente que lee la conversación saber quién
-escribió cada mensaje sin abrir el subhilo del grupo. Desde v0.39.2 el
-separador entre nombre y teléfono es **tab `\t` (U+0009)** y el
-teléfono se renderiza en **plano** (sin code block backticks). Desde
-v0.39.3 el número de tabs es **variable**: 2 tabs si el nombre tiene
-≤ 12 runes, 1 tab si > 12 — alinea los teléfonos visualmente.
+mensaje de grupo identificando al sender (nombre + teléfono). Permite
+al agente que lee la conversación saber quién escribió cada mensaje
+sin abrir el subhilo del grupo. Desde v0.39.2 el separador entre
+nombre y teléfono es **tab `\t` (U+0009)**. Desde v0.39.3 el número
+de tabs es variable: 2 si el nombre tiene ≤ 12 runes, 1 si > 12.
+Desde **v0.39.4** toda la línea de header va envuelta en un **inline
+code block** (backticks) y el teléfono se incluye **siempre**, esté o
+no guardado el contacto (revierte el branching saved/omit-phone que
+existió entre v0.32.0 y v0.39.3).
 
 **Contacto saved (libreta)**: JID que el dueño del número conectado
 tiene en su libreta del móvil, con `FullName` o `FirstName` propagado
-hasta el contact store de whatsmeow. Determina si qrsgen omite el
-teléfono del prefijo de grupo.
+hasta el contact store de whatsmeow. Sigue afectando a qué string se
+muestra como nombre (FullName/FirstName sobre PushName), pero desde
+v0.39.4 **ya no condiciona** si el teléfono aparece en el prefijo de
+grupo — siempre aparece.
 
 **PushName**: nombre que el propio sender configura en su WhatsApp.
 qrsgen lo usa como fallback de display pero NO lo cuenta como

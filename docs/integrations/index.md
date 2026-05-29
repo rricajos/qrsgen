@@ -24,8 +24,12 @@ para los integradores más comunes.
 - **[Sincronización de reacciones](reactions-sync.md)** — v0.33.0.
   Las reacciones que un usuario añade a un mensaje en WhatsApp
   (long-press → emoji) se propagan al downstream como mensaje
-  incoming con el formato `**~<name>** reaccionó con <emoji>`. Read-only
-  sobre WhatsApp: qrsgen no envía reacciones de vuelta.
+  incoming. Desde **v0.39.7** el body se realinea con el formato
+  v0.39.6 del prefijo de grupo:
+  `` `+<E164> · <~?>name reaccionó con <emoji>` `` (line completa en
+  inline code block, phone-first, middle dot `·` como separador,
+  `~` solo si el contacto no está guardado). Read-only sobre
+  WhatsApp: qrsgen no envía reacciones de vuelta.
 - **[Typing indicators y read receipts](presence-and-receipts.md)** —
   v0.34.0 y v0.34.1. Propagación en tiempo real de presencia de chat
   (`composing`/`paused` → "está escribiendo..." en el downstream) y de

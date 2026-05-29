@@ -6,6 +6,14 @@ como un nuevo mensaje incoming. Antes de esta versión, los eventos
 `ReactionMessage` caían en el path "sin texto ni media" y se
 descartaban silenciosamente.
 
+Desde **v0.39.7** el formato del body se realinea con el del prefijo
+de grupo (v0.39.6): header completo envuelto en un **inline code
+block** (backticks), **teléfono primero** en E.164, separador
+**middle dot `·` (U+00B7)** con espacios a ambos lados, y nombre al
+final con tilde `~` **solo si el contacto no está guardado** en la
+libreta del bot owner (lógica `IsContactSaved` introducida en
+v0.39.5). El mismo formato aplica en chats 1:1 y en grupos.
+
 > **Read-only sobre WhatsApp**: qrsgen solo escucha las reacciones que
 > llegan por el WebSocket. No envía reacciones de vuelta a WhatsApp
 > (eso requiere un flujo outgoing dedicado — candidato a v0.34.x).
@@ -14,13 +22,29 @@ descartaban silenciosamente.
 
 | Caso | Formato del body en downstream |
 |---|---|
-| Contacto guardado en libreta | `**~Jean Paul** reaccionó con 👍` |
-| Sender no guardado en grupo | `` **~Richard** `+34604021705` reaccionó con ❤️ `` |
-| Reacción retirada (text="") | `**~Jean Paul** _quitó su reacción_` |
+| Contacto saved (en agenda) | `` `+34604021705 · Jean Paul reaccionó con 👍` `` |
+| Contacto no saved (PushName) | `` `+34663504782 · ~Marcelo Lopez reaccionó con ❤️` `` |
+| Reacción retirada (text="") | `` `+34604021705 · Jean Paul quitó su reacción` `` |
+
+El header (`+phone · <~?>name`) y el sufijo (`reaccionó con <emoji>`
+o `quitó su reacción`) van **dentro del mismo par de backticks**: el
+inline code block envuelve la línea entera. Eso difiere del prefijo
+de grupo de v0.39.6 — donde el code block envuelve solo el header y
+el body del mensaje viene fuera —, porque la reacción no tiene body
+propio: el "contenido" es el sufijo descriptivo.
 
 El mensaje se POSTea con `message_type: "incoming"` y
 `source_id: "WAID:reaction:<msg.Info.ID>"` para no colisionar con el
 mensaje original en la deduplicación.
+
+> **Pérdida del italic en "quitó su reacción"**: hasta v0.39.6 el
+> sufijo de retracted iba en italic con markdown (`_quitó su
+> reacción_`). En v0.39.7, al envolver toda la línea en un inline
+> code block, Chatwoot **no procesa markdown dentro de inline code**
+> y los underscores quedarían literales. El sufijo pasa a ser texto
+> plano dentro del code block — la diferenciación visual con el
+> resto de reacciones (que terminan en `reaccionó con <emoji>`) se
+> mantiene por el cambio léxico, no por el estilo tipográfico.
 
 ## Configuración
 
@@ -46,10 +70,14 @@ if msg.Message.GetReactionMessage() != nil {
 1. Resuelve sender + conversación por el mismo camino que un mensaje
    normal (LID → PN si aplica, lookup del contact en downstream).
 2. Aplica el mismo name resolver que `applyGroupSenderPrefix` —
-   incluyendo `IsContactSaved` introducido en v0.32.0. Contactos
-   guardados muestran solo nombre; no guardados en grupos muestran
-   nombre + code block con teléfono.
-3. Construye el body según el formato de la tabla TL;DR.
+   incluyendo `IsContactSaved` (v0.32.0). Desde v0.39.7 el bit del
+   tilde se calcula con la misma regla que en el prefijo de grupo
+   v0.39.5: `~` solo si `IsContactSaved(jid) == false`.
+3. Construye el body con el formato unificado **v0.39.7**:
+   `` `+<E164> · <tilde><name> reaccionó con <emoji>` `` (header y
+   sufijo dentro del mismo inline code block). Si `Text == ""` el
+   sufijo es ` quitó su reacción` (sin italic — los underscores
+   markdown no se procesan dentro de inline code).
 4. POST al downstream como `message_type: "incoming"` con
    `source_id: "WAID:reaction:<msg.Info.ID>"`.
 
@@ -140,6 +168,17 @@ Si no aparece nada:
   handler. Si qrsgen está down cuando llega la reacción, se pierde
   (no hay outbox para inbound). Coherente con el resto del incoming.
 
+## Histórico de versiones
+
+| Versión | Cambio |
+|---|---|
+| **v0.33.0** | Introducción del feature. Body con formato markdown `**<name>** reaccionó con <emoji>` (siempre con tilde, nombre primero, sin teléfono en 1:1). En grupos con sender no saved, teléfono en code block detrás del nombre: `` **~Name** `+E164` reaccionó con <emoji> ``. Reacción retirada en italic: `**~Name** _quitó su reacción_`. |
+| v0.34.0 | Sin cambios en el formato. |
+| v0.39.4 | `applyGroupSenderPrefix` se unifica con teléfono siempre y nombre en code block, pero `handleReaction` mantiene su formato propio. |
+| v0.39.5 | `applyGroupSenderPrefix` introduce la lógica `IsContactSaved` para condicionar el tilde. `handleReaction` no se toca. |
+| v0.39.6 | El prefijo de grupo pasa a `` `+<E164> · <tilde><name>` `` (phone-first, middle dot, sin bold ni tabs). `handleReaction` sigue con el formato de v0.33.0 — desalineado. |
+| **v0.39.7** | `handleReaction` se realinea con el prefijo de grupo v0.39.6. Toda la línea (header + sufijo) va dentro de un único inline code block: `` `+<E164> · <tilde><name> reaccionó con <emoji>` `` y `` `+<E164> · <tilde><name> quitó su reacción` ``. Cambios concretos respecto a v0.33.0..v0.39.6: (1) **teléfono siempre presente** (antes solo en grupos con sender no saved), (2) **tilde solo si no saved** (antes siempre presente), (3) **wrap en inline code block** en lugar de `**bold**`, (4) **phone-first**, nombre detrás, (5) **`quitó su reacción` pierde el italic** porque markdown no se procesa dentro de inline code; se queda como texto literal del code block. |
+
 ## Glosario
 
 **Reacción (WhatsApp)**: emoji que un usuario añade a un mensaje
@@ -154,7 +193,10 @@ usuario reaccionó (en vez de enviar texto/media). Contiene `Text`
 
 **Reacción retirada**: cuando el usuario quita la reacción que había
 puesto, WhatsApp envía un nuevo `ReactionMessage` con `Text: ""`.
-qrsgen lo renderiza como `**~<name>** _quitó su reacción_`.
+Desde v0.39.7 qrsgen lo renderiza como
+`` `+<E164> · <tilde><name> quitó su reacción` `` (sufijo dentro del
+mismo code block que el header, sin italic — los `_..._` markdown no
+se procesan dentro de inline code en Chatwoot).
 
 **`source_id` namespace**: prefijo `WAID:` que qrsgen usa para
 identificar todos los mensajes que vienen de WhatsApp en el dedup del

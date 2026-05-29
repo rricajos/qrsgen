@@ -22,11 +22,19 @@ bridge/incoming.go:
         │                                          ▼
         │                                  resuelve sender + conv
         │                                  aplica name resolver (LID/PN)
-        │                                  body = "**<tilde><name>** reaccionó con <emoji>"
-        │                                          (tilde = "~" si !IsContactSaved, "" si saved — v0.39.5)
-        │                                          (en grupo: header en code block,
-        │                                           "`+<E164> · <tilde><name>` reaccionó con <emoji>" — v0.39.6;
-        │                                           o "_quitó su reacción_" si text=="")
+        │                                  saved = IsContactSaved(jid)  (v0.39.5)
+        │                                  tilde = "~" si !saved, "" si saved
+        │                                  body (v0.39.7, unificado 1:1 + grupo):
+        │                                    "`+<E164> · <tilde><name> reaccionó con <emoji>`"
+        │                                    o, si text=="" (retracted):
+        │                                    "`+<E164> · <tilde><name> quitó su reacción`"
+        │                                    (toda la línea en inline code block:
+        │                                     header + sufijo dentro del mismo par
+        │                                     de backticks. El italic markdown del
+        │                                     retracted se pierde porque Chatwoot
+        │                                     no procesa markdown dentro de inline
+        │                                     code. Alinea con el formato v0.39.6
+        │                                     del prefijo de grupo)
         │                                  POST incoming con
         │                                    source_id="WAID:reaction:<ID>"
         │                                          │
@@ -205,16 +213,27 @@ se descartaban. `handleReaction`:
   Desde v0.39.4 el teléfono se incluye siempre en grupos; desde v0.39.5
   el tilde `~` se prepende al nombre solo si el contacto no está
   guardado (vía `IsContactSaved`).
-- Construye el body con uno de los formatos (siendo `<tilde>` = `"~"`
-  si !saved, `""` si saved — v0.39.5):
-  - 1:1 (no grupo): `**<tilde><name>** reaccionó con <emoji>`
-  - Grupo (v0.39.6): `` `+<E164> · <tilde><name>` reaccionó con <emoji> ``
-    (header completo en code block; phone-first, separador middle dot
-    `·` (U+00B7) con espacios; sin `**bold**` ni tabs)
-  - Retracted (text=""): `**<tilde><name>** _quitó su reacción_`
+- Desde **v0.39.7** construye el body con un único formato unificado
+  para 1:1 y grupo, alineado con el prefijo de grupo v0.39.6 (siendo
+  `<tilde>` = `"~"` si !saved, `""` si saved):
+  - Reacción nueva (`text != ""`):
+    `` `+<E164> · <tilde><name> reaccionó con <emoji>` ``
+  - Retracted (`text == ""`):
+    `` `+<E164> · <tilde><name> quitó su reacción` ``
+
+  Toda la línea (header + sufijo) va dentro del mismo par de
+  backticks. El italic markdown del retracted (`_..._`) se pierde
+  porque Chatwoot no procesa markdown dentro de inline code: el
+  sufijo queda como texto literal del code block.
 - POSTea con `message_type: "incoming"` y
   `source_id: "WAID:reaction:<msg.Info.ID>"` — namespace separado del
   mensaje target para evitar colisión en el dedup del downstream.
+
+**Cambios v0.33.0..v0.39.6 → v0.39.7**: (1) teléfono siempre presente
+(antes solo en grupos con sender no saved); (2) tilde solo si no saved
+(antes siempre); (3) wrap en inline code block (antes `**bold**`);
+(4) phone-first (antes nombre primero); (5) `quitó su reacción`
+pierde el italic (literal dentro del code block).
 
 Casos de descarte: `IsFromMe=true` (reacción propia desde otro
 device), contacto no existe en downstream (no se crea por una

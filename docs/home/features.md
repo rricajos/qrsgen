@@ -105,26 +105,39 @@ Desde v0.33.0, cuando un usuario reacciona a un mensaje en WhatsApp
 un nuevo mensaje incoming. Antes de esta versión los eventos
 `ReactionMessage` se descartaban silenciosamente.
 
-- **Reacción en chat 1:1**:
+Desde **v0.39.7** el formato del body se realinea con el del prefijo
+de grupo v0.39.6: una sola línea envuelta en inline code block,
+phone-first, middle dot `·` como separador, y tilde `~` delante del
+nombre **solo si el contacto no está guardado** en la libreta del bot
+owner. El mismo formato aplica tanto en chats 1:1 como en grupos
+(antes 1:1 y grupos tenían dos formatos distintos).
+
+- **Reacción de contacto saved (en agenda)**:
   ```
-  **~Jean Paul** reaccionó con 👍
+  `+34604021705 · Jean Paul reaccionó con 👍`
   ```
-- **Reacción en grupo** (formato v0.39.6: header en code block con
-  `+phone · <~?>name`; teléfono siempre presente, `~` solo si el
-  sender no está guardado):
+- **Reacción de contacto no saved (PushName)**:
   ```
-  `+34604021705 · Jean Paul` reaccionó con ❤️       (saved)
-  `+34663504782 · ~Marcelo Lopez` reaccionó con ❤️  (no saved)
+  `+34663504782 · ~Marcelo Lopez reaccionó con ❤️`
   ```
-- **Reacción retirada**:
+- **Reacción retirada (text="")**:
   ```
-  **~Jean Paul** _quitó su reacción_
+  `+34604021705 · Jean Paul quitó su reacción`
   ```
+
+Toda la línea va dentro del mismo par de backticks (header + sufijo).
+Eso difiere del prefijo de grupo, donde el code block envuelve solo
+el header y el body del mensaje viene fuera — la reacción no tiene
+body propio, el "contenido" es el sufijo `reaccionó con <emoji>` o
+`quitó su reacción`. **El italic markdown del retracted desaparece**
+(`_quitó su reacción_` → `quitó su reacción` literal) porque
+Chatwoot no procesa markdown dentro de inline code.
 
 Mismo path platform-agnostic (`downstream.Router.PostMessage`) y mismo
 resolver de nombre que el prefijo de grupo. Master switch via
 `QRSGEN_REACTIONS_SYNC` (default `true`). Las reacciones del propio
-bot owner (`IsFromMe=true`) se ignoran. Detalles en
+bot owner (`IsFromMe=true`) se ignoran. Detalles e histórico de
+versiones en
 [Sincronización de reacciones](../integrations/reactions-sync.md).
 
 ## Typing indicators, read receipts y mark-as-read bidireccional
@@ -340,7 +353,11 @@ sender reaccionó en vez de enviar texto/media. Tiene `Text` (emoji o
 
 **Reacciones sync**: propagación de reacciones WhatsApp al downstream.
 Read-only sobre WhatsApp (qrsgen no envía reacciones de vuelta).
-Controlada por `QRSGEN_REACTIONS_SYNC`.
+Controlada por `QRSGEN_REACTIONS_SYNC`. Desde v0.39.7 el body
+adopta el mismo formato que el prefijo de grupo v0.39.6
+(`` `+<E164> · <~?>name reaccionó con <emoji>` ``), con teléfono
+siempre presente, tilde solo si el contacto no está guardado, y
+sin italic en la variante retracted.
 
 **Typing indicator (sync)**: propagación de los eventos
 `*events.ChatPresence` (`composing`/`paused`) de WhatsApp al downstream

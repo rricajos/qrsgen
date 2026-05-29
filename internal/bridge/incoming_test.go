@@ -108,6 +108,25 @@ func (f *fakeResolver) DownloadAny(_ context.Context, _ *waE2E.Message) ([]byte,
 	return nil, errors.New("fakeResolver: download no implementado en tests")
 }
 
+// GetSavedContacts test stub — devuelve un map plano de los names
+// que el test haya configurado para JIDs marcados como saved.
+func (f *fakeResolver) GetSavedContacts(_ context.Context) (map[types.JID]string, error) {
+	out := map[types.JID]string{}
+	for jidStr, isSaved := range f.savedJIDs {
+		if !isSaved {
+			continue
+		}
+		jid, err := types.ParseJID(jidStr)
+		if err != nil {
+			continue
+		}
+		if name, ok := f.names[jidStr]; ok && name != "" {
+			out[jid] = name
+		}
+	}
+	return out, nil
+}
+
 // JIDs reutilizados — usar la forma del mundo real:
 // Ricard: PN 34604021705@s.whatsapp.net ↔ LID 41961931190522@lid
 // Algunos eventos vienen con device suffix (:92) y debemos normalizar.

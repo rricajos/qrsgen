@@ -4,6 +4,66 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-05-29
+
+Feature: **extender retroactive name update a 1:1 + bulk reconcile**.
+v0.40.x ya reescribía los headers de mensajes de grupo cuando el dueño
+añadía un contacto a la agenda. v0.43.0:
+
+1. **Renombra también el contact en Chatwoot** (no solo el content
+   de los msgs). Aplica al caso 1:1 (donde no hay prefix de grupo
+   pero el contact name sí es visible al agente).
+2. **Endpoint admin bulk reconcile**: itera el contact store local
+   de whatsmeow y dispara HandleContactUpdate por cada saved.
+   Útil para bootstrap inicial tras adoptar el feature por primera
+   vez o tras un restart de v0.40.x sin persistence.
+
+### Added
+
+- **`downstream.Client.UpdateContactName(ctx, contactID, name)`**:
+  PUT `/contacts/{id}` con `{"name": "..."}`.
+- **`HandleContactUpdate` ahora también renombra**: tras buscar el
+  contact en Chatwoot (vía `findContactByIdentifier`, mismo helper
+  del flujo de creación), si el `name` actual difiere del nuevo,
+  PUT con el canónico. Best-effort: si falla, log + sigue con
+  el PATCH loop de mensajes históricos.
+- **`Incoming.ReconcileSavedContacts(ctx, instance, r)`** +
+  `ReconcileResult{Instance, Scanned, Triggered}` JSON.
+- **Endpoint admin `POST /api/instances/:name/retroactive/reconcile`**:
+  bulk reconcile usando el connection del manager como
+  `WAResolver`. Devuelve `{instance, scanned, triggered}`.
+- **`wameow.WAResolver.GetSavedContacts(ctx)`** + impl en `Conn`:
+  itera el store local y devuelve `map[PN JID]→canonical name`
+  para entries con FullName o FirstName.
+
+### Renamed
+
+- **`applyRetroactivePatches` → `applyRetroactiveUpdates`**: el
+  helper ahora hace dos cosas (rename + patches), nombre nuevo
+  refleja el scope.
+
+### Tests
+
+- 6 nuevos tests en `internal/bridge/reconcile_test.go`:
+  - `HandleContactUpdate_RenamesChatwootContact`
+  - `HandleContactUpdate_DoesNotRenameIfNameAlreadyMatches`
+  - `HandleContactUpdate_RenamesAndPatchesBoth`
+  - `HandleContactUpdate_RenamesEvenWith1on1NoTrackedMsgs`
+  - `ReconcileSavedContacts_DispatchesPerContact`
+  - `ReconcileSavedContacts_NoOpIfDisabled`
+- Stub HTTP del downstream que captura GET search, PUT rename
+  y PATCH content por separado.
+
+### Migration notes
+
+- Sin breaking changes (de API ni de schema). Token Chatwoot
+  necesita permisos PUT sobre contacts (ya los tiene si puede
+  CREATE contacts, que es el caso del api_channel).
+- Endpoint `reconcile` requiere auth si `QRSGEN_API_TOKEN` está
+  configurado (igual que el resto de admin endpoints).
+- Si `RetroactiveNameUpdate=false`, el endpoint devuelve 500 con
+  `"retroactive name update disabled"`.
+
 ## [0.42.0] - 2026-05-29
 
 Feature: **quote/reply context en mensajes incoming**. Cuando un

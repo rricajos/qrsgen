@@ -282,6 +282,27 @@ func (c *Client) UpdateMessageContent(ctx context.Context, convID, msgID int, co
 	return err
 }
 
+// UpdateContactName actualiza el campo `name` del contacto en
+// downstream. Usado por el retroactive name update extendido (v0.43.0):
+// cuando el dueño del bot añade un contacto a su agenda WhatsApp,
+// no solo reescribimos los mensajes históricos del grupo sino que
+// también renombramos el contacto en Chatwoot para reflejar el
+// nombre canónico.
+//
+// PUT /api/v1/accounts/{a}/contacts/{id}
+// Body: {"name": "nuevo nombre"}
+//
+// La API de Chatwoot devuelve 200 con el contacto actualizado, o
+// 4xx si el token no tiene permisos. El caller debe loguear warning
+// y seguir — la feature degrada gracioso.
+func (c *Client) UpdateContactName(ctx context.Context, contactID int, name string) error {
+	path := fmt.Sprintf("/contacts/%d", contactID)
+	_, err := c.request(ctx, http.MethodPut, path, map[string]string{
+		"name": name,
+	})
+	return err
+}
+
 // UpdateContactLastSeen actualiza el timestamp "contact_last_seen_at"
 // de la conversación en el downstream. En Chatwoot esto hace que los
 // mensajes del agente queden marcados como leídos (icono check azul).

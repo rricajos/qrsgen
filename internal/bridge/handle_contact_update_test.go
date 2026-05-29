@@ -42,6 +42,12 @@ func newRetroIncoming(t *testing.T) (*Incoming, *[]patchRecord, *sync.Mutex) {
 	records := &[]patchRecord{}
 	mu := &sync.Mutex{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// GET /contacts/search → empty array (silences v0.43.0 contact
+		// rename lookup warnings en tests que no testean ese path).
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/contacts/search") {
+			_, _ = w.Write([]byte(`{"payload":[]}`))
+			return
+		}
 		// Solo procesamos PATCH /conversations/{c}/messages/{m}
 		if r.Method != http.MethodPatch {
 			w.WriteHeader(http.StatusOK)

@@ -684,6 +684,28 @@ func main() {
 		return c.JSON(http.StatusOK, banWatcher.Snapshot(c.Param("name")))
 	})
 
+	// POST /api/instances/:name/retroactive/reconcile
+	// Bulk reconcile (v0.43.0): itera el contact store local de whatsmeow
+	// y dispara HandleContactUpdate por cada saved. Útil tras adoptar
+	// v0.40.0+ por primera vez, o si el agente nota contactos renombrados
+	// en WhatsApp que no se han propagado a Chatwoot.
+	//
+	// Devuelve {instance, scanned, triggered}. Las goroutines en vuelo
+	// se rastrean via WaitRetroactivePatches; el endpoint NO espera —
+	// devuelve cuando todas se han disparado, no cuando todas terminan.
+	api.POST("/instances/:name/retroactive/reconcile", func(c echo.Context) error {
+		instance := c.Param("name")
+		conn, ok := mgr.Get(instance)
+		if !ok {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
+		}
+		result, err := incoming.ReconcileSavedContacts(c.Request().Context(), instance, conn)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	// POST /api/instances/:name/avatars/resync
 	// Backfill bulk: itera todos los contactos del inbox de la instancia y
 	// dispara avatar sync para cada uno con identifier parseable como JID.

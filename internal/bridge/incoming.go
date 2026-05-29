@@ -1002,12 +1002,6 @@ func (i *Incoming) HandleContactUpdate(ctx context.Context, instance string, jid
 
 	key := jid.ToNonAD().String()
 	entries := i.msgHistory.ListBySender(instance, key)
-	if len(entries) == 0 {
-		i.logger.Debug("retroactive update: no tracked msgs for sender",
-			"instance", instance, "jid", jid)
-		metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "skip_no_entries", instance).Inc()
-		return
-	}
 
 	ds := i.ds.For(ctx, instance)
 	if ds == nil {
@@ -1030,19 +1024,29 @@ func (i *Incoming) HandleContactUpdate(ctx context.Context, instance string, jid
 		return
 	}
 
-	// v0.40.1: PATCH loop en goroutine. Para un sender con cap=200 y
-	// ~50ms por PATCH, en sync bloquearíamos el event loop de wameow
-	// ~10s — y ese loop maneja TODOS los eventos (mensajes, presencia,
-	// receipts) de TODAS las instancias. Mejor un goroutine fire-and-
-	// forget; tests + shutdown esperan vía retroactiveWG.
+	// v0.43.0: tanto el rename del contacto en Chatwoot como el PATCH
+	// loop de mensajes históricos van en la misma goroutine. El contact
+	// rename aplica también al caso 1:1 (cuando no hay mensajes de
+	// grupo tracked); el PATCH loop solo si hay entries.
+	//
+	// Si no hay entries Y no podemos encontrar contacto, salimos
+	// silenciosos. La métrica skip_no_entries la registramos solo si
+	// además no se intentó el rename — lo decide la goroutine.
 	i.retroactiveWG.Add(1)
-	go i.applyRetroactivePatches(ctx, instance, jid, key, newName, newPrefix, entries, ds)
+	go i.applyRetroactiveUpdates(ctx, instance, jid, key, newName, newPrefix, entries, ds)
 }
 
-// applyRetroactivePatches itera entries y PATCHea las que estén
-// desfasadas vs el newName actual. Llamada vía goroutine desde
-// HandleContactUpdate. NO bloquear el event loop.
-func (i *Incoming) applyRetroactivePatches(
+// applyRetroactiveUpdates aplica retroactivamente el nuevo nombre del
+// contacto al downstream:
+//  1. Renombra el contact en Chatwoot (PUT /contacts/{id} con name).
+//     v0.43.0: aplica también al caso 1:1, no solo a grupos.
+//  2. PATCHea cada msg en `entries` con el header actualizado (cuando
+//     el sender pasó de no-saved a saved, o cambió de nombre).
+//
+// Llamada vía goroutine desde HandleContactUpdate (no bloquear el
+// event loop de wameow). El contact rename es best-effort: si falla,
+// loguea warning y sigue con los msgs.
+func (i *Incoming) applyRetroactiveUpdates(
 	ctx context.Context,
 	instance string,
 	jid types.JID,
@@ -1052,6 +1056,35 @@ func (i *Incoming) applyRetroactivePatches(
 ) {
 	defer i.retroactiveWG.Done()
 
+	// v0.43.0: rename del contacto en Chatwoot. Buscamos por phone
+	// (events.Contact siempre llega con PN). Si no existe (caso típico:
+	// recibimos del LID y nunca creamos contact por PN), saltamos sin
+	// error — se creará con el nombre correcto en el próximo msg
+	// gracias al flujo normal de sync().
+	contact, err := findContactByIdentifier(ctx, ds, jid.String(), jid.User)
+	if err != nil {
+		i.logger.Warn("retroactive update: find contact failed",
+			"err", err, "instance", instance, "jid", jid)
+		// No abortamos — los msgs PATCH no dependen del lookup.
+	} else if contact != nil && contact.Name != newName {
+		if err := ds.UpdateContactName(ctx, contact.ID, newName); err != nil {
+			i.logger.Warn("retroactive contact rename failed",
+				"err", err, "instance", instance,
+				"contactID", contact.ID, "newName", newName)
+			metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "ds_error", instance).Inc()
+		} else {
+			metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "ok", instance).Inc()
+			i.logger.Info("retroactive contact rename applied",
+				"instance", instance, "jid", jid,
+				"contactID", contact.ID, "oldName", contact.Name, "newName", newName)
+		}
+	}
+
+	// PATCH loop de mensajes históricos de grupo (v0.40.0).
+	if len(entries) == 0 {
+		metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "skip_no_entries", instance).Inc()
+		return
+	}
 	patched := 0
 	for _, e := range entries {
 		if e.nameUsed == newName && e.wasSaved {
@@ -1077,6 +1110,50 @@ func (i *Incoming) applyRetroactivePatches(
 			"instance", instance, "jid", jid,
 			"newName", newName, "patched", patched, "scanned", len(entries))
 	}
+}
+
+// ReconcileResult resume una pasada de bulk reconcile.
+type ReconcileResult struct {
+	Instance  string `json:"instance"`
+	Scanned   int    `json:"scanned"`   // contactos saved iterados del store WA
+	Triggered int    `json:"triggered"` // HandleContactUpdate calls disparados
+}
+
+// ReconcileSavedContacts itera el contact store local de whatsmeow
+// y dispara un HandleContactUpdate por cada entry saved. Sirve para:
+//   - Bootstrap inicial tras adoptar v0.40.0+ (la agenda WA ya tenía
+//     contactos antes de que qrsgen empezara a rastrear).
+//   - Backfill tras restart sin persistencia (v0.40.x sin v0.41.0
+//     persistence).
+//   - Reconciliación manual vía endpoint admin si el agente nota
+//     contactos saved en WA pero no renombrados en Chatwoot.
+//
+// Cada HandleContactUpdate corre como si viniera de un events.Contact
+// con fromFullSync=false (es decir, SÍ dispara PATCHes). Si hay 1000
+// contactos saved y 50 con mensajes tracked, eso son 50 PATCH loops
+// en goroutines. retroactiveWG las rastrea — WaitRetroactivePatches
+// permite esperar al final.
+func (i *Incoming) ReconcileSavedContacts(ctx context.Context, instance string, r wameow.WAResolver) (ReconcileResult, error) {
+	result := ReconcileResult{Instance: instance}
+	if i.msgHistory == nil {
+		return result, fmt.Errorf("retroactive name update disabled")
+	}
+	if r == nil {
+		return result, fmt.Errorf("resolver nil")
+	}
+	saved, err := r.GetSavedContacts(ctx)
+	if err != nil {
+		return result, fmt.Errorf("get saved contacts: %w", err)
+	}
+	for jid, name := range saved {
+		result.Scanned++
+		// HandleContactUpdate puede no disparar trabajo si:
+		// - el contacto no tiene msgs tracked Y no hay contact en Chatwoot
+		// Pero cuenta como triggered porque metabaja el orchestrator.
+		i.HandleContactUpdate(ctx, instance, jid, name, "", false, r)
+		result.Triggered++
+	}
+	return result, nil
 }
 
 // WaitRetroactivePatches bloquea hasta que todas las goroutines en

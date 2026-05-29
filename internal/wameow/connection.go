@@ -91,6 +91,12 @@ type WAResolver interface {
 	// DownloadAny descarga el media adjunto a un mensaje E2E. Devuelve los bytes
 	// desencriptados. Devuelve error si no hay media o falla el download.
 	DownloadAny(ctx context.Context, msg *waE2E.Message) ([]byte, error)
+	// GetSavedContacts devuelve todos los contactos saved (FullName o
+	// FirstName no vacío) del contact store local, keyed por PN JID.
+	// Valor: nombre canónico (FullName preferred, FirstName fallback).
+	// Usado por el bulk reconcile del retroactive name update (v0.43.0)
+	// para iterar la agenda al boot o vía endpoint admin.
+	GetSavedContacts(ctx context.Context) (map[types.JID]string, error)
 }
 
 // NameResolver alias para compatibilidad (un solo método); el bridge ya usa WAResolver.
@@ -250,6 +256,36 @@ func (c *Conn) listenQR(qrChan <-chan whatsmeow.QRChannelItem) {
 			c.logger.Info("qr event", "event", evt.Event)
 		}
 	}
+}
+
+// GetSavedContacts itera el contact store local y devuelve un map
+// {JID PN → nombre canónico} solo con entries que tienen FullName o
+// FirstName (el criterio de "saved" usado en todo el bridge —
+// equivalente a `IsContactSaved` aplicado en bulk). Usado por el
+// bulk reconcile del retroactive name update (v0.43.0).
+//
+// Llamada potencialmente cara — el store puede tener miles de entries.
+// El caller debe usar timeout razonable + correr en background.
+func (c *Conn) GetSavedContacts(ctx context.Context) (map[types.JID]string, error) {
+	if c.client == nil || c.client.Store == nil || c.client.Store.Contacts == nil {
+		return nil, fmt.Errorf("no contact store")
+	}
+	all, err := c.client.Store.Contacts.GetAllContacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[types.JID]string)
+	for jid, info := range all {
+		name := info.FullName
+		if name == "" {
+			name = info.FirstName
+		}
+		if name == "" {
+			continue
+		}
+		out[jid] = name
+	}
+	return out, nil
 }
 
 // ContactName devuelve el nombre cacheado para un JID en el contact store local

@@ -378,6 +378,72 @@ func TestFormatLocationContent(t *testing.T) {
 	})
 }
 
+func TestFormatPollContent(t *testing.T) {
+	mkOpt := func(name string) *waE2E.PollCreationMessage_Option {
+		s := name
+		return &waE2E.PollCreationMessage_Option{OptionName: &s}
+	}
+	mkPoll := func(name string, max uint32, opts ...string) *waE2E.PollCreationMessage {
+		options := make([]*waE2E.PollCreationMessage_Option, 0, len(opts))
+		for _, o := range opts {
+			options = append(options, mkOpt(o))
+		}
+		n := name
+		m := max
+		return &waE2E.PollCreationMessage{
+			Name:                   &n,
+			Options:                options,
+			SelectableOptionsCount: &m,
+		}
+	}
+
+	t.Run("single-select poll", func(t *testing.T) {
+		poll := mkPoll("¿Día para el meeting?", 1, "Lunes", "Martes", "Miércoles")
+		got := formatPollContent(poll)
+		want := "🗳️ **Encuesta:** ¿Día para el meeting?\n1. Lunes\n2. Martes\n3. Miércoles\n_(elige 1 opción)_"
+		if got != want {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("multi-select poll", func(t *testing.T) {
+		poll := mkPoll("¿Qué pizzas? (top 2)", 2, "Margherita", "Diavola", "Marinara")
+		got := formatPollContent(poll)
+		want := "🗳️ **Encuesta:** ¿Qué pizzas? (top 2)\n1. Margherita\n2. Diavola\n3. Marinara\n_(elige hasta 2 opciones)_"
+		if got != want {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("unlimited (max=0) omits hint", func(t *testing.T) {
+		poll := mkPoll("Open vote", 0, "A", "B")
+		got := formatPollContent(poll)
+		want := "🗳️ **Encuesta:** Open vote\n1. A\n2. B"
+		if got != want {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("poll without name → empty (no contexto)", func(t *testing.T) {
+		empty := ""
+		poll := &waE2E.PollCreationMessage{
+			Name:    &empty,
+			Options: []*waE2E.PollCreationMessage_Option{mkOpt("A")},
+		}
+		if got := formatPollContent(poll); got != "" {
+			t.Errorf("nameless poll: got %q, want empty", got)
+		}
+	})
+
+	t.Run("poll without options → empty", func(t *testing.T) {
+		name := "Question"
+		poll := &waE2E.PollCreationMessage{Name: &name}
+		if got := formatPollContent(poll); got != "" {
+			t.Errorf("optionless poll: got %q, want empty", got)
+		}
+	})
+}
+
 // mkGroupMsg construye un events.Message como si llegara desde un grupo.
 // chat es el JID del grupo (@g.us), sender es el participante.
 func mkGroupMsg(chat, sender types.JID, pushName string) *events.Message {

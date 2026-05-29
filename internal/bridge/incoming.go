@@ -1093,7 +1093,50 @@ func extractTextContent(msg *events.Message) string {
 	if loc := msg.Message.GetLocationMessage(); loc != nil {
 		return formatLocationContent(loc)
 	}
+	// Polls (encuestas): formato como lista numerada de opciones para
+	// que el agente vea la pregunta y opciones. Los votos llegan como
+	// PollUpdateMessage y NO se procesan (Chatwoot no tiene widget de
+	// polls para reflejarlos correctamente). v0.37.0.
+	if poll := msg.Message.GetPollCreationMessage(); poll != nil {
+		return formatPollContent(poll)
+	}
+	if poll := msg.Message.GetPollCreationMessageV3(); poll != nil {
+		return formatPollContent(poll)
+	}
 	return ""
+}
+
+// formatPollContent serializa un PollCreationMessage a un body legible
+// con la pregunta, opciones numeradas y un hint del modo (single vs
+// multi-select). Los votos posteriores (PollUpdateMessage) NO se
+// procesan — Chatwoot no tiene UI nativa para reflejarlos. v0.37.0.
+func formatPollContent(poll *waE2E.PollCreationMessage) string {
+	name := poll.GetName()
+	if name == "" {
+		// Sin pregunta no merece la pena propagar — el agente vería
+		// solo opciones flotantes sin contexto.
+		return ""
+	}
+	options := poll.GetOptions()
+	if len(options) == 0 {
+		return ""
+	}
+
+	parts := []string{"🗳️ **Encuesta:** " + name}
+	for i, opt := range options {
+		// Numeración 1-based, formato "N. opción".
+		parts = append(parts, fmt.Sprintf("%d. %s", i+1, opt.GetOptionName()))
+	}
+
+	// Hint del modo: 1 = single, >1 = multi, 0 = unlimited.
+	maxSel := poll.GetSelectableOptionsCount()
+	switch {
+	case maxSel == 1:
+		parts = append(parts, "_(elige 1 opción)_")
+	case maxSel > 1:
+		parts = append(parts, fmt.Sprintf("_(elige hasta %d opciones)_", maxSel))
+	}
+	return strings.Join(parts, "\n")
 }
 
 // formatLocationContent serializa un LocationMessage a un body legible

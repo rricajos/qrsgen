@@ -4,6 +4,56 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-05-28
+
+Soporte para encuestas (polls) de WhatsApp. Antes los polls se veían
+como mensajes vacíos; ahora aparecen con la pregunta y opciones
+numeradas para que el agente vea lo que el cliente preguntó.
+
+### Added
+
+- **`formatPollContent`** helper. Extrae el `Name` (pregunta),
+  `Options[]` (cada una con `OptionName`) y `SelectableOptionsCount`
+  del `PollCreationMessage` y genera body legible:
+
+  ```
+  🗳️ **Encuesta:** ¿Día para el meeting?
+  1. Lunes
+  2. Martes
+  3. Miércoles
+  _(elige 1 opción)_
+  ```
+
+  Multi-select: `_(elige hasta N opciones)_`. Unlimited (`max=0`)
+  omite el hint.
+
+- **Polls v1 + v3** soportados. `extractTextContent` chequea ambos
+  `GetPollCreationMessage()` y `GetPollCreationMessageV3()`.
+
+### Not propagated
+
+- **`PollUpdateMessage`** (votos individuales) NO se procesa.
+  Chatwoot no tiene widget de polls que pueda reflejar votos
+  agregados, así que tirarlos al body como mensajes nuevos por
+  cada voto sería ruido. v0.37.x podría añadir un modo opt-in si
+  hace falta.
+
+### Edge cases
+
+- Poll sin pregunta (`Name=""`) → body vacío (no merece la pena).
+- Poll sin options → body vacío.
+- Comentario adjunto al poll (raro) no se incluye.
+
+### Tests
+
+- 5 sub-tests en `TestFormatPollContent`: single, multi, unlimited,
+  sin nombre, sin opciones.
+
+### Migration notes
+
+- Sin breaking changes. Patrón canónico para detectar polls en
+  parsers downstream: `^🗳️ \*\*Encuesta:\*\*`.
+
 ## [0.36.0] - 2026-05-28
 
 Soporte para mensajes de ubicación de WhatsApp. Antes se veían vacíos

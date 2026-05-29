@@ -4,6 +4,75 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.44.4] - 2026-05-29
+
+Redesign del blockquote del quote/reply context (v0.42.0..v0.44.3)
+para alinearlo con el estilo del group prefix (v0.39.5+):
+
+Antes (v0.44.3):
+```
+`+34604021705 · Ricajos`
+> _↩️ respondiendo a ~Pepito:_ texto citado
+reply del usuario
+```
+
+Ahora (v0.44.4):
+```
+`+34604021705 · Ricajos`
+> `↪ +34600000099 · ~Pepito`
+> texto citado
+reply del usuario
+```
+
+Cambios concretos:
+- Header del citado pasa de italic con emoji ↩️ a **code block con
+  flecha unicode `↪` (U+21AA)** + phone + middle dot + name. Mismo
+  patrón visual que el group prefix → consistencia.
+- La flecha unicode sin variation selector sale como glyph plano
+  (no emoji-style) — funciona uniforme en cualquier fuente.
+- Header en su propia línea del blockquote (en lugar de pegado al
+  texto). Chatwoot da espacio cómodo entre header y citado.
+- Texto "respondiendo a X" eliminado — la flecha + identidad ya
+  comunica que es un reply.
+- En 1:1 (sin Participant) el header se omite: contexto del author
+  es trivial (el otro extremo del chat), el blockquote por sí solo
+  ya indica que es un mensaje citado.
+
+### Added
+
+- **`buildQuoteHeader(ci, r)`**: helper que arma el header
+  (code block con flecha + phone + name) reutilizando
+  `resolveJIDNameSaved`. Devuelve "" si no hay Participant resoluble.
+
+### Changed
+
+- **`formatQuotedBlock`**: layout reformateado. Header en su línea,
+  cada línea del citado prefijada con `> `. Texto "respondiendo a"
+  removido.
+
+### Tests
+
+- 10 cases en `TestFormatQuotedBlock` (reescritos para el nuevo
+  layout):
+  - `GroupReplyUnsavedAuthor` / `GroupReplySavedAuthor`
+  - `NoQuoteReturnsEmpty`
+  - `NoResolverFallsBackToPhoneOnly`
+  - `OneOnOneNoHeader` (1:1 omite header)
+  - `TruncatesLongQuote`
+  - `MultilineQuoted`
+  - `LIDAuthorWithSavedPN` (hereda fix v0.39.9)
+  - `ImageQuoteUsesPlaceholder` / `AudioPTTPlaceholder`
+
+### Migration notes
+
+- Parsers regex sobre el blockquote del quote necesitan actualizarse
+  del patrón v0.44.3 (`> _↩️ respondiendo a (.*):_ (.*)`)
+  al patrón v0.44.4 (header en línea separada):
+  ```
+  > `↪ (\+\d+)( · )?(~?)(.*)`
+  > (.*)
+  ```
+
 ## [0.44.3] - 2026-05-29
 
 UX consistency: el author del blockquote en quote/reply context

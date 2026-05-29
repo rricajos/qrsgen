@@ -1777,44 +1777,76 @@ func formatQuotedBlock(msg *events.Message, r wameow.WAResolver) string {
 		text = string(runes[:maxQuoteRunes]) + "…"
 	}
 
-	// Resolver nombre del autor citado. Participant es el JID en grupos
-	// (en 1:1 es nil porque el author es la otra parte de la conv).
-	// v0.44.3: respeta la misma convención que el group prefix —
-	// `~Name` si el contacto NO está guardado en la agenda del bot
-	// owner, `Name` si sí lo está. Reutiliza resolveJIDNameSaved
-	// para heredar el fix v0.39.9 (LID con PN saved usa nombre canónico).
-	authorName := ""
-	authorSaved := false
-	if part := ci.GetParticipant(); part != "" {
-		if jid, err := types.ParseJID(part); err == nil {
-			authorName, authorSaved = resolveJIDNameSaved(jid, r)
-			if authorName == "" && jid.Server == types.DefaultUserServer {
-				// Fallback: phone formateado (no saved por definición).
-				authorName = formatE164(jid.User)
-			}
-		}
-	}
-	authorMark := authorName
-	if authorName != "" && !authorSaved {
-		authorMark = "~" + authorName
-	}
+	// v0.44.4: header del quoted al estilo del group prefix
+	// (`↪ +phone · name` en code block), en su propia línea del
+	// blockquote. La flecha unicode U+21AA (↪) sustituye al emoji
+	// ↩️ — sale como glyph plano de la fuente, sin variation
+	// selector que pueda romper en renderers que no soportan emoji
+	// en line-height. El name respeta la convención `~` si no saved
+	// (igual que group prefix v0.39.5 + fix v0.39.9 LID→PN canónico).
+	//
+	// En 1:1 (sin Participant) el header se omite — el contexto es
+	// trivial (el author es el otro extremo del chat).
+	header := buildQuoteHeader(ci, r)
 
-	// v0.44.2: header + primera línea del quoted en la MISMA línea del
-	// blockquote. v0.42.0 las metía en líneas `>` separadas, pero
-	// Chatwoot mete gap visual entre líneas dentro de un blockquote
-	// → header y texto citado salían separados. Pegándolos en una
-	// sola línea quedan visualmente unidos.
-	headerInline := "_↩️ respondiendo:_"
-	if authorMark != "" {
-		headerInline = "_↩️ respondiendo a " + authorMark + ":_"
-	}
 	lines := strings.Split(text, "\n")
-	out := make([]string, 0, len(lines))
-	out = append(out, "> "+headerInline+" "+lines[0])
-	for _, l := range lines[1:] {
+	out := make([]string, 0, len(lines)+1)
+	if header != "" {
+		out = append(out, "> "+header)
+	}
+	for _, l := range lines {
 		out = append(out, "> "+l)
 	}
 	return strings.Join(out, "\n")
+}
+
+// buildQuoteHeader arma la cabecera del blockquote de quote/reply
+// context al estilo del group prefix: code block con flecha + phone
+// + middle dot + name (con `~` si no saved). Devuelve "" si no hay
+// Participant resoluble (típico en 1:1).
+func buildQuoteHeader(ci *waE2E.ContextInfo, r wameow.WAResolver) string {
+	part := ci.GetParticipant()
+	if part == "" {
+		return ""
+	}
+	jid, err := types.ParseJID(part)
+	if err != nil {
+		return ""
+	}
+
+	// Resolver name + saved + phone con la misma cadena que el group
+	// prefix. resolveJIDNameSaved hereda el fix v0.39.9.
+	name, saved := resolveJIDNameSaved(jid, r)
+	phone := ""
+	switch jid.Server {
+	case types.DefaultUserServer:
+		phone = jid.User
+	case types.HiddenUserServer:
+		if r != nil {
+			if pn, ok := r.PNForLID(jid.ToNonAD()); ok {
+				phone = pn.User
+			}
+		}
+	}
+	phoneFmt := ""
+	if phone != "" {
+		phoneFmt = formatE164(phone)
+	}
+	nameMark := name
+	if name != "" && !saved {
+		nameMark = "~" + name
+	}
+
+	const arrow = "↪ " // U+21AA RIGHTWARDS ARROW WITH HOOK + espacio
+	switch {
+	case phoneFmt != "" && nameMark != "":
+		return "`" + arrow + phoneFmt + " · " + nameMark + "`"
+	case nameMark != "":
+		return "`" + arrow + nameMark + "`"
+	case phoneFmt != "":
+		return "`" + arrow + phoneFmt + "`"
+	}
+	return ""
 }
 
 // formatPollContent serializa un PollCreationMessage a un body legible

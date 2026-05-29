@@ -4,6 +4,37 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.7] - 2026-05-28
+
+Alinea el formato de reacciones (v0.33.0) con el formato del prefix
+de grupo (v0.39.6): code block + teléfono primero + middle dot +
+tilde solo si no saved. Consistencia visual entre todos los headers
+de sender que qrsgen postea al downstream.
+
+### Changed
+
+- **`handleReaction` ahora genera content con formato unificado**:
+  - Antes (v0.33.0..v0.39.6):
+    `**~Name** reaccionó con 👍` (markdown bold, tilde always)
+    `**~Name** ` + `` `+phone` `` ` reaccionó con 👍` (con phone solo en grupos no saved)
+  - Ahora (v0.39.7):
+    `` `+phone · Name reaccionó con 👍` `` (saved, en code block)
+    `` `+phone · ~Name reaccionó con 👍` `` (no saved)
+    `` `+phone · ~Name quitó su reacción` `` (emoji vacío)
+
+- **Teléfono incluido siempre** (no solo en grupos no-saved). Mantiene
+  consistencia con la columna fija que da el formato E.164.
+- **Tilde solo cuando no saved** — replicado de v0.39.5.
+
+### Migration notes
+
+- Sin breaking changes en API. Parsers regex que detectaban
+  reacciones via `^\\*\\*~.*reaccionó` deben actualizarse al patrón
+  `` ^`\+\d+ · ~?.*reaccionó `` o similar.
+- El "_quitó su reacción_" pierde el italic markdown porque dentro de
+  inline code no se procesa. Queda como texto plano dentro del code
+  block.
+
 ## [0.39.6] - 2026-05-28
 
 Reordena el prefijo de grupo: teléfono primero, middle dot,

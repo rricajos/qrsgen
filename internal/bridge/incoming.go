@@ -316,33 +316,34 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 		name = "alguien"
 	}
 
-	var content string
-	isGroup := msg.Info.Chat.Server == types.GroupServer
-	prefix := "**~" + name + "**"
-	if !saved && isGroup {
-		// En grupos con sender desconocido, incluir teléfono para context.
-		// 1-on-1 no lo necesita porque la conv ya es ese contacto.
-		phone := ""
-		switch msg.Info.Sender.Server {
-		case types.DefaultUserServer:
-			phone = msg.Info.Sender.User
-		case types.HiddenUserServer:
-			if r != nil {
-				if pn, ok := r.PNForLID(msg.Info.Sender.ToNonAD()); ok {
-					phone = pn.User
-				}
+	// v0.39.7: align con el formato del prefix de grupo (v0.39.6).
+	// Code block + teléfono primero + middle dot + tilde solo si no saved.
+	// Aplica siempre que tengamos phone disponible (no solo en grupos)
+	// para mantener consistencia visual entre todos los headers de sender.
+	phone := ""
+	switch msg.Info.Sender.Server {
+	case types.DefaultUserServer:
+		phone = msg.Info.Sender.User
+	case types.HiddenUserServer:
+		if r != nil {
+			if pn, ok := r.PNForLID(msg.Info.Sender.ToNonAD()); ok {
+				phone = pn.User
 			}
 		}
-		if phone != "" {
-			prefix = prefix + " `" + formatE164(phone) + "`"
-		}
 	}
-
+	nameMark := name
+	if !saved {
+		nameMark = "~" + name
+	}
+	phoneStr := ""
+	if phone != "" {
+		phoneStr = formatE164(phone) + " · "
+	}
+	verb := "reaccionó con " + emoji
 	if emoji == "" {
-		content = prefix + " _quitó su reacción_"
-	} else {
-		content = prefix + " reaccionó con " + emoji
+		verb = "quitó su reacción"
 	}
+	content := "`" + phoneStr + nameMark + " " + verb + "`"
 
 	_, err = ds.PostMessage(ctx, downstream.PostMessageReq{
 		ConversationID: conv.ID,

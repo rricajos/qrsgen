@@ -378,6 +378,25 @@ func TestFormatLocationContent(t *testing.T) {
 	})
 }
 
+func TestSanitizeMime(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"audio/ogg", "audio/ogg"},
+		{"audio/ogg; codecs=opus", "audio/ogg"},
+		{"image/webp; animated=true", "image/webp"},
+		{"video/mp4;codecs=avc1", "video/mp4"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := sanitizeMime(tc.in); got != tc.want {
+				t.Errorf("sanitizeMime(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFormatPollContent(t *testing.T) {
 	mkOpt := func(name string) *waE2E.PollCreationMessage_Option {
 		s := name

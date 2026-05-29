@@ -916,14 +916,25 @@ func extractMedia(msg *events.Message) *mediaInfo {
 		}
 	}
 	if am := m.GetAudioMessage(); am != nil {
-		ext := "ogg"
+		// Browser compat (v0.38.0):
+		// - Mime se sanitiza para quitar el `; codecs=opus` que algunos
+		//   downstreams confunden y los reproductores html5 audio
+		//   no esperan en el header Content-Type.
+		// - Voice notes (PTT) usan filename "voice-note.ogg" en lugar
+		//   de "audio.opus" — la extensión .ogg activa el codec en
+		//   más browsers que .opus.
+		mime := sanitizeMime(am.GetMimetype())
+		if mime == "" {
+			mime = "audio/ogg"
+		}
+		prefix := "audio"
 		if am.GetPTT() {
-			ext = "opus" // voice note
+			prefix = "voice-note"
 		}
 		return &mediaInfo{
 			kind:     "audio",
-			mimetype: am.GetMimetype(),
-			filename: filenameFromMime(am.GetMimetype(), "audio", ext),
+			mimetype: mime,
+			filename: filenameFromMime(mime, prefix, "ogg"),
 		}
 	}
 	if vm := m.GetVideoMessage(); vm != nil {
@@ -947,13 +958,31 @@ func extractMedia(msg *events.Message) *mediaInfo {
 		}
 	}
 	if sm := m.GetStickerMessage(); sm != nil {
+		// Browser compat (v0.38.0): default mime "image/webp" si WA
+		// devuelve vacío — necesario para que browsers detecten cómo
+		// renderizar (WebP es WIDELY soportado en navegadores modernos).
+		mime := sanitizeMime(sm.GetMimetype())
+		if mime == "" {
+			mime = "image/webp"
+		}
 		return &mediaInfo{
 			kind:     "sticker",
-			mimetype: sm.GetMimetype(),
-			filename: filenameFromMime(sm.GetMimetype(), "sticker", "webp"),
+			mimetype: mime,
+			filename: filenameFromMime(mime, "sticker", "webp"),
 		}
 	}
 	return nil
+}
+
+// sanitizeMime quita el parámetro de codec del Content-Type. Por
+// ejemplo "audio/ogg; codecs=opus" → "audio/ogg". Algunos browsers y
+// downstreams se confunden con el codec specifier en el header del
+// upload. Devuelve el mime original si no hay `;`.
+func sanitizeMime(mime string) string {
+	if i := strings.Index(mime, ";"); i >= 0 {
+		return strings.TrimSpace(mime[:i])
+	}
+	return mime
 }
 
 // filenameFromMime sintetiza un filename razonable a partir del mimetype.

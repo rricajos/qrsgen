@@ -4,6 +4,49 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-05-28
+
+Media polish: mejor compat de voice notes y stickers en
+reproductores HTML5 (Chatwoot UI + browsers modernos). Cambios
+solo en filenames y mimes — sin conversión de formato (no requiere
+ffmpeg ni deps externas).
+
+### Changed
+
+- **Voice notes** (audio con `PTT=true`) ahora se postean al
+  downstream con:
+  - `filename: voice-note.ogg` en lugar de `audio.opus` — la
+    extensión `.ogg` activa el codec en más browsers/players.
+  - `mimetype: audio/ogg` sanitizado, sin el sufijo `; codecs=opus`
+    que algunos players HTML5 no parsean.
+- **Audio normal** (no-PTT): mismo sanitizado de mime, fallback
+  default `audio/ogg` si WA devuelve vacío.
+- **Stickers** WebP: default `image/webp` si WA devuelve mime
+  vacío (necesario para que el browser sepa renderizar).
+
+### Added
+
+- **`sanitizeMime`** helper en `internal/bridge/incoming.go`. Quita
+  el parámetro de codec del Content-Type (`"audio/ogg; codecs=opus"`
+  → `"audio/ogg"`).
+- 5 tests del `sanitizeMime` cubriendo: empty, sin parámetro, con
+  codec, con animated=true, sin espacio antes del `;`.
+
+### Not included
+
+- **NO se hace conversión de formato real**. Stickers WebP siguen
+  siendo WebP, voice notes siguen siendo OGG/Opus. Convertir
+  requeriría ffmpeg en el container — fuera de scope para v0.38.0.
+  Si tienes browsers viejos que no soportan WebP/Opus, el problema
+  persiste; considera un proxy de conversión en el downstream.
+
+### Migration notes
+
+- Sin breaking changes. Si tu integración parseaba el filename de
+  audio buscando exactamente `audio.opus` para distinguir voice
+  notes de audio normal, actualízalo al nuevo prefijo
+  `voice-note.ogg`.
+
 ## [0.37.0] - 2026-05-28
 
 Soporte para encuestas (polls) de WhatsApp. Antes los polls se veían

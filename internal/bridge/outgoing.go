@@ -124,12 +124,15 @@ func (o *Outgoing) EnableMarkAsRead(waids *waidTracker, marker ReadMarker) {
 
 // handleConversationUpdated maneja el evento del downstream que indica
 // que el agente leyó la conv. Drena los WAIDs incoming registrados antes
-// de agent_last_seen_at y llama MarkRead via wameow para que el cliente
-// vea el doble check azul en esos mensajes.
+// de agent_last_seen_at y llama MarkRead via wameow en una goroutine
+// (fire-and-forget) para que el webhook response no se bloquee.
 //
 // agent_last_seen_at == 0 → ignorar (no hay info de read).
 // tracker vacío para esa conv → no-op (nada que marcar).
-func (o *Outgoing) handleConversationUpdated(ctx context.Context, instance string, p WebhookPayload) {
+//
+// El ctx del webhook se cancela rápido (es el del HTTP request); usamos
+// context.Background() en la goroutine con timeout propio.
+func (o *Outgoing) handleConversationUpdated(_ context.Context, instance string, p WebhookPayload) {
 	if p.Conversation == nil || p.Conversation.AgentLastSeenAt == 0 {
 		return
 	}
@@ -141,17 +144,28 @@ func (o *Outgoing) handleConversationUpdated(ctx context.Context, instance strin
 		return
 	}
 	cutoff := time.Unix(p.Conversation.AgentLastSeenAt, 0)
+	// Drenar ANTES del spawn, no DENTRO de la goroutine — así si llegan
+	// varios conversation_updated seguidos cada uno se lleva su slice
+	// y no compiten por el mismo lock fuera del request.
 	waids, senderJID := o.waids.DrainBefore(instance, chatJID, cutoff)
 	if len(waids) == 0 {
 		return
 	}
-	if err := o.marker.MarkRead(ctx, instance, chatJID, senderJID, waids, cutoff); err != nil {
-		o.logger.Warn("mark-as-read failed",
-			"err", err, "instance", instance, "chat", chatJID, "count", len(waids))
-		return
-	}
-	o.logger.Info("mark-as-read sent to WhatsApp",
-		"instance", instance, "chat", chatJID, "count", len(waids), "cutoff", cutoff)
+	// Fire-and-forget: MarkRead hace round-trip a WA y no debe bloquear
+	// el response del webhook. Si falla, logueamos y los WAIDs ya
+	// drenados se pierden — el cliente WA no verá el doble check para
+	// esos msgs concretos. Cosmético, no impacta correctness.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := o.marker.MarkRead(ctx, instance, chatJID, senderJID, waids, cutoff); err != nil {
+			o.logger.Warn("mark-as-read failed",
+				"err", err, "instance", instance, "chat", chatJID, "count", len(waids))
+			return
+		}
+		o.logger.Info("mark-as-read sent to WhatsApp",
+			"instance", instance, "chat", chatJID, "count", len(waids), "cutoff", cutoff)
+	}()
 }
 
 // SetUsage attaches a usage recorder for counter increments. Safe to call once

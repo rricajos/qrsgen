@@ -4,6 +4,36 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.1] - 2026-05-28
+
+Bugfix: el handler `conversation_updated` (mark-as-read outgoing
+introducido en v0.39.0) bloqueaba el webhook response esperando al
+round-trip de `MarkRead` con WhatsApp. Si la conexión WA estaba
+lenta o el batch de WAIDs era grande (cap 50), el webhook tardaba
+varios segundos en responder a Chatwoot — riesgo de timeout y
+double-mark por reintento.
+
+### Fixed
+
+- **`Outgoing.handleConversationUpdated` ahora dispara el `MarkRead`
+  en una goroutine fire-and-forget**. El webhook devuelve 200 al
+  instante; el read receipt se envía a WA en background con timeout
+  propio de 15s. Si falla, log warning + WAIDs ya drenados se
+  pierden (cosmético — el cliente no ve doble check para esos msgs
+  concretos, no afecta correctness).
+- **Drain ANTES del spawn**: el drenado del tracker se hace
+  sincrónicamente fuera de la goroutine. Garantiza que cada
+  conversation_updated entrante se lleva su slice de WAIDs sin race
+  con events siguientes.
+
+### Migration notes
+
+- Sin breaking changes. El feature sigue funcionando igual desde el
+  punto de vista del usuario; la única diferencia observable es que
+  el webhook response es ahora <100ms en vez de hasta varios segundos.
+- Logs siguen apareciendo igual (`"mark-as-read sent to WhatsApp"` o
+  warning si falla), solo que vienen de la goroutine async.
+
 ## [0.39.0] - 2026-05-28
 
 Mark-as-read outgoing: cuando el agente abre la conv en el downstream

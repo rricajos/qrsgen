@@ -487,7 +487,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("PN sender (Spain) with push name → bold name + italic phone", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "`+34640047775 · ~Jean Paul`  \nhola"
+		want := "`+34640047775 · ~Jean Paul`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -497,7 +497,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "")
 		r := &fakeResolver{names: map[string]string{senderPN.String(): "Jean Paul (CRM)"}}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`+34640047775 · ~Jean Paul (CRM)`  \nhola"
+		want := "`+34640047775 · ~Jean Paul (CRM)`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -509,7 +509,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			pnByLID: map[string]types.JID{senderLID.String(): senderPN},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`+34640047775 · ~Anon`  \nhola"
+		want := "`+34640047775 · ~Anon`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -518,7 +518,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("LID sender unresolvable, only push name → bold name + colon", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderLID, "Pseudo")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "`~Pseudo:`  \nhola"
+		want := "`~Pseudo:`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -527,7 +527,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("PN sender no name → italic phone + colon", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "`+34640047775:`  \nhola"
+		want := "`+34640047775:`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -551,7 +551,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			savedJIDs: map[string]bool{senderPN.String(): true},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`+34640047775 · Jean Paul`  \nhola"
+		want := "`+34640047775 · Jean Paul`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -565,7 +565,30 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			savedJIDs: map[string]bool{senderPN.String(): true},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`+34640047775 · Jean Paul`  \nhola"
+		want := "`+34640047775 · Jean Paul`\n\nhola"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("LID PushName but PN saved → prefer saved PN name (v0.39.9 regression)", func(t *testing.T) {
+		// Bug pre-v0.39.9: si el LID tenía un ContactName (típicamente
+		// el PushName, no saved) y el PN resuelto sí estaba saved con
+		// otro nombre canónico, el fallback solo rellenaba name cuando
+		// estaba vacío → se quedaba el PushName del LID + saved=true
+		// (sin tilde + nombre incorrecto). Fix: si el PN está saved y
+		// el LID no, preferimos el ContactName del PN.
+		msg := mkGroupMsg(groupJID, senderLID, "Richard")
+		r := &fakeResolver{
+			pnByLID: map[string]types.JID{senderLID.String(): senderPN},
+			names: map[string]string{
+				senderLID.String(): "Richard",      // LID name (push, no saved)
+				senderPN.String():  "Ricard Penin", // PN name (saved en agenda)
+			},
+			savedJIDs: map[string]bool{senderPN.String(): true},
+		}
+		got := applyGroupSenderPrefix("hola", msg, r)
+		want := "`+34640047775 · Ricard Penin`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}

@@ -4,6 +4,58 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.9] - 2026-05-29
+
+Patch que arregla dos bugs reportados sobre el formato de prefix
+de grupo (v0.39.6..v0.39.8):
+
+1. **Name resolution stale en LID con PN saved**: cuando el sender
+   es LID con PushName guardado en el store local (no saved) y el
+   PN resuelto vía LIDForPN sí está saved con otro nombre, el
+   header mostraba el PushName del LID sin tilde (saved=true pero
+   nombre incorrecto). Ej: PushName="Richard", agenda="Ricard Penin"
+   → renderizaba `` `+34604021705 · Richard` `` en lugar de
+   `` `+34604021705 · Ricard Penin` ``.
+2. **Line break entre header y body invisible**: el hard break
+   CommonMark (`  \n`) introducido en v0.39.8 no lo renderiza
+   Chatwoot — el body quedaba inline con el header.
+
+### Fixed
+
+- **`applyGroupSenderPrefix` LID→PN fallback**: si el PN está saved
+  pero el LID no, ahora preferimos el `ContactName(pn)` (nombre
+  canónico de la agenda) sobre el `ContactName(lid)` (típicamente
+  un PushName auto-asignado por el remitente). El fix:
+
+  ```go
+  if !saved && pnSaved {
+      name = r.ContactName(pn)
+      saved = true
+  } else if name == "" {
+      name = r.ContactName(pn)
+      if !saved { saved = pnSaved }
+  }
+  ```
+
+- **Separador header/body → `\n\n` (paragraph break)**: en
+  v0.39.8 usábamos `"  \n"` (dos espacios + newline = CommonMark
+  hard break). Chatwoot no lo honora — colapsaba a inline. Cambiamos
+  a `"\n\n"` (paragraph break estándar) que cualquier renderer
+  markdown convierte en separación vertical visible.
+
+### Tests
+
+- Nuevo regression test `LID PushName but PN saved → prefer saved
+  PN name` que reproduce el caso Ricard Penin.
+- Actualizados todos los tests existentes de `TestApplyGroupSenderPrefix`
+  con el nuevo separador `\n\n`.
+
+### Migration notes
+
+- Sin breaking changes funcionales. Parsers regex que detectaban
+  el formato pueden seguir matchando el prefix; solo cambia lo que
+  hay entre prefix y body (de `"  \n"` a `"\n\n"`).
+
 ## [0.39.8] - 2026-05-28
 
 UX micro-tweak: markdown hard line break (dos espacios + `\n`) entre

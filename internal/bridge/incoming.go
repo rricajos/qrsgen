@@ -1067,13 +1067,22 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 		name = r.ContactName(sender.ToNonAD())
 		saved = r.IsContactSaved(sender.ToNonAD())
 		// LID sin nombre o sin saved: intentar via PN.
+		// v0.39.9: si el PN está guardado pero el LID no, preferimos
+		// el ContactName del PN (canónico) sobre el nombre del LID
+		// (que suele ser un PushName auto-asignado). Antes solo
+		// rellenábamos cuando name=="" → quedaba el PushName del
+		// LID aunque el contacto estuviera guardado con otro nombre.
 		if sender.Server == types.HiddenUserServer && (name == "" || !saved) {
 			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
-				if name == "" {
+				pnSaved := r.IsContactSaved(pn)
+				if !saved && pnSaved {
 					name = r.ContactName(pn)
-				}
-				if !saved {
-					saved = r.IsContactSaved(pn)
+					saved = true
+				} else if name == "" {
+					name = r.ContactName(pn)
+					if !saved {
+						saved = pnSaved
+					}
 				}
 			}
 		}
@@ -1109,10 +1118,11 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	if body == "" {
 		return prefix
 	}
-	// v0.39.8: dos espacios + \n = markdown line break ("hard break").
-	// En renderers que soportan CommonMark estricto, esto genera un
-	// <br> en lugar de un soft break del \n pelado.
-	return prefix + "  \n" + body
+	// v0.39.9: paragraph break (\n\n). El hard break CommonMark ("  \n")
+	// que probamos en v0.39.8 no lo renderizaba Chatwoot — quedaba
+	// el body inline con el header. \n\n garantiza separación visible
+	// en cualquier renderer markdown.
+	return prefix + "\n\n" + body
 }
 
 // formatE164 toma "34604021705" → "+34604021705". Devuelve el número

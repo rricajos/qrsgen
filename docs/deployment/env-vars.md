@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.39.8` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.39.5 (tilde `~` del prefijo de grupo se aplica solo a contactos no guardados; commit `facb5de`). |
+| `QRSGEN_VERSION` | `0.39.9` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.39.9 (fix LID→PN saved name resolution + separador header/body con `\n\n`). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

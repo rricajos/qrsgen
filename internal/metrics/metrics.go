@@ -67,20 +67,27 @@ var (
 	}, []string{"version"})
 
 	// RealtimeEventsTotal: contador unificado de eventos "real-time" del
-	// bridge — avatares sincronizados, reacciones, typing, read receipts.
+	// bridge — avatares sincronizados, reacciones, typing, read receipts,
+	// retroactive name update (v0.40.1).
 	// labels:
-	//   feature: "avatar" | "reaction" | "typing" | "read_receipt"
-	//   result:  "ok"          (operación completada exitosamente)
-	//            "no_contact"  (contacto no existe en downstream)
-	//            "no_conv"     (conv no encontrada / no abierta)
-	//            "throttled"   (filtrado por anti-spam, ej. typing tracker)
-	//            "filtered"    (descartado por tipo, ej. receipt delivered)
-	//            "wa_miss"     (WA no tiene la info — foto privada, etc.)
-	//            "wa_error"    (whatsmeow falló)
-	//            "ds_error"    (downstream rechazó el POST)
+	//   feature: "avatar" | "reaction" | "typing" | "read_receipt" |
+	//            "retroactive_name"
+	//   result:  "ok"               (operación completada exitosamente)
+	//            "no_contact"       (contacto no existe en downstream)
+	//            "no_conv"          (conv no encontrada / no abierta)
+	//            "throttled"        (filtrado por anti-spam, ej. typing tracker)
+	//            "filtered"         (descartado por tipo, ej. receipt delivered)
+	//            "wa_miss"          (WA no tiene la info — foto privada, etc.)
+	//            "wa_error"         (whatsmeow falló)
+	//            "ds_error"         (downstream rechazó el POST/PATCH)
+	//            "skip_disabled"    (feature off vía env — retroactive_name)
+	//            "skip_fullsync"    (whatsmeow fromFullSync — retroactive_name)
+	//            "skip_empty_name"  (contacto sin nombre — retroactive_name)
+	//            "skip_no_entries"  (sender sin mensajes tracked — retroactive_name)
 	//
-	// Desde v0.35.0. Permite calcular tasas de éxito y detectar regresiones
-	// en producción con PromQL como:
+	// Desde v0.35.0 (v0.40.1 añade feature retroactive_name). Permite
+	// calcular tasas de éxito y detectar regresiones en producción con
+	// PromQL como:
 	//   sum by (feature) (rate(qrsgen_realtime_events_total{result="ds_error"}[5m]))
 	RealtimeEventsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "qrsgen_realtime_events_total",

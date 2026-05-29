@@ -75,6 +75,23 @@ type Config struct {
 	// Default "10m". Desde v0.30.0.
 	GroupHeaderTTL time.Duration `env:"QRSGEN_GROUP_HEADER_TTL" envDefault:"10m"`
 
+	// GroupHeaderSep controla el separador entre el header de remitente
+	// y el body. Default "paragraph" (\n\n) porque es lo único que
+	// renderiza fiable en Chatwoot. Alternativas (alias env-friendly):
+	//   - "paragraph"/"p" → "\n\n"  (default, deja aire de párrafo)
+	//   - "br"            → "<br>"  (Chatwoot lo trata como autolink y
+	//                                renderiza como <code>br</code>;
+	//                                NO recomendado salvo downstream
+	//                                con HTML allowlist permisivo)
+	//   - "br_self"/"br/" → "<br/>" (probar si br no funciona)
+	//   - "lsep"/"u2028"  → U+2028  (Unicode LINE SEPARATOR, bypassa
+	//                                markdown; soporte browser amplio)
+	//   - "nl"/"soft"     → "\n"    (soft break; en Chatwoot inline)
+	//   - "slash"         → "\\\n"  (trailing-backslash hard break)
+	//   - "spaced_br"     → " <br> " (br con espacios)
+	// Cualquier valor que no matchee alias se usa literal. Desde v0.40.1.
+	GroupHeaderSep string `env:"QRSGEN_GROUP_HEADER_SEP" envDefault:"paragraph"`
+
 	// AvatarSync: si true, qrsgen descarga la foto WhatsApp del contacto/
 	// grupo al crear el contact en downstream y la sube como avatar.
 	// Fire-and-forget (no bloquea el msg). false → contact queda con el

@@ -140,6 +140,7 @@ func main() {
 	incoming := bridge.NewIncomingDynamic(dsRegistry, dedup, logger, resolveInbox)
 	incoming.SetGroupPrefixSender(cfg.GroupPrefixSender)
 	incoming.SetGroupHeaderTTL(cfg.GroupHeaderTTL)
+	incoming.SetHeaderSep(bridge.ResolveHeaderSep(cfg.GroupHeaderSep))
 	incoming.SetAvatarSync(cfg.AvatarSync)
 	incoming.SetAvatarRefreshTTL(cfg.AvatarRefreshTTL)
 	incoming.SetReactionsSync(cfg.ReactionsSync)
@@ -1039,6 +1040,11 @@ func main() {
 	// llegan cuando ya bajamos y se marcan como "Error al enviar" en la conv.
 	logger.Info("shutdown grace: waiting 12s for downstream to drain")
 	time.Sleep(12 * time.Second)
+
+	// v0.40.1: esperar a que terminen las goroutines de retroactive
+	// name update (si alguna en vuelo). Sin esto, un PATCH a medio
+	// volar se interrumpe al cerrar el echo server.
+	incoming.WaitRetroactivePatches()
 
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShutdown()

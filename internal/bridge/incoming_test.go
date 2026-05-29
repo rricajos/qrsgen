@@ -487,7 +487,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("PN sender (Spain) with push name → bold name + italic phone", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "Jean Paul")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "`+34640047775 · ~Jean Paul`<br>hola"
+		want := "`+34640047775 · ~Jean Paul`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -497,7 +497,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "")
 		r := &fakeResolver{names: map[string]string{senderPN.String(): "Jean Paul (CRM)"}}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`+34640047775 · ~Jean Paul (CRM)`<br>hola"
+		want := "`+34640047775 · ~Jean Paul (CRM)`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -509,7 +509,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			pnByLID: map[string]types.JID{senderLID.String(): senderPN},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`+34640047775 · ~Anon`<br>hola"
+		want := "`+34640047775 · ~Anon`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -518,7 +518,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("LID sender unresolvable, only push name → bold name + colon", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderLID, "Pseudo")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "`~Pseudo:`<br>hola"
+		want := "`~Pseudo:`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -527,7 +527,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 	t.Run("PN sender no name → italic phone + colon", func(t *testing.T) {
 		msg := mkGroupMsg(groupJID, senderPN, "")
 		got := applyGroupSenderPrefix("hola", msg, nil)
-		want := "`+34640047775:`<br>hola"
+		want := "`+34640047775:`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -551,7 +551,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			savedJIDs: map[string]bool{senderPN.String(): true},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`+34640047775 · Jean Paul`<br>hola"
+		want := "`+34640047775 · Jean Paul`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -565,7 +565,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			savedJIDs: map[string]bool{senderPN.String(): true},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`+34640047775 · Jean Paul`<br>hola"
+		want := "`+34640047775 · Jean Paul`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -588,7 +588,7 @@ func TestApplyGroupSenderPrefix(t *testing.T) {
 			savedJIDs: map[string]bool{senderPN.String(): true},
 		}
 		got := applyGroupSenderPrefix("hola", msg, r)
-		want := "`+34640047775 · Ricard Penin`<br>hola"
+		want := "`+34640047775 · Ricard Penin`\n\nhola"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}

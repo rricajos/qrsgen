@@ -4,6 +4,81 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.40.1] - 2026-05-29
+
+Pulido post-v0.40.0 + revert del separador `<br>` que en Chatwoot
+no funciona (su parser markdown trata `<br>` como autolink, lo
+renderiza como `<code>br</code>`). Default vuelve a `\n\n`
+(paragraph break, único confirmado fiable); el separador es
+ahora **configurable** vía env para que cada despliegue pruebe
+la variante que mejor le venga.
+
+### Fixed
+
+- **`<br>` separator se renderiza como `<code>br</code>` en Chatwoot
+  (regresión v0.39.10)**: el parser markdown de Chatwoot detecta
+  `<...>` como autolink y, al no ser una URL/email válida,
+  cae en inline-code con el texto "br". Default vuelve a `\n\n`.
+
+- **Reactions heredan el fix v0.39.9 (LID con PN saved)**:
+  `handleReaction` duplicaba la lógica de resolución de nombre/saved
+  con el mismo bug que se arregló en v0.39.9 para
+  `applyGroupSenderPrefix` (cuando el sender es LID con PushName y
+  el PN está saved, se mostraba el PushName del LID sin tilde en vez
+  del nombre canónico). Ahora delega a `resolveSenderInfo` —
+  helper centralizado, fix transitivo.
+
+### Added
+
+- **`QRSGEN_GROUP_HEADER_SEP` env var** + `Incoming.SetHeaderSep` +
+  `bridge.ResolveHeaderSep`. Alias soportados:
+  - `paragraph` / `p` → `"\n\n"` (default)
+  - `br` → `"<br>"`
+  - `br_self` / `br/` → `"<br/>"`
+  - `lsep` / `u2028` → `" "` (Unicode LINE SEPARATOR)
+  - `nl` / `soft` → `"\n"`
+  - `slash` / `slash_nl` → `"\\\n"` (trailing-backslash hard break)
+  - `spaced_br` → `" <br> "`
+  - cualquier otro valor se usa literal (escape hatch).
+  Permite iterar sin rebuild.
+
+### Changed
+
+- **`HandleContactUpdate` ejecuta los PATCHes en goroutine**: la
+  versión v0.40.0 corría la iteración secuencial sobre `entries`
+  (cap=200 default) dentro del event loop de whatsmeow. Con ~50ms
+  por PATCH, eso bloqueaba ~10s **todos los eventos de todas las
+  instancias** (mensajes, presencia, receipts) durante el update.
+  En v0.40.1 el work se mueve a goroutine fire-and-forget y se
+  rastrea con un `sync.WaitGroup` en `Incoming`.
+
+- **`Incoming.WaitRetroactivePatches()` nuevo**: bloquea hasta que
+  todas las goroutines en vuelo terminen. Tests lo usan para
+  assertions deterministas y `cmd/server/main.go` lo llama en el
+  shutdown grace para no dejar PATCHes a medias al cerrar.
+
+### Added
+
+- **Métricas Prometheus para retroactive name update** vía la
+  serie existente `qrsgen_realtime_events_total`:
+  - `feature="retroactive_name", result="ok"` por cada PATCH OK.
+  - `result="ds_error"` por cada PATCH fallido.
+  - `result="skip_disabled"` (feature off via env).
+  - `result="skip_fullsync"` (whatsmeow propagando agenda).
+  - `result="skip_empty_name"` (contacto sin nombre).
+  - `result="skip_no_entries"` (sender sin mensajes tracked).
+- **Logs Debug en skip cases**: `empty name`, `no tracked msgs`
+  ahora dejan rastro a nivel debug — útil para depurar sin tener
+  que recompilar.
+
+### Migration notes
+
+- Sin breaking changes. La API pública es la misma; solo cambia
+  el modelo de ejecución (sync → async + WaitGroup).
+- Si tu test/integración asume que `HandleContactUpdate` ya
+  completó los PATCHes al retornar, llamar a
+  `incoming.WaitRetroactivePatches()` después.
+
 ## [0.40.0] - 2026-05-29
 
 Feature: **retroactive name update**.

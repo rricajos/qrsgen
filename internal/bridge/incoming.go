@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rricajos/qrsgen/internal/downstream"
@@ -86,6 +87,24 @@ type Incoming struct {
 	// update cuando un contacto se añade a la agenda (v0.40.0). nil =
 	// feature desactivado, no se rastrea ni se reescribe.
 	msgHistory *msgHistoryTracker
+
+	// retroactiveWG cuenta goroutines en vuelo aplicando PATCHes del
+	// retroactive name update (v0.40.1). Permite a tests + graceful
+	// shutdown esperar a que terminen — el work corre fuera del event
+	// loop de wameow para no bloquearlo durante PATCHes secuenciales.
+	retroactiveWG sync.WaitGroup
+
+	// headerSep es el separador entre el header (`+phone · name`) y el
+	// body en mensajes posteados al downstream. Configurable porque
+	// ningún renderer markdown se comporta igual:
+	//   - v0.39.7 "\n":      soft break en Chatwoot → inline
+	//   - v0.39.8 "  \n":    CommonMark hard break, Chatwoot lo ignora
+	//   - v0.39.9 "\n\n":    paragraph break, funciona pero deja aire
+	//   - v0.39.10 "<br>":   Chatwoot lo trata como autolink, render
+	//                        sale como <code>br</code>
+	// Default "\n\n" en v0.40.1 porque es lo único que renderiza
+	// fiable. Configurable vía SetHeaderSep + env QRSGEN_GROUP_HEADER_SEP.
+	headerSep string
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
@@ -98,6 +117,83 @@ func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logge
 		typingSync:        true,
 		typingTracker:     newTypingTracker(4 * time.Second),
 		readReceiptsSync:  true,
+		headerSep:         GroupHeaderSepParagraph,
+	}
+}
+
+// Variantes del separador header/body para SetHeaderSep. Cada una se
+// comporta diferente según el renderer markdown del downstream.
+// Probar varias si el default (`paragraph`) no es satisfactorio.
+const (
+	// GroupHeaderSepParagraph = "\n\n". Paragraph break estándar
+	// markdown — funciona en Chatwoot pero deja aire entre header y
+	// body (separación clara de párrafos). Default en v0.40.1.
+	GroupHeaderSepParagraph = "\n\n"
+
+	// GroupHeaderSepBr = "<br>". HTML inline break. En Chatwoot
+	// observado: el parser lo trata como autolink y renderiza
+	// como `<code>br</code>`. NO RECOMENDADO salvo que tu downstream
+	// soporte HTML allowlist.
+	GroupHeaderSepBr = "<br>"
+
+	// GroupHeaderSepBrSelf = "<br/>". Self-closing XHTML. Algunos
+	// sanitizadores tratan distinto que `<br>`. Probar si br no
+	// funciona pero quieres line break sin paragraph.
+	GroupHeaderSepBrSelf = "<br/>"
+
+	// GroupHeaderSepLSep = " ". Unicode LINE SEPARATOR (U+2028).
+	// Bypaseas markdown — el browser renderiza nativamente como salto.
+	// Probar si markdown-based fallan; soporte por navegador es amplio.
+	GroupHeaderSepLSep = " "
+
+	// GroupHeaderSepSoftNL = "\n". Soft break markdown. En renderers
+	// con `breaks: true` (modo chat) sale como <br>. En Chatwoot
+	// observado (v0.39.7): inline (no break).
+	GroupHeaderSepSoftNL = "\n"
+
+	// GroupHeaderSepSlashNL = "\\\n". Trailing backslash hard break,
+	// alternativa CommonMark a "  \n". Algunos parsers solo
+	// implementan una de las dos. Probar si "  \n" no funcionó.
+	GroupHeaderSepSlashNL = "\\\n"
+
+	// GroupHeaderSepSpacedBr = " <br> ". Br con espacios — intenta
+	// evitar que el parser autolink-matchee `<br>` pegado al
+	// backtick de cierre del code block.
+	GroupHeaderSepSpacedBr = " <br> "
+)
+
+// SetHeaderSep cambia el separador header/body. Llamar al boot tras
+// NewIncomingDynamic. Pasar "" mantiene el default (\n\n).
+// Usar las constantes GroupHeaderSep* para legibilidad.
+func (i *Incoming) SetHeaderSep(sep string) {
+	if sep == "" {
+		i.headerSep = GroupHeaderSepParagraph
+		return
+	}
+	i.headerSep = sep
+}
+
+// resolveHeaderSep mapea el alias env-friendly al valor literal. Si el
+// alias no matchea, devuelve el alias tal cual (permite pasar un
+// separador arbitrario directamente vía env).
+func ResolveHeaderSep(alias string) string {
+	switch alias {
+	case "paragraph", "p", "":
+		return GroupHeaderSepParagraph
+	case "br":
+		return GroupHeaderSepBr
+	case "br_self", "br/":
+		return GroupHeaderSepBrSelf
+	case "lsep", "u2028":
+		return GroupHeaderSepLSep
+	case "nl", "soft":
+		return GroupHeaderSepSoftNL
+	case "slash", "slash_nl":
+		return GroupHeaderSepSlashNL
+	case "spaced_br":
+		return GroupHeaderSepSpacedBr
+	default:
+		return alias
 	}
 }
 
@@ -309,52 +405,21 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 		return
 	}
 
-	// Resolver nombre del sender con la misma lógica que el group prefix.
-	name := ""
-	saved := false
-	if r != nil {
-		name = r.ContactName(msg.Info.Sender.ToNonAD())
-		saved = r.IsContactSaved(msg.Info.Sender.ToNonAD())
-		if msg.Info.Sender.Server == types.HiddenUserServer && (name == "" || !saved) {
-			if pn, ok := r.PNForLID(msg.Info.Sender.ToNonAD()); ok {
-				if name == "" {
-					name = r.ContactName(pn)
-				}
-				if !saved {
-					saved = r.IsContactSaved(pn)
-				}
-			}
-		}
-	}
-	if name == "" {
-		name = msg.Info.PushName
-	}
+	// v0.40.1: delegamos a resolveSenderInfo (helper centralizado que
+	// hereda el fix v0.39.9 para LID con PN saved). Antes duplicábamos
+	// la lógica y arrastrábamos el mismo bug del prefix.
+	si := resolveSenderInfo(msg, r)
+	name := si.name
 	if name == "" {
 		name = "alguien"
 	}
-
-	// v0.39.7: align con el formato del prefix de grupo (v0.39.6).
-	// Code block + teléfono primero + middle dot + tilde solo si no saved.
-	// Aplica siempre que tengamos phone disponible (no solo en grupos)
-	// para mantener consistencia visual entre todos los headers de sender.
-	phone := ""
-	switch msg.Info.Sender.Server {
-	case types.DefaultUserServer:
-		phone = msg.Info.Sender.User
-	case types.HiddenUserServer:
-		if r != nil {
-			if pn, ok := r.PNForLID(msg.Info.Sender.ToNonAD()); ok {
-				phone = pn.User
-			}
-		}
-	}
 	nameMark := name
-	if !saved {
+	if !si.saved {
 		nameMark = "~" + name
 	}
 	phoneStr := ""
-	if phone != "" {
-		phoneStr = formatE164(phone) + " · "
+	if si.phoneFmt != "" {
+		phoneStr = si.phoneFmt + " · "
 	}
 	verb := "reaccionó con " + emoji
 	if emoji == "" {
@@ -780,7 +845,7 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 				if content == "" {
 					content = prefix
 				} else {
-					content = prefix + groupHeaderBodySep + content
+					content = prefix + i.headerSep + content
 				}
 				emittedSenderInfo = si
 				emittedPrefix = true
@@ -867,9 +932,13 @@ func canonicalSenderKey(sender types.JID, r wameow.WAResolver) string {
 // la propagación inicial).
 func (i *Incoming) HandleContactUpdate(ctx context.Context, instance string, jid types.JID, fullName, firstName string, fromFullSync bool, r wameow.WAResolver) {
 	if i.msgHistory == nil {
+		metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "skip_disabled", instance).Inc()
 		return
 	}
 	if fromFullSync {
+		// El sync inicial al conectar emite uno por contacto de la agenda.
+		// PATCHearlos todos sería un burst inútil — el state no cambió.
+		metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "skip_fullsync", instance).Inc()
 		return
 	}
 
@@ -882,12 +951,18 @@ func (i *Incoming) HandleContactUpdate(ctx context.Context, instance string, jid
 		newName = strings.TrimSpace(firstName)
 	}
 	if newName == "" {
+		i.logger.Debug("retroactive update: empty name — skipping",
+			"instance", instance, "jid", jid)
+		metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "skip_empty_name", instance).Inc()
 		return
 	}
 
 	key := jid.ToNonAD().String()
 	entries := i.msgHistory.ListBySender(instance, key)
 	if len(entries) == 0 {
+		i.logger.Debug("retroactive update: no tracked msgs for sender",
+			"instance", instance, "jid", jid)
+		metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "skip_no_entries", instance).Inc()
 		return
 	}
 
@@ -895,6 +970,7 @@ func (i *Incoming) HandleContactUpdate(ctx context.Context, instance string, jid
 	if ds == nil {
 		i.logger.Warn("retroactive update: no downstream client",
 			"instance", instance, "jid", jid)
+		metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "ds_error", instance).Inc()
 		return
 	}
 
@@ -911,23 +987,46 @@ func (i *Incoming) HandleContactUpdate(ctx context.Context, instance string, jid
 		return
 	}
 
+	// v0.40.1: PATCH loop en goroutine. Para un sender con cap=200 y
+	// ~50ms por PATCH, en sync bloquearíamos el event loop de wameow
+	// ~10s — y ese loop maneja TODOS los eventos (mensajes, presencia,
+	// receipts) de TODAS las instancias. Mejor un goroutine fire-and-
+	// forget; tests + shutdown esperan vía retroactiveWG.
+	i.retroactiveWG.Add(1)
+	go i.applyRetroactivePatches(ctx, instance, jid, key, newName, newPrefix, entries, ds)
+}
+
+// applyRetroactivePatches itera entries y PATCHea las que estén
+// desfasadas vs el newName actual. Llamada vía goroutine desde
+// HandleContactUpdate. NO bloquear el event loop.
+func (i *Incoming) applyRetroactivePatches(
+	ctx context.Context,
+	instance string,
+	jid types.JID,
+	key, newName, newPrefix string,
+	entries []trackedMsg,
+	ds *downstream.Client,
+) {
+	defer i.retroactiveWG.Done()
+
 	patched := 0
 	for _, e := range entries {
-		// No-op si ya está al día.
 		if e.nameUsed == newName && e.wasSaved {
 			continue
 		}
 		newContent := newPrefix
 		if e.body != "" {
-			newContent = newPrefix + groupHeaderBodySep + e.body
+			newContent = newPrefix + i.headerSep + e.body
 		}
 		if err := ds.UpdateMessageContent(ctx, e.convID, e.msgID, newContent); err != nil {
 			i.logger.Warn("retroactive update PATCH failed",
 				"err", err, "instance", instance,
 				"convID", e.convID, "msgID", e.msgID)
+			metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "ds_error", instance).Inc()
 			continue
 		}
 		i.msgHistory.UpdateAfterPatch(instance, key, e.msgID, newName, true)
+		metrics.RealtimeEventsTotal.WithLabelValues("retroactive_name", "ok", instance).Inc()
 		patched++
 	}
 	if patched > 0 {
@@ -935,6 +1034,15 @@ func (i *Incoming) HandleContactUpdate(ctx context.Context, instance string, jid
 			"instance", instance, "jid", jid,
 			"newName", newName, "patched", patched, "scanned", len(entries))
 	}
+}
+
+// WaitRetroactivePatches bloquea hasta que todas las goroutines en
+// vuelo de retroactive name update hayan terminado. Útil en tests
+// (deterministic assertions) y en graceful shutdown (no perder
+// PATCHes a medio aplicar). Si la feature está desactivada o nunca
+// se disparó, devuelve inmediatamente.
+func (i *Incoming) WaitRetroactivePatches() {
+	i.retroactiveWG.Wait()
 }
 
 func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs resolvedSender, content string, fromMe bool, contactName, waID string, media *mediaInfo, r wameow.WAResolver, rawMsg *waE2E.Message, postedMsgIDOut *int, postedConvIDOut *int) error {
@@ -1283,22 +1391,12 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	if body == "" {
 		return prefix
 	}
-	return prefix + groupHeaderBodySep + body
+	// Free function (sin acceso al field configurable) — usa el default
+	// paragraph. Las rutas de producción (handleMessage,
+	// applyRetroactivePatches) usan i.headerSep para respetar el
+	// QRSGEN_GROUP_HEADER_SEP del operador.
+	return prefix + GroupHeaderSepParagraph + body
 }
-
-// groupHeaderBodySep es el separador entre el header (`+phone · name`)
-// y el body en mensajes posteados al downstream.
-//
-// Historia:
-//   - v0.39.7  "\n"     soft break — invisible inline en Chatwoot
-//   - v0.39.8  "  \n"   CommonMark hard break — Chatwoot lo ignora
-//   - v0.39.9  "\n\n"   paragraph break — funciona pero demasiado aire
-//   - v0.39.10 "<br>"   HTML directo — line break compacto,
-//                       equivalente a shift+enter en composer Chatwoot
-//
-// Si en una versión futura Chatwoot empieza a sanitizar `<br>`
-// estrictamente, revertir a "\n\n" aquí.
-const groupHeaderBodySep = "<br>"
 
 // renderGroupSenderPrefix construye el prefix (code block) a partir de
 // un senderInfo ya resuelto. Devuelve (prefix, true) si pudo

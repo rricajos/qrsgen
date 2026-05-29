@@ -93,14 +93,15 @@ func TestHandleContactUpdate_PatchesStaleEntries(t *testing.T) {
 	})
 
 	inc.HandleContactUpdate(context.Background(), "inst1", pn, "Ricard Penin", "Ricard", false, nil)
+	inc.WaitRetroactivePatches()
 
 	mu.Lock()
 	defer mu.Unlock()
 	if len(*records) != 2 {
 		t.Fatalf("expected 2 PATCHes, got %d: %+v", len(*records), *records)
 	}
-	wantContent1 := "`+34604021705 · Ricard Penin`<br>hola"
-	wantContent2 := "`+34604021705 · Ricard Penin`<br>qué tal"
+	wantContent1 := "`+34604021705 · Ricard Penin`\n\nhola"
+	wantContent2 := "`+34604021705 · Ricard Penin`\n\nqué tal"
 	got := map[string]string{}
 	for _, r := range *records {
 		got[r.msgID] = r.content
@@ -130,6 +131,7 @@ func TestHandleContactUpdate_SkipsFromFullSync(t *testing.T) {
 
 	// fromFullSync=true → no PATCH (evitamos burst al conectar).
 	inc.HandleContactUpdate(context.Background(), "inst1", pn, "Ricard Penin", "", true, nil)
+	inc.WaitRetroactivePatches()
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -154,6 +156,7 @@ func TestHandleContactUpdate_SkipsWhenDisabled(t *testing.T) {
 
 	pn := types.NewJID("34604021705", types.DefaultUserServer)
 	inc.HandleContactUpdate(context.Background(), "inst1", pn, "Ricard", "", false, nil)
+	inc.WaitRetroactivePatches()
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -167,6 +170,7 @@ func TestHandleContactUpdate_NoEntriesForSender(t *testing.T) {
 	pn := types.NewJID("34999999999", types.DefaultUserServer)
 	// No msgs sembrados — sender desconocido.
 	inc.HandleContactUpdate(context.Background(), "inst1", pn, "Random", "", false, nil)
+	inc.WaitRetroactivePatches()
 	mu.Lock()
 	defer mu.Unlock()
 	if len(*records) != 0 {
@@ -183,6 +187,7 @@ func TestHandleContactUpdate_EmptyNameSkips(t *testing.T) {
 	// fullName="" AND firstName="" → contacto eliminado de agenda, no
 	// tenemos PushName original guardado → saltamos.
 	inc.HandleContactUpdate(context.Background(), "inst1", pn, "", "", false, nil)
+	inc.WaitRetroactivePatches()
 	mu.Lock()
 	defer mu.Unlock()
 	if len(*records) != 0 {
@@ -198,12 +203,13 @@ func TestHandleContactUpdate_FirstNameFallback(t *testing.T) {
 	})
 	// Solo firstName presente → se usa como nombre.
 	inc.HandleContactUpdate(context.Background(), "inst1", pn, "", "Ricardo", false, nil)
+	inc.WaitRetroactivePatches()
 	mu.Lock()
 	defer mu.Unlock()
 	if len(*records) != 1 {
 		t.Fatalf("got %d PATCHes, want 1", len(*records))
 	}
-	want := "`+34604021705 · Ricardo`<br>hola"
+	want := "`+34604021705 · Ricardo`\n\nhola"
 	if (*records)[0].content != want {
 		t.Errorf("content = %q, want %q", (*records)[0].content, want)
 	}
@@ -220,6 +226,7 @@ func TestHandleContactUpdate_AlreadyUpToDateNoPatch(t *testing.T) {
 	})
 
 	inc.HandleContactUpdate(context.Background(), "inst1", pn, "Ricard Penin", "Ricard", false, nil)
+	inc.WaitRetroactivePatches()
 
 	mu.Lock()
 	defer mu.Unlock()

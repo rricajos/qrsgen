@@ -63,11 +63,17 @@ número conectado:
   **~Jean Paul**
   hola buenas
   ```
-- **Solo push name** (no guardado): nombre + código de teléfono para que
-  el agente pueda identificar al desconocido.
+- **Solo push name** (no guardado): nombre + tab(s) + teléfono en plano
+  (v0.39.2). Desde **v0.39.3** el número de tabs depende del largo del
+  nombre con `utf8.RuneCountInString` (cutoff 12 runes): nombres
+  cortos llevan 2 tabs, nombres largos 1 tab — alinea los teléfonos
+  visualmente cuando varios senders se intercalan.
   ```
-  **~Richard** `+34604021705`
+  **~Richard**\t\t+34604021705
   hola buenas
+
+  **~Ivan Madrid Sánchez**\t+34633185248
+  buenas
   ```
 
 Sin env vars: el comportamiento depende del estado del contact store
@@ -87,9 +93,10 @@ un nuevo mensaje incoming. Antes de esta versión los eventos
   ```
   **~Jean Paul** reaccionó con 👍
   ```
-- **Sender no guardado en grupo**:
+- **Sender no guardado en grupo** (formato v0.39.2/v0.39.3: tab(s) +
+  teléfono en plano):
   ```
-  **~Richard** `+34604021705` reaccionó con ❤️
+  **~Richard**\t\t+34604021705 reaccionó con ❤️
   ```
 - **Reacción retirada**:
   ```
@@ -272,12 +279,16 @@ configurada. El avatar sync los reemplaza por las fotos reales de WA.
 **Prefijo de grupo**: línea que qrsgen antepone al body de cada
 mensaje de grupo identificando al sender (nombre + opcionalmente
 teléfono). Permite al agente que lee la conversación saber quién
-escribió cada mensaje sin abrir el subhilo del grupo.
+escribió cada mensaje sin abrir el subhilo del grupo. Desde v0.39.2 el
+separador entre nombre y teléfono es **tab `\t` (U+0009)** y el
+teléfono se renderiza en **plano** (sin code block backticks). Desde
+v0.39.3 el número de tabs es **variable**: 2 tabs si el nombre tiene
+≤ 12 runes, 1 tab si > 12 — alinea los teléfonos visualmente.
 
 **Contacto saved (libreta)**: JID que el dueño del número conectado
 tiene en su libreta del móvil, con `FullName` o `FirstName` propagado
 hasta el contact store de whatsmeow. Determina si qrsgen omite el
-bloque de teléfono en el prefijo de grupo.
+teléfono del prefijo de grupo.
 
 **PushName**: nombre que el propio sender configura en su WhatsApp.
 qrsgen lo usa como fallback de display pero NO lo cuenta como

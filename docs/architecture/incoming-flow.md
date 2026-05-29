@@ -46,7 +46,9 @@ bridge/incoming.go:
         │        └─ StickerMessage     ──► default image/webp si mime vacío
         │ si grupo: applyGroupSenderPrefix(body, msg, resolver)
         │           ├─ IsContactSaved(sender)? ──► sí: prefix = "**~<name>**"
-        │           └─                             no: prefix = "**~<name>** `+<E164>`"
+        │           └─                             no: prefix = "**~<name>**<tabs>+<E164>"
+        │                                              (tabs: 2 si runes(name)≤12, 1 si >12 — v0.39.3;
+        │                                               teléfono en plano sin backticks — v0.39.2)
         │ construye payload {content, attachments, source_id: WAID:..., ...}
         │ POST al endpoint downstream
         ▼
@@ -122,11 +124,16 @@ guardado en la libreta del bot owner (vía `WAResolver.IsContactSaved`,
 que consulta `client.Store.Contacts.GetContact` de whatsmeow):
 
 - **Saved + name disponible**: `**~<name>**\n<body>` — el agente ya
-  sabe quién es; omitimos el bloque de teléfono.
-- **No saved + name + phone**: `` **~<name>** `+<E164>`\n<body> `` —
-  push name + teléfono code block para identificar al desconocido.
+  sabe quién es; omitimos el teléfono.
+- **No saved + name + phone** (v0.39.2 + v0.39.3):
+  `**~<name>**<tabs>+<E164>\n<body>` — separador **tab `\t` (U+0009)**
+  y teléfono en plano (sin code block backticks). El número de tabs
+  depende de `utf8.RuneCountInString(name)`: **2 tabs** si `≤ 12`,
+  **1 tab** si `> 12`. Alinea los teléfonos visualmente cuando senders
+  con nombres de distinto largo se mezclan en el mismo grupo.
 - **Solo name** (sin phone): `**~<name>**:\n<body>`.
-- **Solo phone** (sin name): `` `+<E164>`:\n<body> ``.
+- **Solo phone** (sin name): `+<E164>:\n<body>` — desde v0.39.2 también
+  en plano, sin backticks.
 
 Si el sender llega como LID y la primera consulta no es saved o no
 tiene nombre, qrsgen intenta resolver el LID a PN vía `PNForLID` y
@@ -155,7 +162,9 @@ se descartaban. `handleReaction`:
   `IsContactSaved` (v0.32.0) para decidir si incluye teléfono.
 - Construye el body con uno de tres formatos:
   - `**~<name>** reaccionó con <emoji>` (saved)
-  - `` **~<name>** `+<E164>` reaccionó con <emoji> `` (no saved en grupo)
+  - `**~<name>**<tabs>+<E164> reaccionó con <emoji>` (no saved en
+    grupo; v0.39.2/v0.39.3: tab(s) + teléfono en plano, 2 tabs si
+    `runes(name)≤12`, 1 tab si `>12`)
   - `**~<name>** _quitó su reacción_` (text="" → retracted)
 - POSTea con `message_type: "incoming"` y
   `source_id: "WAID:reaction:<msg.Info.ID>"` — namespace separado del
@@ -371,9 +380,13 @@ por un tracker in-memory que usa TTL + comparación de `info.ID` para
 minimizar tráfico.
 
 **Prefijo de grupo adaptativo**: rama de decisión en
-`applyGroupSenderPrefix` (desde v0.32.0) que omite el bloque de
-teléfono cuando el sender está guardado en la libreta del bot owner.
-Detectado vía `IsContactSaved` contra el contact store de whatsmeow.
+`applyGroupSenderPrefix` (desde v0.32.0) que omite el teléfono cuando
+el sender está guardado en la libreta del bot owner. Detectado vía
+`IsContactSaved` contra el contact store de whatsmeow. Desde v0.39.2
+el separador entre nombre y teléfono es **tab `\t` (U+0009)** y el
+teléfono se renderiza en **plano** (sin code block backticks). Desde
+v0.39.3 el número de tabs es variable: 2 si `utf8.RuneCountInString(name) ≤ 12`,
+1 si `> 12`.
 
 **`handleReaction`**: handler en `bridge.Incoming` (desde v0.33.0) que
 intercepta `ReactionMessage` antes del path normal de texto/media y

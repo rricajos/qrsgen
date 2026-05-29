@@ -19,9 +19,26 @@ identificarlo.
 | Estado del contacto | Formato del prefijo | Versión |
 |---|---|---|
 | **Guardado** (FullName o FirstName en libreta) | `**~Jean Paul**` | v0.32.0 |
-| **Solo push name** (no en libreta) | `**~Richard** ` + `` `+34604021705` `` | v0.31.x y v0.32.0 |
-| Sin nombre, solo teléfono | `` `+34604021705` `` + `:` | v0.31.x y v0.32.0 |
-| Sin nombre y sin teléfono | (body sin tocar) | v0.31.x y v0.32.0 |
+| **Solo push name**, nombre corto (≤12 runes) | `**~Richard**\t\t+34604021705` | v0.39.3 |
+| **Solo push name**, nombre largo (>12 runes) | `**~Ivan Madrid Sánchez**\t+34633185248` | v0.39.3 |
+| Sin nombre, solo teléfono | `+34604021705:` | v0.39.2 |
+| Sin nombre y sin teléfono | (body sin tocar) | v0.31.x y posteriores |
+
+> **Separador y formato del teléfono**: desde **v0.39.2** el separador
+> entre el nombre bold y el número es un **tab `\t` (U+0009)** en lugar
+> del em-space (U+2003) previo, y el teléfono va en **plano** (sin code
+> block backticks) — el `+` ya lo identifica visualmente y algunos
+> renderers de Chatwoot daban más separación al tab.
+>
+> Desde **v0.39.3** el número de tabs depende del largo del nombre
+> medido con `utf8.RuneCountInString` (los acentos cuentan una sola vez:
+> "Sánchez" = 7 runes). Cutoff hardcoded en **12 runes**:
+>
+> - Nombre **≤ 12 runes** → **2 tabs** (`\t\t`).
+> - Nombre **> 12 runes** → **1 tab** (`\t`).
+>
+> Así los teléfonos quedan alineados visualmente cuando senders con
+> nombres de distinto largo se mezclan en el mismo grupo.
 
 El comportamiento es **automático**: no hay env var nuevo. La decisión
 depende del estado del contact store de whatsmeow en el momento de la
@@ -46,7 +63,7 @@ Aunque el agente ya tenía a Jean Paul en agenda, el body seguía
 incluyendo el bloque code con el número — ruido visual y duplica info
 que el panel del downstream ya muestra al lado de la conversación.
 
-### v0.32.0 — adaptativo
+### v0.32.0 — adaptativo (separador em-space + code block)
 
 ```
 **~Jean Paul**
@@ -61,6 +78,59 @@ hola buenas
 - Richard: nombre + teléfono. Como el bot owner no tiene a Richard en
   agenda, el código de teléfono permite identificarlo o decidir si
   guardarlo.
+
+### v0.39.2 — tab `\t` + teléfono en plano
+
+Mismo branching saved/unsaved, pero el separador entre nombre y
+teléfono pasa a ser un **tab (U+0009)** y el número se renderiza en
+**plano** (sin backticks):
+
+```
+**~Jean Paul**
+hola buenas
+
+**~Richard**\t+34604021705
+hola buenas
+```
+
+El caso degenerado "solo teléfono" también pierde los backticks:
+`+34604021705:` en lugar de `` `+34604021705`: ``.
+
+### v0.39.3 — tab count variable según largo del nombre
+
+Para alinear visualmente los teléfonos cuando senders con nombres de
+distinto largo intercambian mensajes en el mismo grupo, el número de
+tabs ahora depende de `utf8.RuneCountInString(name)`:
+
+```
+**~Richard**\t\t+34604021705
+hola buenas
+
+**~Anon**\t\t+34611111111
+hola buenas
+
+**~Jean Paul**\t\t+34622222222
+hola buenas
+
+**~La Casa Agency**\t+34655555555
+buenas
+
+**~Ivan Madrid Sánchez**\t+34633185248
+buenas
+```
+
+Cutoff hardcoded en **12 runes**:
+
+| Nombre | Runes | Tabs |
+|---|---|---|
+| `Richard` | 7 | 2 |
+| `Anon` | 4 | 2 |
+| `Jean Paul` | 9 | 2 |
+| `La Casa Agency` | 14 | 1 |
+| `Ivan Madrid Sánchez` | 19 | 1 |
+
+`utf8.RuneCountInString` cuenta runes (no bytes), así que los acentos
+suman una sola unidad ("Sánchez" = 7 runes, no 8).
 
 ## La cadena "saved"
 
@@ -136,8 +206,8 @@ sender es un groupJID, el prefix usa el path no-saved (incluye el
 ## Verificar que funciona
 
 Tras un mensaje de grupo enviado por un contacto guardado en el móvil
-conectado, los logs del downstream deberían mostrar el body sin code
-block de teléfono:
+conectado, los logs del downstream deberían mostrar el body sin
+teléfono:
 
 ```bash
 # El body que qrsgen POSTea al downstream (visible en Chatwoot
@@ -146,11 +216,12 @@ docker logs qrsgen 2>&1 | grep "incoming sync" | tail
 # → ... content="**~Jean Paul**\nhola buenas" ...
 ```
 
-Si en cambio el sender está fuera de la agenda, verás el bloque de
-teléfono:
+Si en cambio el sender está fuera de la agenda, verás nombre + tab(s) +
+teléfono en plano (1 ó 2 tabs según el largo del nombre desde v0.39.3):
 
 ```
-... content="**~Richard** `+34604021705`\nhola buenas" ...
+... content="**~Richard**\t\t+34604021705\nhola buenas" ...
+... content="**~Ivan Madrid Sánchez**\t+34633185248\nhola buenas" ...
 ```
 
 Para inspeccionar directamente el contact store de whatsmeow (qué
@@ -247,3 +318,14 @@ emparejada con qrsgen. Es quien decide qué contactos quedan
 **Adaptativo (prefijo)**: convención de v0.32.0 donde el formato del
 prefix depende del estado del contacto. Antes era un único formato
 fijo con teléfono siempre presente.
+
+**Separador del prefijo (v0.39.2)**: tab `\t` (U+0009) entre el nombre
+bold y el teléfono en el path no-saved. Reemplaza al em-space (U+2003)
+previo. El teléfono va en plano (sin code block backticks) — el `+`
+basta para identificarlo visualmente.
+
+**Tab count variable (v0.39.3)**: regla que elige 2 tabs si
+`utf8.RuneCountInString(name) ≤ 12` y 1 tab si `> 12`. Persigue
+alinear visualmente los teléfonos cuando senders con nombres de
+distinto largo intercambian mensajes en el mismo grupo. Cutoff
+hardcoded en 12 runes.

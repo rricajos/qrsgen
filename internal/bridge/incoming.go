@@ -811,6 +811,18 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 		content = media.caption
 	}
 
+	// v0.42.0: si el mensaje es un reply (ContextInfo con QuotedMessage),
+	// prefijar el body con un blockquote del mensaje citado. Da contexto
+	// al agente para saber a qué se está respondiendo sin tener que
+	// buscar el msg original arriba en la conv.
+	if quoted := formatQuotedBlock(msg, r); quoted != "" {
+		if content == "" {
+			content = quoted
+		} else {
+			content = quoted + "\n\n" + content
+		}
+	}
+
 	rs := resolveSender(msg, r)
 	fromMe := msg.Info.IsFromMe
 	isGroup := msg.Info.Chat.Server == types.GroupServer
@@ -1503,6 +1515,168 @@ func extractTextContent(msg *events.Message) string {
 		return formatPollContent(poll)
 	}
 	return ""
+}
+
+// extractContextInfo devuelve el ContextInfo del primer wrapper de
+// mensaje que lo tenga. ExtendedText es lo más común para replies
+// de texto; los reply de media usan el ContextInfo de la propia
+// media message.
+func extractContextInfo(m *waE2E.Message) *waE2E.ContextInfo {
+	if m == nil {
+		return nil
+	}
+	if ext := m.GetExtendedTextMessage(); ext != nil {
+		if ci := ext.GetContextInfo(); ci != nil {
+			return ci
+		}
+	}
+	if img := m.GetImageMessage(); img != nil {
+		if ci := img.GetContextInfo(); ci != nil {
+			return ci
+		}
+	}
+	if vid := m.GetVideoMessage(); vid != nil {
+		if ci := vid.GetContextInfo(); ci != nil {
+			return ci
+		}
+	}
+	if aud := m.GetAudioMessage(); aud != nil {
+		if ci := aud.GetContextInfo(); ci != nil {
+			return ci
+		}
+	}
+	if doc := m.GetDocumentMessage(); doc != nil {
+		if ci := doc.GetContextInfo(); ci != nil {
+			return ci
+		}
+	}
+	if st := m.GetStickerMessage(); st != nil {
+		if ci := st.GetContextInfo(); ci != nil {
+			return ci
+		}
+	}
+	return nil
+}
+
+// extractQuotedText obtiene una representación textual breve del
+// mensaje citado (texto raw, caption de media, o un placeholder con
+// emoji para tipos sin texto). Limita a la primera línea de texto
+// representativa — el blockquote no debe ahogar al body real.
+func extractQuotedText(qm *waE2E.Message) string {
+	if qm == nil {
+		return ""
+	}
+	if c := qm.GetConversation(); c != "" {
+		return c
+	}
+	if ext := qm.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
+		return ext.GetText()
+	}
+	if img := qm.GetImageMessage(); img != nil {
+		if c := img.GetCaption(); c != "" {
+			return "🖼️ " + c
+		}
+		return "🖼️ [imagen]"
+	}
+	if vid := qm.GetVideoMessage(); vid != nil {
+		if c := vid.GetCaption(); c != "" {
+			return "🎥 " + c
+		}
+		return "🎥 [video]"
+	}
+	if aud := qm.GetAudioMessage(); aud != nil {
+		if aud.GetPTT() {
+			return "🎤 [nota de voz]"
+		}
+		return "🎵 [audio]"
+	}
+	if doc := qm.GetDocumentMessage(); doc != nil {
+		if c := doc.GetCaption(); c != "" {
+			return "📄 " + c
+		}
+		if t := doc.GetTitle(); t != "" {
+			return "📄 " + t
+		}
+		return "📄 [documento]"
+	}
+	if st := qm.GetStickerMessage(); st != nil {
+		_ = st
+		return "🟩 [sticker]"
+	}
+	if loc := qm.GetLocationMessage(); loc != nil {
+		_ = loc
+		return "📍 [ubicación]"
+	}
+	return "[mensaje]"
+}
+
+// formatQuotedBlock renderiza el mensaje citado como blockquote
+// markdown. Devuelve "" si el msg no es un reply o si el quoted no
+// tiene representación textual.
+//
+// Formato:
+//
+//	> _↩️ respondiendo a Name:_
+//	> texto citado (line 1)
+//	> texto citado (line 2)
+//
+// La cabecera resuelve Name vía WAResolver (preferimos saved name
+// canónico). Sin nombre cae a phone, sin phone queda "_↩️ respondiendo:_".
+// El texto citado se trunca a 200 runas para no inflar la conv.
+func formatQuotedBlock(msg *events.Message, r wameow.WAResolver) string {
+	if msg.Message == nil {
+		return ""
+	}
+	ci := extractContextInfo(msg.Message)
+	if ci == nil {
+		return ""
+	}
+	quoted := ci.GetQuotedMessage()
+	if quoted == nil {
+		return ""
+	}
+	text := extractQuotedText(quoted)
+	if text == "" {
+		return ""
+	}
+
+	// Truncar por runas para no romper UTF-8.
+	const maxQuoteRunes = 200
+	if runes := []rune(text); len(runes) > maxQuoteRunes {
+		text = string(runes[:maxQuoteRunes]) + "…"
+	}
+
+	// Resolver nombre del autor citado. Participant es el JID en grupos
+	// (en 1:1 es nil porque el author es la otra parte de la conv).
+	authorName := ""
+	if part := ci.GetParticipant(); part != "" {
+		if jid, err := types.ParseJID(part); err == nil {
+			if r != nil {
+				authorName = r.ContactName(jid.ToNonAD())
+				// Si LID sin nombre, intentar el PN canónico.
+				if authorName == "" && jid.Server == types.HiddenUserServer {
+					if pn, ok := r.PNForLID(jid.ToNonAD()); ok {
+						authorName = r.ContactName(pn)
+					}
+				}
+			}
+			if authorName == "" && jid.Server == types.DefaultUserServer {
+				// Fallback: phone formateado.
+				authorName = formatE164(jid.User)
+			}
+		}
+	}
+
+	header := "> _↩️ respondiendo:_"
+	if authorName != "" {
+		header = "> _↩️ respondiendo a " + authorName + ":_"
+	}
+	// Prefijar cada línea del quoted text con "> ".
+	lines := strings.Split(text, "\n")
+	for idx, l := range lines {
+		lines[idx] = "> " + l
+	}
+	return header + "\n" + strings.Join(lines, "\n")
 }
 
 // formatPollContent serializa un PollCreationMessage a un body legible

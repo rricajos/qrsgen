@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.41.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.41.0 (persistencia Postgres del retroactive name update — el histórico sobrevive a restart). |
+| `QRSGEN_VERSION` | `0.42.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.42.0 (quote/reply context — los replies WhatsApp se renderizan como blockquote markdown sobre el body). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

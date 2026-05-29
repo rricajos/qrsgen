@@ -4,6 +4,58 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-05-29
+
+Feature: **quote/reply context en mensajes incoming**. Cuando un
+usuario responde a un mensaje en WhatsApp (long-tap → reply), el
+mensaje citado se renderiza como blockquote markdown encima del
+body en Chatwoot. El agente ve a qué se está respondiendo sin tener
+que buscar el msg original arriba.
+
+### Added
+
+- **`extractContextInfo` + `extractQuotedText` + `formatQuotedBlock`**
+  helpers en `internal/bridge/incoming.go`. Soportan texto plano y
+  todos los tipos media (image/video/audio/document/sticker/location)
+  con placeholders emoji para los no-textuales.
+- **Renderizado en `handleMessage`**: si el incoming tiene
+  `ContextInfo.QuotedMessage`, prefijar el body con
+  `> _↩️ respondiendo a Name:_\n> texto citado\n\n` antes del flow
+  de group-prefix.
+
+### Format
+
+Ejemplo de un reply en un grupo:
+
+```
+`+34604021705 · Ricard Penin`
+
+> _↩️ respondiendo a Pepito:_
+> hola, qué tal?
+
+todo bien gracias
+```
+
+- Author resuelto vía `WAResolver` (preferimos saved name canónico,
+  hereda fix v0.39.9). Fallback: phone E.164. Sin participant
+  (1:1 chat) queda como `> _↩️ respondiendo:_` a secas.
+- Texto citado truncado a 200 runas con `…` para no inflar la conv.
+- Multilinea: cada línea del citado lleva su `> ` prefix.
+
+### Tests
+
+- 8 unit tests en `internal/bridge/quote_test.go`:
+  - PlainTextReply, NoQuoteReturnsEmpty, NoResolverFallsBackToPhone,
+    NoParticipantNoName, TruncatesLongQuote, MultilineQuotedText,
+    ImageQuoteUsesPlaceholder, AudioPTTPlaceholder.
+
+### Migration notes
+
+- Sin breaking changes. Mensajes no-reply se procesan exactamente
+  igual que antes (formatQuotedBlock devuelve "" silencioso).
+- El blockquote se prepended ANTES del group prefix → el orden
+  visual es: header → quoted block → body.
+
 ## [0.41.0] - 2026-05-29
 
 Feature: **persistencia del retroactive name update**. La principal

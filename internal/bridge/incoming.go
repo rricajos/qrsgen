@@ -1109,7 +1109,10 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	if body == "" {
 		return prefix
 	}
-	return prefix + "\n" + body
+	// v0.39.8: dos espacios + \n = markdown line break ("hard break").
+	// En renderers que soportan CommonMark estricto, esto genera un
+	// <br> en lugar de un soft break del \n pelado.
+	return prefix + "  \n" + body
 }
 
 // formatE164 toma "34604021705" → "+34604021705". Devuelve el número

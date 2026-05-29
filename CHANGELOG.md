@@ -4,6 +4,26 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.8] - 2026-05-28
+
+UX micro-tweak: markdown hard line break (dos espacios + `\n`) entre
+header y body, en lugar del soft break (`\n` pelado).
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora devuelve `prefix + "  \n" + body`**
+  con dos espacios trailing antes del `\n`. En CommonMark estricto
+  esto genera un `<br>` explícito; el `\n` pelado se trata como soft
+  break (whitespace que el renderer puede colapsar).
+- Algunos renderers (incluido Chatwoot) tratan ambos casos igual,
+  pero el hard break es más portable.
+
+### Migration notes
+
+- Sin breaking changes funcionales. El body después del separator es
+  idéntico. Si tu renderer ignora el hard break, el output queda
+  igual que v0.39.7.
+
 ## [0.39.7] - 2026-05-28
 
 Alinea el formato de reacciones (v0.33.0) con el formato del prefix

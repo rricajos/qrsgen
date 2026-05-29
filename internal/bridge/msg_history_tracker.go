@@ -1,8 +1,13 @@
 package bridge
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // msgHistoryTracker recuerda los mensajes incoming posteados al downstream,
@@ -14,9 +19,9 @@ import (
 // mensajes de él, qrsgen puede ir y reescribir los mensajes ya posteados
 // para que el nuevo nombre / sin tilde aparezca también en el histórico.
 //
-// Estado in-memory. Un restart de qrsgen pierde el histórico tracked, lo
-// que significa que mensajes posteados antes del restart no se actualizarán
-// retroactivamente cuando cambien sus senders. Aceptable como MVP.
+// Desde v0.41.0: si se invoca SetPool, el estado se persiste en
+// `bridge_msg_history` y sobrevive a restarts. Sin pool (e.g. en tests),
+// el comportamiento sigue siendo in-memory only.
 type msgHistoryTracker struct {
 	mu sync.Mutex
 
@@ -25,18 +30,21 @@ type msgHistoryTracker struct {
 
 	// data: key = instance + "|" + senderJID (no-AD)
 	data map[string][]trackedMsg
+
+	pool   *pgxpool.Pool
+	logger *slog.Logger
 }
 
 // trackedMsg captura toda la info necesaria para reconstruir el content
 // del mensaje cuando el sender cambia de saved-status o de nombre.
 type trackedMsg struct {
-	convID     int       // conversation_id en el downstream
-	msgID      int       // message_id en el downstream
-	phone      string    // teléfono formateado (E.164 con +) usado en el header
-	nameUsed   string    // nombre usado al postear
-	wasSaved   bool      // saved status al postear
-	body       string    // body del mensaje (sin el prefix de header)
-	postedAt   time.Time // timestamp del post
+	convID   int       // conversation_id en el downstream
+	msgID    int       // message_id en el downstream
+	phone    string    // teléfono formateado (E.164 con +) usado en el header
+	nameUsed string    // nombre usado al postear
+	wasSaved bool      // saved status al postear
+	body     string    // body del mensaje (sin el prefix de header)
+	postedAt time.Time // timestamp del post
 }
 
 func newMsgHistoryTracker(capPerSender int) *msgHistoryTracker {
@@ -49,12 +57,100 @@ func newMsgHistoryTracker(capPerSender int) *msgHistoryTracker {
 	}
 }
 
-// Record persiste un mensaje en el tracker. Llamar tras un PostMessage
-// exitoso. El cap por sender se enforce con FIFO — los más viejos caen
-// primero al desbordar.
-func (t *msgHistoryTracker) Record(instance, senderJID string, m trackedMsg) {
+// SetPool activa persistencia en DB. Llamar a Warmup() después para
+// cargar estado existente. logger puede ser nil.
+func (t *msgHistoryTracker) SetPool(pool *pgxpool.Pool, logger *slog.Logger) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.pool = pool
+	t.logger = logger
+}
+
+// EnsureMsgHistorySchema crea la tabla `bridge_msg_history`. Idempotente.
+// Llamar al boot antes de procesar mensajes.
+func EnsureMsgHistorySchema(ctx context.Context, pool *pgxpool.Pool) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS bridge_msg_history (
+			instance    TEXT NOT NULL,
+			sender_jid  TEXT NOT NULL,
+			conv_id     INT NOT NULL,
+			msg_id      INT NOT NULL,
+			phone       TEXT NOT NULL DEFAULT '',
+			name_used   TEXT NOT NULL DEFAULT '',
+			was_saved   BOOLEAN NOT NULL DEFAULT FALSE,
+			body        TEXT NOT NULL DEFAULT '',
+			posted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (instance, msg_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS bridge_msg_history_sender_idx
+		 ON bridge_msg_history (instance, sender_jid, posted_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS bridge_msg_history_posted_idx
+		 ON bridge_msg_history (posted_at)`,
+	}
+	for _, s := range stmts {
+		if _, err := pool.Exec(ctx, s); err != nil {
+			return fmt.Errorf("msg_history schema: %w", err)
+		}
+	}
+	return nil
+}
+
+// Warmup carga el histórico tracked desde DB a memoria. Llamar al
+// boot tras SetPool. Solo carga filas con posted_at > NOW() - keep
+// (entries más viejas se ignoran — el retroactive update probablemente
+// ya no es valioso para mensajes muy antiguos).
+//
+// Respeta el cap per sender al cargar — si una sender tiene más
+// entries en DB que el cap, carga las más recientes.
+func (t *msgHistoryTracker) Warmup(ctx context.Context, keep time.Duration) error {
+	if t.pool == nil {
+		return nil
+	}
+	rows, err := t.pool.Query(ctx, `
+		SELECT instance, sender_jid, conv_id, msg_id, phone, name_used, was_saved, body, posted_at
+		FROM bridge_msg_history
+		WHERE posted_at > NOW() - $1::interval
+		ORDER BY posted_at ASC
+	`, fmt.Sprintf("%d seconds", int(keep.Seconds())))
+	if err != nil {
+		return fmt.Errorf("warmup query: %w", err)
+	}
+	defer rows.Close()
+	loaded := 0
+	t.mu.Lock()
+	for rows.Next() {
+		var inst, jid string
+		var m trackedMsg
+		if err := rows.Scan(&inst, &jid, &m.convID, &m.msgID, &m.phone, &m.nameUsed, &m.wasSaved, &m.body, &m.postedAt); err != nil {
+			t.mu.Unlock()
+			return fmt.Errorf("scan: %w", err)
+		}
+		key := inst + "|" + jid
+		entries := t.data[key]
+		entries = append(entries, m)
+		if len(entries) > t.capPerSender {
+			entries = entries[len(entries)-t.capPerSender:]
+		}
+		t.data[key] = entries
+		loaded++
+	}
+	t.mu.Unlock()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("rows: %w", err)
+	}
+	if t.logger != nil {
+		t.logger.Info("msg_history warmup done", "loaded", loaded)
+	}
+	return nil
+}
+
+// Record persiste un mensaje en el tracker. Llamar tras un PostMessage
+// exitoso. El cap por sender se enforce con FIFO — los más viejos caen
+// primero al desbordar. Si hay pool, también escribe a DB (la cleanup
+// cron borra las viejas en DB; el cap in-memory es solo para limitar
+// el footprint en memoria por sender).
+func (t *msgHistoryTracker) Record(instance, senderJID string, m trackedMsg) {
+	t.mu.Lock()
 	key := instance + "|" + senderJID
 	entries := t.data[key]
 	entries = append(entries, m)
@@ -62,6 +158,35 @@ func (t *msgHistoryTracker) Record(instance, senderJID string, m trackedMsg) {
 		entries = entries[len(entries)-t.capPerSender:]
 	}
 	t.data[key] = entries
+	pool := t.pool
+	logger := t.logger
+	t.mu.Unlock()
+
+	if pool == nil {
+		return
+	}
+	// Persistir async para no bloquear el flujo del mensaje.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := pool.Exec(ctx, `
+			INSERT INTO bridge_msg_history
+				(instance, sender_jid, conv_id, msg_id, phone, name_used, was_saved, body, posted_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			ON CONFLICT (instance, msg_id) DO UPDATE SET
+				sender_jid = EXCLUDED.sender_jid,
+				conv_id    = EXCLUDED.conv_id,
+				phone      = EXCLUDED.phone,
+				name_used  = EXCLUDED.name_used,
+				was_saved  = EXCLUDED.was_saved,
+				body       = EXCLUDED.body,
+				posted_at  = EXCLUDED.posted_at
+		`, instance, senderJID, m.convID, m.msgID, m.phone, m.nameUsed, m.wasSaved, m.body, m.postedAt)
+		if err != nil && logger != nil {
+			logger.Warn("msg_history persist record",
+				"err", err, "instance", instance, "msg_id", m.msgID)
+		}
+	}()
 }
 
 // ListBySender devuelve una copia de los mensajes tracked para un sender.
@@ -86,7 +211,6 @@ func (t *msgHistoryTracker) ListBySender(instance, senderJID string) []trackedMs
 // contra el nombre nuevo, no el antiguo.
 func (t *msgHistoryTracker) UpdateAfterPatch(instance, senderJID string, msgID int, newName string, newSaved bool) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	key := instance + "|" + senderJID
 	entries := t.data[key]
 	for i, e := range entries {
@@ -97,4 +221,41 @@ func (t *msgHistoryTracker) UpdateAfterPatch(instance, senderJID string, msgID i
 		}
 	}
 	t.data[key] = entries
+	pool := t.pool
+	logger := t.logger
+	t.mu.Unlock()
+
+	if pool == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := pool.Exec(ctx, `
+			UPDATE bridge_msg_history
+			SET name_used = $1, was_saved = $2
+			WHERE instance = $3 AND msg_id = $4
+		`, newName, newSaved, instance, msgID)
+		if err != nil && logger != nil {
+			logger.Warn("msg_history persist update",
+				"err", err, "instance", instance, "msg_id", msgID)
+		}
+	}()
+}
+
+// CleanupOld borra entries más viejas que `keep` de la tabla DB.
+// Las entries in-memory NO se tocan (caen via cap FIFO). Llamar
+// periódicamente (cron) para mantener la tabla acotada.
+func (t *msgHistoryTracker) CleanupOld(ctx context.Context, keep time.Duration) (int64, error) {
+	if t.pool == nil {
+		return 0, nil
+	}
+	tag, err := t.pool.Exec(ctx,
+		`DELETE FROM bridge_msg_history WHERE posted_at < NOW() - $1::interval`,
+		fmt.Sprintf("%d seconds", int(keep.Seconds())),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }

@@ -147,6 +147,21 @@ type Config struct {
 	// los más viejos caen FIFO. >100 da margen para que el update llegue
 	// tras horas/días de mensajes acumulados. Default 200. Desde v0.40.0.
 	RetroactiveCapPerSender int `env:"QRSGEN_RETROACTIVE_CAP_PER_SENDER" envDefault:"200"`
+
+	// RetroactivePersist: si true, el tracker de retroactive name update
+	// persiste sus entries en la tabla `bridge_msg_history` (Postgres).
+	// El histórico sobrevive a restart y a deploys. false → modo in-memory
+	// only (v0.40.0): un restart pierde los msgs tracked, retroactive
+	// update no aplica a mensajes pre-restart. Default true. Desde v0.41.0.
+	RetroactivePersist bool `env:"QRSGEN_RETROACTIVE_PERSIST" envDefault:"true"`
+
+	// RetroactiveTTL: cuánto tiempo conservar las entries del retroactive
+	// tracker en DB. Tras este TTL el cron de cleanup las borra (y al
+	// próximo boot Warmup solo carga entries más recientes). Trade-off:
+	// más TTL → más posibilidad de actualizar mensajes viejos cuando el
+	// dueño finalmente añade el contacto a la agenda, pero más espacio
+	// en DB. Default "720h" (30 días). Desde v0.41.0.
+	RetroactiveTTL time.Duration `env:"QRSGEN_RETROACTIVE_TTL" envDefault:"720h"`
 }
 
 func Load() (Config, error) {

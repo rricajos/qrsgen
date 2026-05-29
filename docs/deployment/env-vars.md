@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.40.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.40.1 (pulido v0.40.0: reactions hereda fix v0.39.9, PATCHes en goroutine, métricas Prometheus, separador header configurable). |
+| `QRSGEN_VERSION` | `0.41.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.41.0 (persistencia Postgres del retroactive name update — el histórico sobrevive a restart). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |
@@ -36,6 +36,8 @@
 | `QRSGEN_MARK_AS_READ_OUTGOING` | `true` | Si `true`, qrsgen rastrea los WAIDs de mensajes incoming y los marca como leídos en WhatsApp cuando el downstream envía un webhook `conversation_updated` con un nuevo `agent_last_seen_at`. El cliente ve doble check azul. REQUIERE config explícita del downstream para enviar ese evento. Desde v0.39.0. |
 | `QRSGEN_RETROACTIVE_NAME_UPDATE` | `true` | Si `true`, qrsgen recuerda mensajes posteados con prefix de grupo "no-saved" (`~Name`) y los reescribe vía PATCH cuando el dueño añade el contacto a su agenda WhatsApp. El histórico en el downstream pasa a mostrar el nombre canónico sin tilde. State in-memory: restart pierde el tracked. Desde v0.40.0. |
 | `QRSGEN_RETROACTIVE_CAP_PER_SENDER` | `200` | Cap de mensajes recordados por sender en el tracker de retroactive name update. Al desbordar, los más viejos caen FIFO. >100 da margen para que el update llegue tras horas/días. Desde v0.40.0. |
+| `QRSGEN_RETROACTIVE_PERSIST` | `true` | Si `true`, el tracker de retroactive name update persiste sus entries en la tabla `bridge_msg_history` (Postgres). El histórico sobrevive a restart y deploys. `false` → modo in-memory only (v0.40.0): restart pierde tracked. Desde v0.41.0. |
+| `QRSGEN_RETROACTIVE_TTL` | `720h` | Cuánto tiempo conservar las entries en DB. Tras este TTL el cron de cleanup (cada 6h) las borra. Default 30 días. Trade-off: más TTL → más capacidad de actualizar mensajes viejos, más espacio en DB. Desde v0.41.0. |
 | `DEDUP_ENABLED` | `true` | |
 | `DEDUP_WINDOW_MS` | `10000` | Ventana LID-twin dedup. |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. |

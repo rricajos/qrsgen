@@ -4,6 +4,72 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-05-29
+
+Feature: **persistencia del retroactive name update**. La principal
+limitación de v0.40.0 (state in-memory perdido en restart) queda
+resuelta: el histórico tracked vive en la tabla `bridge_msg_history`
+de Postgres y sobrevive a deploys.
+
+### Added
+
+- **Tabla `bridge_msg_history`** + `bridge.EnsureMsgHistorySchema(ctx, pool)`.
+  Columnas: `instance, sender_jid, conv_id, msg_id, phone, name_used,
+  was_saved, body, posted_at`. PK `(instance, msg_id)`. Índices en
+  `(instance, sender_jid, posted_at DESC)` y `posted_at`.
+
+- **`msgHistoryTracker.SetPool(pool, logger)`** + write-through
+  asíncrono en Record y UpdateAfterPatch. Las escrituras a DB
+  corren en goroutine (con timeout 5s) para no bloquear el flujo
+  del mensaje.
+
+- **`msgHistoryTracker.Warmup(ctx, keep)`**: al boot, carga las
+  entries con `posted_at > NOW() - keep` desde DB hacia el cache
+  in-memory. Respeta el cap per sender al cargar (entries más
+  recientes ganan).
+
+- **`msgHistoryTracker.CleanupOld(ctx, keep)`** + cron en
+  `cmd/server/main.go` (cada 6h): borra entries con
+  `posted_at < NOW() - keep`. Limita el crecimiento de la tabla.
+
+- **Wrappers en `Incoming`**: `SetRetroactivePool`,
+  `WarmupRetroactive`, `CleanupRetroactiveOld`. main.go los llama
+  tras `EnableRetroactiveNameUpdate`.
+
+### Config
+
+- **`QRSGEN_RETROACTIVE_PERSIST`** (default `true`): activa la
+  persistencia. `false` → modo in-memory v0.40.0.
+- **`QRSGEN_RETROACTIVE_TTL`** (default `720h` = 30 días):
+  ventana de retención. Tras este TTL las entries se borran en
+  el cron. Trade-off: más TTL → más capacidad de retroactive
+  update sobre mensajes viejos, más espacio en DB.
+
+### Tests
+
+- 5 integration tests (`internal/bridge/msg_history_integration_test.go`)
+  verificados contra Postgres real:
+  - `SchemaIdempotent` — ensure es repetible sin errores.
+  - `RecordPersists` — Record escribe a DB de forma async.
+  - `WarmupReloads` — un tracker fresco recupera entries grabadas
+    por un tracker previo (simula restart).
+  - `UpdateAfterPatchPersists` — el UPDATE retroactive se persiste.
+  - `CleanupOldBorraEntries` — DELETE por edad funciona.
+- Activar con `INTEGRATION_PG_DSN=postgres://...`. Sin la env,
+  skip silencioso (compat con CI sin Postgres).
+
+### Migration notes
+
+- **Sin breaking changes**. Cargas previas con
+  `QRSGEN_RETROACTIVE_PERSIST=false` mantienen el comportamiento
+  v0.40.0 (in-memory).
+- El schema se crea automáticamente al boot vía
+  `EnsureMsgHistorySchema`. Para downgrades a v0.40.0, la tabla
+  queda huérfana — no rompe nada, simplemente no se usa.
+- Permisos: el role usado en `POSTGRES_USER` necesita `CREATE`
+  sobre la DB. El qrsgen actual ya los tiene por las tablas
+  previas (bridge_dedup, bridge_outgoing_queue, etc.).
+
 ## [0.40.1] - 2026-05-29
 
 Pulido post-v0.40.0 + revert del separador `<br>` que en Chatwoot

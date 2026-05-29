@@ -240,6 +240,37 @@ func main() {
 	// que reflejen el nuevo nombre / sin tilde.
 	if cfg.RetroactiveNameUpdate {
 		incoming.EnableRetroactiveNameUpdate(cfg.RetroactiveCapPerSender)
+		// v0.41.0: persistencia opcional. Si está activada, el histórico
+		// sobrevive a restart.
+		if cfg.RetroactivePersist {
+			if err := bridge.EnsureMsgHistorySchema(ctx, pool); err != nil {
+				logger.Error("ensure msg_history schema", "err", err)
+				os.Exit(1)
+			}
+			incoming.SetRetroactivePool(pool, logger)
+			if err := incoming.WarmupRetroactive(ctx, cfg.RetroactiveTTL); err != nil {
+				logger.Warn("msg_history warmup (continuando con cache vacío)", "err", err)
+			}
+			// Cleanup cron: cada 6h borra entries con posted_at > TTL.
+			go func() {
+				ticker := time.NewTicker(6 * time.Hour)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						cleanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+						if n, err := incoming.CleanupRetroactiveOld(cleanCtx, cfg.RetroactiveTTL); err != nil {
+							logger.Warn("msg_history cleanup", "err", err)
+						} else if n > 0 {
+							logger.Info("msg_history cleanup", "deleted", n)
+						}
+						cancel()
+					}
+				}
+			}()
+		}
 		mgr.SetContactHandler(func(ctx context.Context, instance string, jid types.JID, fullName, firstName string, fromFullSync bool, r wameow.WAResolver) {
 			incoming.HandleContactUpdate(ctx, instance, jid, fullName, firstName, fromFullSync, r)
 		})

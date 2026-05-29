@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rricajos/qrsgen/internal/downstream"
 	"github.com/rricajos/qrsgen/internal/metrics"
 	"github.com/rricajos/qrsgen/internal/wameow"
@@ -233,6 +234,36 @@ func (i *Incoming) EnableRetroactiveNameUpdate(capPerSender int) {
 	if i.msgHistory == nil {
 		i.msgHistory = newMsgHistoryTracker(capPerSender)
 	}
+}
+
+// SetRetroactivePool habilita persistencia DB del tracker (v0.41.0).
+// El estado sobrevive a restarts. Llamar tras EnableRetroactiveNameUpdate
+// + EnsureMsgHistorySchema. Sin esto, el tracker queda in-memory only.
+func (i *Incoming) SetRetroactivePool(pool *pgxpool.Pool, logger *slog.Logger) {
+	if i.msgHistory == nil {
+		return
+	}
+	i.msgHistory.SetPool(pool, logger)
+}
+
+// WarmupRetroactive carga el histórico tracked desde DB. Llamar al
+// boot tras SetRetroactivePool. keep limita qué tan viejas pueden ser
+// las entries cargadas — más antiguas se ignoran (no se borran de DB,
+// para eso está CleanupRetroactiveOld).
+func (i *Incoming) WarmupRetroactive(ctx context.Context, keep time.Duration) error {
+	if i.msgHistory == nil {
+		return nil
+	}
+	return i.msgHistory.Warmup(ctx, keep)
+}
+
+// CleanupRetroactiveOld borra entries DB más viejas que `keep`. Devuelve
+// el número de filas eliminadas. Llamar periódicamente vía cron.
+func (i *Incoming) CleanupRetroactiveOld(ctx context.Context, keep time.Duration) (int64, error) {
+	if i.msgHistory == nil {
+		return 0, nil
+	}
+	return i.msgHistory.CleanupOld(ctx, keep)
 }
 
 // SetUsage attaches a usage recorder. Pass nil to disable.

@@ -648,6 +648,31 @@ func (c *Conn) SendText(ctx context.Context, remoteJid, content string) (string,
 	return resp.ID, nil
 }
 
+// SendTextReply envía un mensaje de texto como reply nativo de WhatsApp.
+// quotedWAID es el ID del mensaje al que se responde. quotedSenderJID
+// es el JID del autor del mensaje citado (vacío en 1:1; obligatorio
+// para que el preview del quote enlace bien en grupos). quotedText
+// es el contenido del mensaje citado (whatsmeow lo incluye en
+// ContextInfo.QuotedMessage para que el cliente receptor renderice
+// el preview).
+//
+// Si quotedWAID es "", se comporta como SendText pelado. v0.44.0.
+func (c *Conn) SendTextReply(ctx context.Context, remoteJid, content, quotedWAID, quotedSenderJID, quotedText string) (string, error) {
+	if quotedWAID == "" {
+		return c.SendText(ctx, remoteJid, content)
+	}
+	jid, err := parseJID(remoteJid)
+	if err != nil {
+		return "", err
+	}
+	msg := replyTextMessage(content, quotedWAID, quotedSenderJID, quotedText)
+	resp, err := c.client.SendMessage(ctx, jid, msg)
+	if err != nil {
+		return "", fmt.Errorf("send reply: %w", err)
+	}
+	return resp.ID, nil
+}
+
 // MarkRead manda un read receipt a WhatsApp por los message IDs
 // indicados. El cliente del otro lado ve doble check azul en esos msgs.
 //

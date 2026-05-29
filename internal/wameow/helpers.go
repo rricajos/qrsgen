@@ -25,6 +25,31 @@ func simpleTextMessage(text string) *waE2E.Message {
 	}
 }
 
+// replyTextMessage construye un ExtendedTextMessage con ContextInfo
+// poblado para que el cliente WA receptor renderice el mensaje como
+// reply nativo (quoted preview + tap-to-scroll al original).
+//
+// quotedWAID es el ID del msg original. quotedSenderJID es el JID del
+// autor (necesario en grupos; en 1:1 puede ir vacío). quotedText es
+// el texto del msg citado (preview). v0.44.0.
+func replyTextMessage(text, quotedWAID, quotedSenderJID, quotedText string) *waE2E.Message {
+	ci := &waE2E.ContextInfo{
+		StanzaID: proto.String(quotedWAID),
+		QuotedMessage: &waE2E.Message{
+			Conversation: proto.String(quotedText),
+		},
+	}
+	if quotedSenderJID != "" {
+		ci.Participant = proto.String(quotedSenderJID)
+	}
+	return &waE2E.Message{
+		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text:        proto.String(text),
+			ContextInfo: ci,
+		},
+	}
+}
+
 // buildMediaMessage sube `data` al servidor de WhatsApp y construye el
 // *waE2E.Message apropiado (Image/Audio/Video/Document) según `kind`.
 func buildMediaMessage(ctx context.Context, client *whatsmeow.Client, kind, mimetype, filename, caption string, data []byte) (*waE2E.Message, error) {

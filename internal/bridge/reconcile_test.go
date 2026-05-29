@@ -148,7 +148,7 @@ func TestHandleContactUpdate_RenamesAndPatchesBoth(t *testing.T) {
 	// Sembramos msg tracked también
 	inc.msgHistory.Record("inst1", pn.String(), trackedMsg{
 		convID: 100, msgID: 1, phone: "+34604021705",
-		nameUsed: "Richard", wasSaved: false,
+		nameUsed: "Richard", wasSaved: false, hasPrefix: true,
 		body: "hola", postedAt: time.Now(),
 	})
 

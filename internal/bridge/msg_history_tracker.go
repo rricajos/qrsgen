@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,15 +37,18 @@ type msgHistoryTracker struct {
 }
 
 // trackedMsg captura toda la info necesaria para reconstruir el content
-// del mensaje cuando el sender cambia de saved-status o de nombre.
+// del mensaje cuando el sender cambia de saved-status o de nombre,
+// y para soportar reply-to outgoing (v0.44.0 mapeo Chatwoot↔WhatsApp).
 type trackedMsg struct {
-	convID   int       // conversation_id en el downstream
-	msgID    int       // message_id en el downstream
-	phone    string    // teléfono formateado (E.164 con +) usado en el header
-	nameUsed string    // nombre usado al postear
-	wasSaved bool      // saved status al postear
-	body     string    // body del mensaje (sin el prefix de header)
-	postedAt time.Time // timestamp del post
+	convID    int       // conversation_id en el downstream
+	msgID     int       // message_id en el downstream
+	phone     string    // teléfono formateado (E.164 con +) usado en el header
+	nameUsed  string    // nombre usado al postear
+	wasSaved  bool      // saved status al postear
+	body      string    // body del mensaje (sin el prefix de header)
+	postedAt  time.Time // timestamp del post
+	waid      string    // v0.44.0: WAID (WhatsApp message id) — para reply-to outgoing
+	hasPrefix bool      // v0.44.0: true si el msg se posteó con prefix de grupo (afecta retroactive update)
 }
 
 func newMsgHistoryTracker(capPerSender int) *msgHistoryTracker {
@@ -66,8 +70,15 @@ func (t *msgHistoryTracker) SetPool(pool *pgxpool.Pool, logger *slog.Logger) {
 	t.logger = logger
 }
 
-// EnsureMsgHistorySchema crea la tabla `bridge_msg_history`. Idempotente.
-// Llamar al boot antes de procesar mensajes.
+// EnsureMsgHistorySchema crea la tabla `bridge_msg_history` y aplica
+// migraciones incrementales. Idempotente. Llamar al boot antes de
+// procesar mensajes.
+//
+// Migraciones:
+//   - v0.41.0: tabla inicial
+//   - v0.44.0: ADD COLUMN waid TEXT, has_prefix BOOLEAN (default TRUE
+//     para preservar el comportamiento de rows pre-v0.44.0 — todas
+//     eran prefix rows en v0.40-v0.43)
 func EnsureMsgHistorySchema(ctx context.Context, pool *pgxpool.Pool) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS bridge_msg_history (
@@ -86,6 +97,11 @@ func EnsureMsgHistorySchema(ctx context.Context, pool *pgxpool.Pool) error {
 		 ON bridge_msg_history (instance, sender_jid, posted_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS bridge_msg_history_posted_idx
 		 ON bridge_msg_history (posted_at)`,
+		// v0.44.0 migrations.
+		`ALTER TABLE bridge_msg_history ADD COLUMN IF NOT EXISTS waid TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bridge_msg_history ADD COLUMN IF NOT EXISTS has_prefix BOOLEAN NOT NULL DEFAULT TRUE`,
+		`CREATE INDEX IF NOT EXISTS bridge_msg_history_waid_idx
+		 ON bridge_msg_history (instance, msg_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := pool.Exec(ctx, s); err != nil {
@@ -107,7 +123,7 @@ func (t *msgHistoryTracker) Warmup(ctx context.Context, keep time.Duration) erro
 		return nil
 	}
 	rows, err := t.pool.Query(ctx, `
-		SELECT instance, sender_jid, conv_id, msg_id, phone, name_used, was_saved, body, posted_at
+		SELECT instance, sender_jid, conv_id, msg_id, phone, name_used, was_saved, body, posted_at, waid, has_prefix
 		FROM bridge_msg_history
 		WHERE posted_at > NOW() - $1::interval
 		ORDER BY posted_at ASC
@@ -121,7 +137,7 @@ func (t *msgHistoryTracker) Warmup(ctx context.Context, keep time.Duration) erro
 	for rows.Next() {
 		var inst, jid string
 		var m trackedMsg
-		if err := rows.Scan(&inst, &jid, &m.convID, &m.msgID, &m.phone, &m.nameUsed, &m.wasSaved, &m.body, &m.postedAt); err != nil {
+		if err := rows.Scan(&inst, &jid, &m.convID, &m.msgID, &m.phone, &m.nameUsed, &m.wasSaved, &m.body, &m.postedAt, &m.waid, &m.hasPrefix); err != nil {
 			t.mu.Unlock()
 			return fmt.Errorf("scan: %w", err)
 		}
@@ -171,8 +187,8 @@ func (t *msgHistoryTracker) Record(instance, senderJID string, m trackedMsg) {
 		defer cancel()
 		_, err := pool.Exec(ctx, `
 			INSERT INTO bridge_msg_history
-				(instance, sender_jid, conv_id, msg_id, phone, name_used, was_saved, body, posted_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				(instance, sender_jid, conv_id, msg_id, phone, name_used, was_saved, body, posted_at, waid, has_prefix)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			ON CONFLICT (instance, msg_id) DO UPDATE SET
 				sender_jid = EXCLUDED.sender_jid,
 				conv_id    = EXCLUDED.conv_id,
@@ -180,8 +196,10 @@ func (t *msgHistoryTracker) Record(instance, senderJID string, m trackedMsg) {
 				name_used  = EXCLUDED.name_used,
 				was_saved  = EXCLUDED.was_saved,
 				body       = EXCLUDED.body,
-				posted_at  = EXCLUDED.posted_at
-		`, instance, senderJID, m.convID, m.msgID, m.phone, m.nameUsed, m.wasSaved, m.body, m.postedAt)
+				posted_at  = EXCLUDED.posted_at,
+				waid       = EXCLUDED.waid,
+				has_prefix = EXCLUDED.has_prefix
+		`, instance, senderJID, m.convID, m.msgID, m.phone, m.nameUsed, m.wasSaved, m.body, m.postedAt, m.waid, m.hasPrefix)
 		if err != nil && logger != nil {
 			logger.Warn("msg_history persist record",
 				"err", err, "instance", instance, "msg_id", m.msgID)
@@ -241,6 +259,47 @@ func (t *msgHistoryTracker) UpdateAfterPatch(instance, senderJID string, msgID i
 				"err", err, "instance", instance, "msg_id", msgID)
 		}
 	}()
+}
+
+// FindByChatwootMsgID busca un trackedMsg por su Chatwoot msgID
+// (busca primero in-memory iterando por sender; si pool != nil
+// y no se encuentra, hace fallback SELECT). Devuelve también el
+// senderJID (key del tracker, útil para reply-to outgoing en
+// grupos donde el ContextInfo necesita Participant). Usado por
+// reply-to outgoing (v0.44.0).
+func (t *msgHistoryTracker) FindByChatwootMsgID(ctx context.Context, instance string, msgID int) (trackedMsg, string, bool) {
+	t.mu.Lock()
+	prefix := instance + "|"
+	for key, entries := range t.data {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		for _, e := range entries {
+			if e.msgID == msgID {
+				sender := strings.TrimPrefix(key, prefix)
+				t.mu.Unlock()
+				return e, sender, true
+			}
+		}
+	}
+	pool := t.pool
+	t.mu.Unlock()
+
+	if pool == nil {
+		return trackedMsg{}, "", false
+	}
+	var m trackedMsg
+	var sender string
+	err := pool.QueryRow(ctx, `
+		SELECT sender_jid, conv_id, msg_id, phone, name_used, was_saved, body, posted_at, waid, has_prefix
+		FROM bridge_msg_history
+		WHERE instance = $1 AND msg_id = $2
+		LIMIT 1
+	`, instance, msgID).Scan(&sender, &m.convID, &m.msgID, &m.phone, &m.nameUsed, &m.wasSaved, &m.body, &m.postedAt, &m.waid, &m.hasPrefix)
+	if err != nil {
+		return trackedMsg{}, "", false
+	}
+	return m, sender, true
 }
 
 // CleanupOld borra entries más viejas que `keep` de la tabla DB.

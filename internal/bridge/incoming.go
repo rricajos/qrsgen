@@ -928,21 +928,29 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 		return
 	}
 
-	// v0.40.0: si emitimos prefix de grupo y el post fue OK, registramos
-	// en msgHistory para poder reescribirlo si el sender pasa de no-saved
-	// a saved (o cambia de nombre) más tarde. Indexamos por el PN canónico
-	// — events.Contact llega como PN JID, no como LID.
-	if i.msgHistory != nil && emittedPrefix && postedMsgID != 0 && postedConvID != 0 {
+	// v0.40.0: si emitimos prefix de grupo, registramos en msgHistory
+	// para poder reescribir el header si el sender pasa de no-saved a
+	// saved (o cambia de nombre) más tarde.
+	// v0.44.0: ahora registramos TODOS los incoming (no solo los con
+	// prefix) para mapear Chatwoot msgID ↔ WAID — necesario para
+	// reply-to outgoing. hasPrefix discrimina cuáles aplican al
+	// retroactive PATCH loop.
+	if i.msgHistory != nil && postedMsgID != 0 && postedConvID != 0 && !fromMe {
 		trackerKey := canonicalSenderKey(msg.Info.Sender, r)
-		i.msgHistory.Record(instance, trackerKey, trackedMsg{
-			convID:   postedConvID,
-			msgID:    postedMsgID,
-			phone:    emittedSenderInfo.phoneFmt,
-			nameUsed: emittedSenderInfo.name,
-			wasSaved: emittedSenderInfo.saved,
-			body:     rawBody,
-			postedAt: time.Now(),
-		})
+		tm := trackedMsg{
+			convID:    postedConvID,
+			msgID:     postedMsgID,
+			body:      rawBody,
+			postedAt:  time.Now(),
+			waid:      msg.Info.ID,
+			hasPrefix: emittedPrefix,
+		}
+		if emittedPrefix {
+			tm.phone = emittedSenderInfo.phoneFmt
+			tm.nameUsed = emittedSenderInfo.name
+			tm.wasSaved = emittedSenderInfo.saved
+		}
+		i.msgHistory.Record(instance, trackerKey, tm)
 	}
 }
 
@@ -1087,6 +1095,12 @@ func (i *Incoming) applyRetroactiveUpdates(
 	}
 	patched := 0
 	for _, e := range entries {
+		// v0.44.0: solo aplicamos retroactive PATCH a msgs que se
+		// postearon con prefix de grupo. Las 1:1 son tracked solo
+		// por el mapeo Chatwoot↔WAID; no llevan prefix que reescribir.
+		if !e.hasPrefix {
+			continue
+		}
 		if e.nameUsed == newName && e.wasSaved {
 			continue
 		}
@@ -1155,6 +1169,13 @@ func (i *Incoming) ReconcileSavedContacts(ctx context.Context, instance string, 
 	}
 	return result, nil
 }
+
+// replyToTracker expone el tracker de msg_history a outras packages
+// internas del bridge (outgoing.go usa esto para resolver Chatwoot
+// msgID → WAID al recibir un webhook con in_reply_to). Devuelve nil
+// si la feature retroactive name update no fue habilitada (en cuyo
+// caso el reply-to outgoing también queda desactivado).
+func (i *Incoming) replyToTracker() *msgHistoryTracker { return i.msgHistory }
 
 // WaitRetroactivePatches bloquea hasta que todas las goroutines en
 // vuelo de retroactive name update hayan terminado. Útil en tests

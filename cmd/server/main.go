@@ -274,6 +274,10 @@ func main() {
 		mgr.SetContactHandler(func(ctx context.Context, instance string, jid types.JID, fullName, firstName string, fromFullSync bool, r wameow.WAResolver) {
 			incoming.HandleContactUpdate(ctx, instance, jid, fullName, firstName, fromFullSync, r)
 		})
+		// v0.44.0: el outgoing reusa el msg_history tracker para resolver
+		// Chatwoot msgID → WAID cuando el agente quote-replea desde el
+		// composer (content_attributes.in_reply_to en el webhook).
+		outgoing.EnableReplyToOutgoing(incoming)
 	}
 	metrics.VersionInfo.WithLabelValues(version).Set(1)
 
@@ -1122,6 +1126,14 @@ func (s senderAdapter) SendMedia(ctx context.Context, instance, remoteJid, kind,
 		return "", fmt.Errorf("instance %q not found", instance)
 	}
 	return conn.SendMedia(ctx, remoteJid, kind, mimetype, filename, caption, data)
+}
+
+func (s senderAdapter) SendTextReply(ctx context.Context, instance, remoteJid, content, quotedWAID, quotedSenderJID, quotedText string) (string, error) {
+	conn, ok := s.mgr.Get(instance)
+	if !ok {
+		return "", fmt.Errorf("instance %q not found", instance)
+	}
+	return conn.SendTextReply(ctx, remoteJid, content, quotedWAID, quotedSenderJID, quotedText)
 }
 
 // MarkRead implementa bridge.ReadMarker para que el outgoing pueda

@@ -24,6 +24,14 @@ var ErrSpamguardBlocked = errors.New("spamguard: blocked duplicate outgoing")
 type Sender interface {
 	SendText(ctx context.Context, instance, remoteJid, content string) (string, error)
 	SendMedia(ctx context.Context, instance, remoteJid, kind, mimetype, filename, caption string, data []byte) (string, error)
+	// SendTextReply envía un mensaje de texto como reply a un msg
+	// existente. quotedWAID es el ID del msg original en WhatsApp.
+	// quotedSenderJID es el JID del autor (en grupos: del participante;
+	// en 1:1 puede ir vacío y whatsmeow usa el remoteJid). quotedText
+	// es el cuerpo del msg citado (whatsmeow lo incluye en el
+	// ContextInfo para que el cliente receptor muestre el preview).
+	// v0.44.0.
+	SendTextReply(ctx context.Context, instance, remoteJid, content, quotedWAID, quotedSenderJID, quotedText string) (string, error)
 }
 
 // ReadMarker es la interfaz para marcar mensajes WhatsApp como leídos.
@@ -52,13 +60,20 @@ type WebhookAttachment struct {
 
 // WebhookPayload representa el subset del payload del webhook downstream que necesitamos.
 type WebhookPayload struct {
-	Event        string              `json:"event"`
-	ID           int                 `json:"id"`           // message id en eventos message_created
-	MessageType  string              `json:"message_type"` // "incoming" | "outgoing" | "activity" | "template"
-	Private      bool                `json:"private"`      // notas internas del agente — NO se envían a WhatsApp
-	Content      string              `json:"content"`
-	SourceID     string              `json:"source_id"`
-	Attachments  []WebhookAttachment `json:"attachments"`
+	Event             string              `json:"event"`
+	ID                int                 `json:"id"`           // message id en eventos message_created
+	MessageType       string              `json:"message_type"` // "incoming" | "outgoing" | "activity" | "template"
+	Private           bool                `json:"private"`      // notas internas del agente — NO se envían a WhatsApp
+	Content           string              `json:"content"`
+	SourceID          string              `json:"source_id"`
+	Attachments       []WebhookAttachment `json:"attachments"`
+	ContentAttributes *struct {
+		// InReplyTo es el message_id de Chatwoot al que se está
+		// respondiendo cuando el agente hace quote-reply en el composer.
+		// Desde v0.44.0 lo usamos para mapear al WAID del incoming
+		// original y propagar la respuesta como WA reply nativo.
+		InReplyTo int `json:"in_reply_to"`
+	} `json:"content_attributes"`
 	Conversation *struct {
 		ID                int   `json:"id"`
 		InboxID           int   `json:"inbox_id"`
@@ -106,10 +121,32 @@ type Outgoing struct {
 	logger   *slog.Logger
 	usage    UsageRecorder
 	banwatch BanwatchRecorder
+
+	// msgHistory: tracker compartido con Incoming para resolver
+	// Chatwoot msgID → WAID al hacer reply-to outgoing (v0.44.0).
+	// Si nil, reply-to está desactivado y los msgs salen como
+	// texto plano aunque content_attributes.in_reply_to esté presente.
+	msgHistory *msgHistoryTracker
 }
 
 func NewOutgoing(sender Sender, ds downstream.Router, dedup *Deduper, sg SpamguardProvider, tracker *SpamguardTracker, logger *slog.Logger) *Outgoing {
 	return &Outgoing{sender: sender, ds: ds, dedup: dedup, sg: sg, tracker: tracker, logger: logger}
+}
+
+// EnableReplyToOutgoing conecta el msg_history tracker (compartido con
+// Incoming) para que el outgoing handler resuelva Chatwoot msgID →
+// WAID cuando el webhook trae content_attributes.in_reply_to. Llamar
+// tras incoming.EnableRetroactiveNameUpdate; sin esa llamada el
+// tracker es nil y la feature queda desactivada.
+//
+// Si tracker es nil (o no llamamos a este enable), el webhook
+// outgoing con in_reply_to se procesa como SendText normal (sin
+// quote nativo de WhatsApp). Backward-compatible.
+func (o *Outgoing) EnableReplyToOutgoing(in *Incoming) {
+	if in == nil {
+		return
+	}
+	o.msgHistory = in.replyToTracker()
 }
 
 // EnableMarkAsRead conecta el tracker de WAIDs (compartido con Incoming) y
@@ -174,6 +211,38 @@ func (o *Outgoing) SetUsage(u UsageRecorder) { o.usage = u }
 
 // SetBanwatch attaches the ban-risk recorder. Pass nil to disable.
 func (o *Outgoing) SetBanwatch(b BanwatchRecorder) { o.banwatch = b }
+
+// resolveReplyContext intenta resolver el quote para un outgoing
+// que sea quote-reply en Chatwoot. Devuelve (waid, senderJID, text)
+// del msg original, o ("", "", "") si:
+//   - msgHistory no está habilitado
+//   - el webhook no trae content_attributes.in_reply_to
+//   - el msgID no se encuentra en el tracker
+//   - el trackedMsg no tiene WAID guardado (rows antiguas pre-v0.44.0)
+//
+// El senderJID identifica al autor del msg citado. Para 1:1 puede ir
+// vacío; para grupos lo necesita el cliente WA receptor para enlazar
+// el quote al participante correcto.
+func (o *Outgoing) resolveReplyContext(ctx context.Context, instance string, p WebhookPayload) (string, string, string) {
+	if o.msgHistory == nil {
+		return "", "", ""
+	}
+	if p.ContentAttributes == nil || p.ContentAttributes.InReplyTo == 0 {
+		return "", "", ""
+	}
+	tm, senderJID, ok := o.msgHistory.FindByChatwootMsgID(ctx, instance, p.ContentAttributes.InReplyTo)
+	if !ok {
+		o.logger.Debug("reply-to: trackedMsg not found",
+			"instance", instance, "in_reply_to", p.ContentAttributes.InReplyTo)
+		return "", "", ""
+	}
+	if tm.waid == "" {
+		// Row vieja (pre-v0.44.0) sin WAID guardado. No podemos
+		// construir el ContextInfo de WhatsApp — degradamos a SendText.
+		return "", "", ""
+	}
+	return tm.waid, senderJID, tm.body
+}
 
 func (o *Outgoing) recordBanwatch(instance, jid string, success bool) {
 	if o.banwatch != nil {
@@ -359,7 +428,18 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 		return nil
 	}
 
-	waID, err := o.sender.SendText(ctx, instance, remoteJid, p.Content)
+	// v0.44.0: si el webhook trae content_attributes.in_reply_to,
+	// resolver el WAID original via msgHistory y mandar como reply
+	// nativo de WhatsApp en lugar de SendText pelado.
+	quotedWAID, quotedSenderJID, quotedText := o.resolveReplyContext(ctx, instance, p)
+
+	var waID string
+	var err error
+	if quotedWAID != "" {
+		waID, err = o.sender.SendTextReply(ctx, instance, remoteJid, p.Content, quotedWAID, quotedSenderJID, quotedText)
+	} else {
+		waID, err = o.sender.SendText(ctx, instance, remoteJid, p.Content)
+	}
 	tag := o.ds.OwnerTagFor(ctx, instance)
 	if err != nil {
 		metrics.MessageDispatchErrors.WithLabelValues("out", instance, "send_text", tag).Inc()

@@ -89,12 +89,12 @@ func TestHandleContactUpdate_PatchesStaleEntries(t *testing.T) {
 	// Sembramos 2 mensajes posteados sin name saved.
 	inc.msgHistory.Record("inst1", key, trackedMsg{
 		convID: 100, msgID: 1, phone: "+34604021705",
-		nameUsed: "Richard", wasSaved: false,
+		nameUsed: "Richard", wasSaved: false, hasPrefix: true,
 		body: "hola", postedAt: time.Now(),
 	})
 	inc.msgHistory.Record("inst1", key, trackedMsg{
 		convID: 100, msgID: 2, phone: "+34604021705",
-		nameUsed: "Richard", wasSaved: false,
+		nameUsed: "Richard", wasSaved: false, hasPrefix: true,
 		body: "qué tal", postedAt: time.Now(),
 	})
 
@@ -132,7 +132,7 @@ func TestHandleContactUpdate_SkipsFromFullSync(t *testing.T) {
 	inc, records, mu := newRetroIncoming(t)
 	pn := types.NewJID("34604021705", types.DefaultUserServer)
 	inc.msgHistory.Record("inst1", pn.String(), trackedMsg{
-		convID: 100, msgID: 1, nameUsed: "Richard", wasSaved: false, body: "hola",
+		convID: 100, msgID: 1, nameUsed: "Richard", wasSaved: false, hasPrefix: true, body: "hola",
 	})
 
 	// fromFullSync=true → no PATCH (evitamos burst al conectar).
@@ -188,7 +188,7 @@ func TestHandleContactUpdate_EmptyNameSkips(t *testing.T) {
 	inc, records, mu := newRetroIncoming(t)
 	pn := types.NewJID("34604021705", types.DefaultUserServer)
 	inc.msgHistory.Record("inst1", pn.String(), trackedMsg{
-		convID: 100, msgID: 1, nameUsed: "Richard", wasSaved: false, body: "hola",
+		convID: 100, msgID: 1, nameUsed: "Richard", wasSaved: false, hasPrefix: true, body: "hola",
 	})
 	// fullName="" AND firstName="" → contacto eliminado de agenda, no
 	// tenemos PushName original guardado → saltamos.
@@ -205,7 +205,7 @@ func TestHandleContactUpdate_FirstNameFallback(t *testing.T) {
 	inc, records, mu := newRetroIncoming(t)
 	pn := types.NewJID("34604021705", types.DefaultUserServer)
 	inc.msgHistory.Record("inst1", pn.String(), trackedMsg{
-		convID: 100, msgID: 1, nameUsed: "Richard", wasSaved: false, body: "hola",
+		convID: 100, msgID: 1, nameUsed: "Richard", wasSaved: false, hasPrefix: true, body: "hola",
 	})
 	// Solo firstName presente → se usa como nombre.
 	inc.HandleContactUpdate(context.Background(), "inst1", pn, "", "Ricardo", false, nil)
@@ -227,7 +227,7 @@ func TestHandleContactUpdate_AlreadyUpToDateNoPatch(t *testing.T) {
 	// Entry ya tracked con el nombre actual + saved=true → no-op.
 	inc.msgHistory.Record("inst1", pn.String(), trackedMsg{
 		convID: 100, msgID: 1, phone: "+34604021705",
-		nameUsed: "Ricard Penin", wasSaved: true,
+		nameUsed: "Ricard Penin", wasSaved: true, hasPrefix: true,
 		body: "hola", postedAt: time.Now(),
 	})
 

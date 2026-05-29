@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.43.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.43.0 (retroactive name update también renombra el contact en Chatwoot + bulk reconcile endpoint para la agenda entera). |
+| `QRSGEN_VERSION` | `0.44.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.44.0 (reply-to outgoing — quote-replies del agente en Chatwoot se propagan como reply nativo de WhatsApp). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

@@ -33,6 +33,12 @@ func (f *fakeSender) SendMedia(_ context.Context, _, _, _, _, _, _ string, _ []b
 	return "WAID:mock-media", nil
 }
 
+// SendTextReply en test default delega en SendText (sin diferenciar
+// reply en assertions). Los tests específicos de reply-to lo overridean.
+func (f *fakeSender) SendTextReply(ctx context.Context, instance, remoteJid, content, _, _, _ string) (string, error) {
+	return f.SendText(ctx, instance, remoteJid, content)
+}
+
 type mockError struct{ msg string }
 
 func (e *mockError) Error() string { return e.msg }

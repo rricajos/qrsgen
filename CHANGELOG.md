@@ -4,6 +4,75 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-05-29
+
+Feature: **reply-to outgoing**. Cuando el agente hace quote-reply en
+el composer de Chatwoot, qrsgen propaga el mensaje como reply nativo
+de WhatsApp en lugar de texto suelto. El cliente WA receptor ve el
+quoted preview tappable que enlaza al mensaje original.
+
+### Added
+
+- **Sender.SendTextReply(ctx, instance, remoteJid, content, quotedWAID,
+  quotedSenderJID, quotedText)**: nuevo método en la interface
+  `bridge.Sender`. Implementado en `wameow.Conn.SendTextReply` (popula
+  `ContextInfo` con `StanzaId/Participant/QuotedMessage`) y en
+  `senderAdapter` del `main`.
+- **`helpers.replyTextMessage`**: builder de `*waE2E.Message` con
+  ExtendedTextMessage + ContextInfo poblado. Conv1:1 y grupos.
+- **`msgHistoryTracker.FindByChatwootMsgID(ctx, instance, msgID)`**:
+  lookup por Chatwoot msgID (memory first → DB fallback). Devuelve
+  `(trackedMsg, senderJID, ok)`.
+- **`Incoming.replyToTracker()` + `Outgoing.EnableReplyToOutgoing(in)`**:
+  conecta el `msg_history` compartido (mismo patrón que `EnableMarkAsRead`).
+  Sin EnableReplyToOutgoing, los webhooks con `in_reply_to` se procesan
+  como texto suelto (backward-compat).
+- **`Outgoing.resolveReplyContext`**: parsea
+  `content_attributes.in_reply_to` del webhook, resuelve via tracker,
+  y devuelve el contexto para SendTextReply.
+- **`wameow.WAResolver.GetSavedContacts`**: extendido en v0.43.0,
+  necesario para el reconcile + el tracker compartido.
+
+### Changed
+
+- **`trackedMsg` ahora incluye `waid` + `hasPrefix`**. v0.40.0-v0.43.0
+  solo trackeaba msgs con prefix de grupo; v0.44.0 trackea TODOS los
+  incoming (también 1:1) para que el lookup por msgID funcione.
+  `hasPrefix=false` excluye de retroactive PATCH loop (1:1 no llevan
+  header reescribible).
+- **`handleMessage` registra todos los incoming no-fromMe**: no solo
+  los con prefix. `hasPrefix` discrimina el comportamiento downstream.
+- **Schema migration**: `ALTER TABLE bridge_msg_history ADD COLUMN
+  waid TEXT NOT NULL DEFAULT ''` y `ADD COLUMN has_prefix BOOLEAN
+  NOT NULL DEFAULT TRUE`. Rows pre-v0.44.0 quedan con `has_prefix=TRUE`
+  (eran todas prefix rows) y `waid=''` (no se puede recuperar
+  retroactivamente — degradan a SendText pelado en reply-to outgoing).
+- **`Webhook.ContentAttributes`**: nuevo campo `*struct{InReplyTo int}`
+  parseado del payload Chatwoot.
+
+### Tests
+
+- 5 unit tests nuevos en `internal/bridge/reply_to_outgoing_test.go`:
+  - `SendsAsReplyWhenTracked`
+  - `FallsBackToPlainTextWhenNotFound`
+  - `NoInReplyToUsesSendText`
+  - `DisabledFallsBackToPlainText`
+  - `EmptyWAIDFallsBack` (rows pre-v0.44.0)
+- Integration tests v0.41.0 (5/5) re-verificados contra Postgres real
+  con el schema migrado.
+
+### Migration notes
+
+- Schema cambia automáticamente al boot vía `EnsureMsgHistorySchema`
+  (ADD COLUMN IF NOT EXISTS). Cero downtime — el ALTER es metadata-only
+  en Postgres con DEFAULT no-NULL en columnas TEXT/BOOLEAN.
+- Mensajes incoming pre-v0.44.0 ya tracked: `has_prefix=TRUE` mantiene
+  el retroactive update funcionando; `waid=''` deshabilita el reply-to
+  para esos mensajes (caen a SendText, mismo comportamiento que <v0.44.0).
+- Sin breaking changes en la API pública del paquete bridge ni de los
+  endpoints HTTP. Backward-compat: si no se llama
+  `outgoing.EnableReplyToOutgoing`, todo se comporta como v0.43.x.
+
 ## [0.43.0] - 2026-05-29
 
 Feature: **extender retroactive name update a 1:1 + bulk reconcile**.

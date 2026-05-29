@@ -4,6 +4,56 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-05-29
+
+Bug fix: el bot reply no reseteaba el `groupTracker` de burst, así que
+tras una intervención del agente en un grupo, el siguiente msg del
+usuario aparecía sin header (heredaba la supresión del burst anterior).
+Bug presente desde v0.30.0.
+
+### Fixed
+
+- **`groupTracker` ahora rastrea los sends del bot a grupos**:
+  whatsmeow NO emite `*events.Message` para envíos del mismo
+  cliente, así que el flujo de `Incoming.Handle` nunca veía los
+  msgs del bot. El groupTracker se actualiza solo desde
+  `Incoming.Handle`, así que `_bot` no se registraba como último
+  sender → siguiente msg del usuario seguía dentro del burst
+  visual del usuario.
+
+  Fix:
+  - `Incoming.MarkBotSentInGroup(instance, chatJID)` expone el
+    reset al package.
+  - `Outgoing.EnableReplyToOutgoing(in)` ahora también guarda la
+    referencia a `Incoming` (no solo el `msgHistory`).
+  - Tras un `SendText`/`SendMedia` exitoso a un grupo (`@g.us`),
+    `Outgoing.markBotInGroup(instance, remoteJid)` llama
+    `MarkBotSentInGroup`. El groupTracker registra `_bot` como
+    último sender, rompiendo el burst del usuario.
+
+### Notes (no fix)
+
+- **Firma en outgoing**: confirmado que `qrsgen.Outgoing` envía
+  `p.Content` literal sin añadir nada. Si los msgs del agente
+  aparecen con firma, viene de la feature "Personal Message
+  Signature" de Chatwoot (account/agent settings). Para
+  desactivar: ajustes del agente → quitar firma. No es un
+  comportamiento de qrsgen.
+
+### Tests
+
+- 3 nuevos en `bot_burst_reset_test.go`:
+  - `ResetsBurst` (caso happy: bot reply rompe el burst).
+  - `NoOpWithoutTracker` (TTL=0 → método silencioso, no panic).
+  - `DifferentChatNoCrossEffect` (bot en chat B no afecta chat A).
+
+### Migration notes
+
+- Sin breaking changes. Si no usas `EnableReplyToOutgoing` (la
+  feature retroactive name update desactivada), el bug persiste
+  porque el reset depende de esa wiring. El default true del
+  `QRSGEN_RETROACTIVE_NAME_UPDATE` activa todo automáticamente.
+
 ## [0.44.0] - 2026-05-29
 
 Feature: **reply-to outgoing**. Cuando el agente hace quote-reply en

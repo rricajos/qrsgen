@@ -127,6 +127,12 @@ type Outgoing struct {
 	// Si nil, reply-to está desactivado y los msgs salen como
 	// texto plano aunque content_attributes.in_reply_to esté presente.
 	msgHistory *msgHistoryTracker
+
+	// incoming opcionalmente referencia el Incoming para que outgoing
+	// pueda resetear el groupTracker de burst al enviar mensajes
+	// del bot a un grupo (v0.44.1). Sin esto, el siguiente msg del
+	// usuario tras el bot reply hereda la supresión del header.
+	incoming *Incoming
 }
 
 func NewOutgoing(sender Sender, ds downstream.Router, dedup *Deduper, sg SpamguardProvider, tracker *SpamguardTracker, logger *slog.Logger) *Outgoing {
@@ -147,6 +153,9 @@ func (o *Outgoing) EnableReplyToOutgoing(in *Incoming) {
 		return
 	}
 	o.msgHistory = in.replyToTracker()
+	// v0.44.1: la misma referencia sirve para resetear el groupTracker
+	// de burst tras un send del bot a un grupo.
+	o.incoming = in
 }
 
 // EnableMarkAsRead conecta el tracker de WAIDs (compartido con Incoming) y
@@ -211,6 +220,23 @@ func (o *Outgoing) SetUsage(u UsageRecorder) { o.usage = u }
 
 // SetBanwatch attaches the ban-risk recorder. Pass nil to disable.
 func (o *Outgoing) SetBanwatch(b BanwatchRecorder) { o.banwatch = b }
+
+// markBotInGroup notifica al Incoming que el bot acaba de enviar un
+// msg a `remoteJid`. Si es un grupo (@g.us), resetea el groupTracker
+// para que el próximo msg del usuario vuelva a llevar header.
+// v0.44.1. No-op si EnableReplyToOutgoing no fue llamada o si no
+// estamos en grupo.
+func (o *Outgoing) markBotInGroup(instance, remoteJid string) {
+	if o.incoming == nil {
+		return
+	}
+	// Solo grupos llevan header — para 1:1 esto es no-op semánticamente
+	// pero igual el chequeo se hace dentro de MarkBotSentInGroup.
+	if !strings.HasSuffix(remoteJid, "@g.us") {
+		return
+	}
+	o.incoming.MarkBotSentInGroup(instance, remoteJid)
+}
 
 // resolveReplyContext intenta resolver el quote para un outgoing
 // que sea quote-reply en Chatwoot. Devuelve (waid, senderJID, text)
@@ -410,6 +436,7 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 			o.logger.Info("sent outgoing media to whatsapp",
 				"instance", instance, "remoteJid", remoteJid,
 				"kind", att.FileType, "mime", mimetype, "size", len(data), "waID", waID)
+			o.markBotInGroup(instance, remoteJid)
 			if firstWAID == "" {
 				firstWAID = waID
 			}
@@ -450,6 +477,7 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 	o.incUsageOut(instance)
 	o.recordBanwatch(instance, remoteJid, true)
 	o.logger.Info("sent outgoing to whatsapp", "instance", instance, "remoteJid", remoteJid, "waID", waID)
+	o.markBotInGroup(instance, remoteJid)
 
 	if p.ID > 0 && p.Conversation != nil {
 		ds := o.ds.For(ctx, instance)

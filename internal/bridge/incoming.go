@@ -1177,6 +1177,23 @@ func (i *Incoming) ReconcileSavedContacts(ctx context.Context, instance string, 
 // caso el reply-to outgoing también queda desactivado).
 func (i *Incoming) replyToTracker() *msgHistoryTracker { return i.msgHistory }
 
+// MarkBotSentInGroup registra al "bot" como último sender de un
+// grupo en el groupTracker. Llamar desde Outgoing tras un send
+// exitoso a un grupo — sin esto, el bot reply NO resetea el burst
+// (whatsmeow no emite *events.Message para envíos del mismo cliente,
+// así que el flow de Incoming.Handle nunca ve el bot como un msg
+// más del grupo). Sin este reset, el siguiente msg del usuario tras
+// el bot reply heredaba la supresión del header en lugar de mostrar
+// "X · Nombre" como nuevo burst. Bug observado en v0.30.0..v0.44.0.
+//
+// No-op si groupTracker no está activo (TTL=0).
+func (i *Incoming) MarkBotSentInGroup(instance, chatJID string) {
+	if i.groupTracker == nil {
+		return
+	}
+	i.groupTracker.RecordAndCheck(instance, chatJID, "_bot")
+}
+
 // WaitRetroactivePatches bloquea hasta que todas las goroutines en
 // vuelo de retroactive name update hayan terminado. Útil en tests
 // (deterministic assertions) y en graceful shutdown (no perder

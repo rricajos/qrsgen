@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.44.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.44.0 (reply-to outgoing — quote-replies del agente en Chatwoot se propagan como reply nativo de WhatsApp). |
+| `QRSGEN_VERSION` | `0.44.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.44.1 (fix: bot reply resetea correctamente el burst del groupTracker — el siguiente msg del usuario vuelve a llevar header). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

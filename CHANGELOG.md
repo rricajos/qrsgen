@@ -4,6 +4,27 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.2] - 2026-05-28
+
+UX tweak del prefijo de grupo: separador tab + teléfono sin code block.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora genera `**~<Name>**\t+<digits>`**
+  con un TAB (U+0009) entre el bold del nombre y el teléfono plano.
+  Quita el code block de backticks que añadía v0.30.1 y reemplaza
+  el em-space (U+2003) por tab. Razón: el `+` ya identifica visualmente
+  el teléfono sin necesitar code block, y el tab da más separación que
+  el em-space en algunos renderizadores del downstream.
+- Caso degenerate phone-only: `+<digits>:` (sin backticks, consistente
+  con el cambio de arriba).
+
+### Migration notes
+
+- Sin breaking changes. Parsers regex deben actualizar al nuevo patrón:
+  - Antes: `\*\*~[^*]+\*\*\s*`+\d+`` (con em-space + backticks)
+  - Ahora: `\*\*~[^*]+\*\*\t\+\d+` (con TAB + plain phone)
+
 ## [0.39.1] - 2026-05-28
 
 Bugfix: el handler `conversation_updated` (mark-as-read outgoing

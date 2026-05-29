@@ -1089,13 +1089,15 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 		// Contacto en agenda: solo nombre, el agente ya sabe quién es.
 		prefix = "**~" + name + "**"
 	case phoneDigits != "" && name != "":
-		// Push name + teléfono code block para identificar al desconocido.
-		// em-space (U+2003) entre name bold y phone code para respiración visual.
-		prefix = "**~" + name + "** `" + formatE164(phoneDigits) + "`"
+		// Push name + teléfono plano separado por TAB (U+0009).
+		// Versiones anteriores usaban em-space + code block; quitamos
+		// el code porque el `+` ya identifica al teléfono y el tab
+		// da más separación visual que un espacio normal.
+		prefix = "**~" + name + "**	" + formatE164(phoneDigits)
 	case name != "":
 		prefix = "**~" + name + "**:"
 	case phoneDigits != "":
-		prefix = "`" + formatE164(phoneDigits) + "`:"
+		prefix = formatE164(phoneDigits) + ":"
 	default:
 		return body
 	}

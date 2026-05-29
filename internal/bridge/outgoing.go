@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/rricajos/qrsgen/internal/downstream"
 	"github.com/rricajos/qrsgen/internal/metrics"
@@ -23,6 +24,15 @@ var ErrSpamguardBlocked = errors.New("spamguard: blocked duplicate outgoing")
 type Sender interface {
 	SendText(ctx context.Context, instance, remoteJid, content string) (string, error)
 	SendMedia(ctx context.Context, instance, remoteJid, kind, mimetype, filename, caption string, data []byte) (string, error)
+}
+
+// ReadMarker es la interfaz para marcar mensajes WhatsApp como leídos.
+// Permite que el outgoing handler dispare MarkRead cuando el downstream
+// notifica que el agente leyó la conv (evento conversation_updated).
+// Multi-instance: el primer parámetro es el nombre de la instancia.
+// Si nil en la Outgoing struct, el feature mark-as-read está desactivado.
+type ReadMarker interface {
+	MarkRead(ctx context.Context, instance, chat, sender string, messageIDs []string, ts time.Time) error
 }
 
 // BlobDownloader descarga el contenido binario de una URL del downstream (typically active_storage o blob URL).
@@ -50,9 +60,11 @@ type WebhookPayload struct {
 	SourceID     string              `json:"source_id"`
 	Attachments  []WebhookAttachment `json:"attachments"`
 	Conversation *struct {
-		ID      int `json:"id"`
-		InboxID int `json:"inbox_id"`
-		Meta    *struct {
+		ID                int   `json:"id"`
+		InboxID           int   `json:"inbox_id"`
+		AgentLastSeenAt   int64 `json:"agent_last_seen_at"` // v0.39.0 — timestamp del último read del agente
+		ContactLastSeenAt int64 `json:"contact_last_seen_at"`
+		Meta              *struct {
 			Sender *struct {
 				PhoneNumber string `json:"phone_number"`
 				Identifier  string `json:"identifier"`
@@ -85,6 +97,8 @@ type BanwatchRecorder interface {
 
 type Outgoing struct {
 	sender   Sender
+	marker   ReadMarker
+	waids    *waidTracker
 	ds       downstream.Router
 	dedup    *Deduper
 	sg       SpamguardProvider
@@ -96,6 +110,48 @@ type Outgoing struct {
 
 func NewOutgoing(sender Sender, ds downstream.Router, dedup *Deduper, sg SpamguardProvider, tracker *SpamguardTracker, logger *slog.Logger) *Outgoing {
 	return &Outgoing{sender: sender, ds: ds, dedup: dedup, sg: sg, tracker: tracker, logger: logger}
+}
+
+// EnableMarkAsRead conecta el tracker de WAIDs (compartido con Incoming) y
+// el ReadMarker. Cuando llegue un evento `conversation_updated` del downstream
+// con `agent_last_seen_at` actualizado, Outgoing drena el tracker para
+// esa conv y llama MarkRead. Sin esta llamada, el feature está desactivado
+// y los eventos conversation_updated se ignoran. Desde v0.39.0.
+func (o *Outgoing) EnableMarkAsRead(waids *waidTracker, marker ReadMarker) {
+	o.waids = waids
+	o.marker = marker
+}
+
+// handleConversationUpdated maneja el evento del downstream que indica
+// que el agente leyó la conv. Drena los WAIDs incoming registrados antes
+// de agent_last_seen_at y llama MarkRead via wameow para que el cliente
+// vea el doble check azul en esos mensajes.
+//
+// agent_last_seen_at == 0 → ignorar (no hay info de read).
+// tracker vacío para esa conv → no-op (nada que marcar).
+func (o *Outgoing) handleConversationUpdated(ctx context.Context, instance string, p WebhookPayload) {
+	if p.Conversation == nil || p.Conversation.AgentLastSeenAt == 0 {
+		return
+	}
+	if p.Conversation.Meta == nil || p.Conversation.Meta.Sender == nil {
+		return
+	}
+	chatJID := p.Conversation.Meta.Sender.Identifier
+	if chatJID == "" {
+		return
+	}
+	cutoff := time.Unix(p.Conversation.AgentLastSeenAt, 0)
+	waids, senderJID := o.waids.DrainBefore(instance, chatJID, cutoff)
+	if len(waids) == 0 {
+		return
+	}
+	if err := o.marker.MarkRead(ctx, instance, chatJID, senderJID, waids, cutoff); err != nil {
+		o.logger.Warn("mark-as-read failed",
+			"err", err, "instance", instance, "chat", chatJID, "count", len(waids))
+		return
+	}
+	o.logger.Info("mark-as-read sent to WhatsApp",
+		"instance", instance, "chat", chatJID, "count", len(waids), "cutoff", cutoff)
 }
 
 // SetUsage attaches a usage recorder for counter increments. Safe to call once
@@ -136,6 +192,13 @@ func (o *Outgoing) HandleForRaw(ctx context.Context, instance string, raw json.R
 
 // HandleFor procesa el webhook con conocimiento de la instancia destino.
 func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayload) error {
+	// Mark-as-read outgoing (v0.39.0): cuando el downstream nos avisa que
+	// el agente leyó la conv, drenamos el tracker de WAIDs y llamamos
+	// MarkRead via wameow para que el cliente vea doble check azul.
+	if p.Event == "conversation_updated" && o.waids != nil && o.marker != nil {
+		o.handleConversationUpdated(ctx, instance, p)
+		return nil
+	}
 	if p.MessageType != "outgoing" {
 		return nil
 	}

@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.38.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
+| `QRSGEN_VERSION` | `0.39.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |
@@ -32,6 +32,7 @@
 | `QRSGEN_REACTIONS_SYNC` | `true` | Si `true`, las reacciones (emojis) que los clientes WhatsApp añaden a mensajes se postean al downstream como mensaje incoming con formato `**~Name** reaccionó con 👍`. `false` las ignora silenciosamente. Desde v0.33.0. |
 | `QRSGEN_TYPING_SYNC` | `true` | Si `true`, los eventos de typing (composing/paused) que emite WhatsApp se propagan al downstream como `toggle_typing_status` — el agente ve "está escribiendo" en la UI. Throttle interno de 4s para evitar saturar. `false` ignora los eventos. Desde v0.34.0. |
 | `QRSGEN_READ_RECEIPTS_SYNC` | `true` | Si `true`, los read receipts WhatsApp (cliente abrió el chat y vio los mensajes del agente) actualizan el `contact_last_seen_at` del conv en el downstream — la UI marca los mensajes como leídos. `false` los ignora. Desde v0.34.1. |
+| `QRSGEN_MARK_AS_READ_OUTGOING` | `true` | Si `true`, qrsgen rastrea los WAIDs de mensajes incoming y los marca como leídos en WhatsApp cuando el downstream envía un webhook `conversation_updated` con un nuevo `agent_last_seen_at`. El cliente ve doble check azul. REQUIERE config explícita del downstream para enviar ese evento. Desde v0.39.0. |
 | `DEDUP_ENABLED` | `true` | |
 | `DEDUP_WINDOW_MS` | `10000` | Ventana LID-twin dedup. |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. |

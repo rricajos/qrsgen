@@ -75,6 +75,12 @@ type Incoming struct {
 	// abrió el chat y vio el msg del agente) actualizan el last_seen
 	// del downstream. Default true. Desde v0.34.1.
 	readReceiptsSync bool
+
+	// waids es el tracker de WAIDs incoming por conv. Se popula desde
+	// sync() y se drena desde el outgoing handler cuando llega un
+	// evento conversation_updated del downstream. Si nil, no se rastrea
+	// (feature mark-as-read desactivado). Desde v0.39.0.
+	waids *waidTracker
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
@@ -103,6 +109,18 @@ func (i *Incoming) SetTypingSync(v bool) { i.typingSync = v }
 // SetReadReceiptsSync activa o desactiva la propagación de read receipts
 // WhatsApp (cliente abrió el chat) al downstream. Default true.
 func (i *Incoming) SetReadReceiptsSync(v bool) { i.readReceiptsSync = v }
+
+// EnableMarkAsRead activa el tracker de WAIDs y devuelve un puntero al
+// mismo para que el outgoing handler pueda drenarlo cuando llegan los
+// eventos conversation_updated del downstream. Llamar antes de procesar
+// mensajes — si no se llama, el tracker queda nil y los WAIDs no se
+// rastrean (feature mark-as-read desactivado).
+func (i *Incoming) EnableMarkAsRead() *waidTracker {
+	if i.waids == nil {
+		i.waids = newWAIDTracker(50)
+	}
+	return i.waids
+}
 
 // SetUsage attaches a usage recorder. Pass nil to disable.
 func (i *Incoming) SetUsage(u UsageRecorder) { i.usage = u }
@@ -862,6 +880,11 @@ func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs re
 		MessageType:    msgType,
 		SourceID:       "WAID:" + waID,
 	})
+	if err == nil && !fromMe && i.waids != nil {
+		// Tracker para mark-as-read outgoing (v0.39.0). Solo incoming
+		// reales (NO los fromMe que el agente envió por la app móvil).
+		i.waids.RecordIncoming(instance, identifier, waID, rs.primaryJID, time.Now())
+	}
 	return err
 }
 

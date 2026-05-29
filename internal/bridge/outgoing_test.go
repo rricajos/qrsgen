@@ -55,9 +55,11 @@ func newTestOutgoing() (*Outgoing, *fakeSender) {
 // makeOutgoing crea un WebhookPayload outgoing válido base.
 func makeOutgoing(jid, content string) WebhookPayload {
 	conv := struct {
-		ID      int `json:"id"`
-		InboxID int `json:"inbox_id"`
-		Meta    *struct {
+		ID                int   `json:"id"`
+		InboxID           int   `json:"inbox_id"`
+		AgentLastSeenAt   int64 `json:"agent_last_seen_at"`
+		ContactLastSeenAt int64 `json:"contact_last_seen_at"`
+		Meta              *struct {
 			Sender *struct {
 				PhoneNumber string `json:"phone_number"`
 				Identifier  string `json:"identifier"`

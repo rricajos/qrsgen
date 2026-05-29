@@ -585,6 +585,45 @@ func (c *Conn) SendText(ctx context.Context, remoteJid, content string) (string,
 	return resp.ID, nil
 }
 
+// MarkRead manda un read receipt a WhatsApp por los message IDs
+// indicados. El cliente del otro lado ve doble check azul en esos msgs.
+//
+// chat es el JID del chat/grupo donde están los msgs. sender es el JID
+// del autor de los msgs (en 1-on-1 chat == sender == el contacto;
+// en grupos, sender es el JID del participante que envió cada msg).
+//
+// ts es el timestamp del read receipt — típicamente time.Now() cuando
+// el agente abrió la conv en el downstream.
+//
+// WhatsApp es idempotente: llamar MarkRead dos veces sobre el mismo
+// WAID no genera doble notificación al cliente.
+//
+// Desde v0.39.0.
+func (c *Conn) MarkRead(ctx context.Context, chat, sender string, messageIDs []string, ts time.Time) error {
+	if c.client == nil {
+		return fmt.Errorf("mark read: client nil")
+	}
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	chatJID, err := parseJID(chat)
+	if err != nil {
+		return fmt.Errorf("parse chat jid: %w", err)
+	}
+	senderJID := chatJID
+	if sender != "" && sender != chat {
+		senderJID, err = parseJID(sender)
+		if err != nil {
+			return fmt.Errorf("parse sender jid: %w", err)
+		}
+	}
+	ids := make([]types.MessageID, 0, len(messageIDs))
+	for _, id := range messageIDs {
+		ids = append(ids, types.MessageID(id))
+	}
+	return c.client.MarkRead(ctx, ids, ts, chatJID, senderJID)
+}
+
 // SendMedia sube un blob al servidor de WhatsApp y lo envía como
 // ImageMessage / AudioMessage / VideoMessage / DocumentMessage según `kind`.
 //

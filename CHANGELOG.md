@@ -4,6 +4,77 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-05-28
+
+Mark-as-read outgoing: cuando el agente abre la conv en el downstream
+y marca los mensajes como leídos, qrsgen propaga el read receipt a
+WhatsApp para que el cliente vea el doble check azul. Requiere config
+explícita del downstream para enviar el evento `conversation_updated`
+al webhook de qrsgen.
+
+### Added
+
+- **`wameow.Conn.MarkRead(ctx, chat, sender, messageIDs, ts)`** —
+  wrapper sobre `client.MarkRead()` de whatsmeow. Idempotente:
+  llamar dos veces sobre los mismos WAIDs no genera doble notificación
+  al cliente.
+- **`internal/bridge/waid_tracker.go`** — tracker in-memory per-conv
+  de WAIDs incoming. Cap default 50 entries/conv (FIFO al desbordar).
+  Métodos: `RecordIncoming`, `DrainBefore`. 4 tests cubriendo: record
+  + drain con cutoff, cap enforcement, aislamiento per-conv, drain
+  de conv vacía.
+- **`bridge.ReadMarker`** interfaz pequeña con un solo método MarkRead.
+  Permite que Outgoing no dependa directamente de wameow.
+- **`bridge.Outgoing.EnableMarkAsRead(waids, marker)`** — wire de
+  ambos componentes. Si no se llama, el feature está desactivado y
+  los eventos conversation_updated se ignoran.
+- **`bridge.Incoming.EnableMarkAsRead()` returns *waidTracker** —
+  crea el tracker compartido + lo conecta al sync path (RecordIncoming
+  tras cada PostMessage exitoso).
+- **`WebhookPayload.Conversation.AgentLastSeenAt`** y
+  `ContactLastSeenAt` — nuevos campos del payload que el downstream
+  manda con conversation_updated. Necesarios para saber hasta qué
+  timestamp el agente leyó.
+- **`senderAdapter.MarkRead`** — implementa la interfaz desde el
+  Manager, delegando en la Conn correcta.
+- **`QRSGEN_MARK_AS_READ_OUTGOING`** (default `true`) — env var nueva.
+
+### How it works
+
+1. Cliente envía mensaje a WhatsApp → llega a qrsgen
+2. qrsgen lo postea al downstream y registra el WAID en el tracker
+   per-conv (con timestamp)
+3. Agente abre la conv en Chatwoot y marca como leído (visualmente
+   el agent_last_seen_at se actualiza)
+4. Chatwoot dispara webhook `conversation_updated` con el nuevo
+   agent_last_seen_at hacia qrsgen
+5. qrsgen drena los WAIDs registrados con ts ≤ agent_last_seen_at
+   y llama `MarkRead` via whatsmeow
+6. Cliente WhatsApp ve doble check azul en los mensajes leídos
+
+### Configuration
+
+Para que el feature funcione, en Chatwoot:
+- Configurar webhook al `POST /api/instances/{name}/webhook` de qrsgen
+- Activar el evento `conversation_updated` además de `message_created`
+
+Sin esa config el feature no hace nada (no hay event para reaccionar).
+
+### Caveats
+
+- **In-memory tracker**: restart de qrsgen pierde el historial. Worst
+  case: msgs leídos durante el downtime no se marcan en WA. Cosmético.
+- **Cap de 50 WAIDs/conv**: convs muy activas pueden perder los más
+  viejos, pero MarkRead solo importa para los recientes.
+- **No bidirectional**: este feature es DS→WA. El WA→DS (cliente lee
+  → contact_last_seen_at en downstream) ya estaba desde v0.34.1.
+
+### Migration notes
+
+- Sin breaking changes. Si el downstream no manda
+  `conversation_updated`, el comportamiento es idéntico a v0.38.x
+  (read receipts solo incoming).
+
 ## [0.38.0] - 2026-05-28
 
 Media polish: mejor compat de voice notes y stickers en

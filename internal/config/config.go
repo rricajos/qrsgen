@@ -108,6 +108,15 @@ type Config struct {
 	// downstream renderiza "leído" en los msgs correspondientes.
 	// Default true. Desde v0.34.1.
 	ReadReceiptsSync bool `env:"QRSGEN_READ_RECEIPTS_SYNC" envDefault:"true"`
+
+	// MarkAsReadOutgoing: si true, qrsgen rastrea los WAIDs de mensajes
+	// incoming y los marca como leídos en WhatsApp cuando el downstream
+	// notifica via webhook `conversation_updated` con un nuevo
+	// `agent_last_seen_at`. El cliente WA ve el doble check azul.
+	// REQUIERE que el downstream esté configurado para enviar el evento
+	// conversation_updated al webhook de qrsgen — sin esa config el
+	// feature no hace nada. Default true. Desde v0.39.0.
+	MarkAsReadOutgoing bool `env:"QRSGEN_MARK_AS_READ_OUTGOING" envDefault:"true"`
 }
 
 func Load() (Config, error) {

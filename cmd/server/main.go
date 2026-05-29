@@ -206,6 +206,13 @@ func main() {
 	}()
 	outgoing := bridge.NewOutgoing(senderAdapter{mgr: mgr}, dsRegistry, dedup, spamguardAdapter{mgr: mgr}, sgTracker, logger)
 	outgoing.SetUsage(usageTracker)
+	// v0.39.0: mark-as-read outgoing. Activamos el tracker compartido
+	// entre Incoming (registra WAIDs) y Outgoing (los drena cuando
+	// llega el evento conversation_updated del downstream).
+	if cfg.MarkAsReadOutgoing {
+		waids := incoming.EnableMarkAsRead()
+		outgoing.EnableMarkAsRead(waids, senderAdapter{mgr: mgr})
+	}
 	incoming.SetUsage(usageTracker)
 	mgr.SetUsage(usageTracker)
 	mgr.SetAudit(auditLog)
@@ -1046,6 +1053,16 @@ func (s senderAdapter) SendMedia(ctx context.Context, instance, remoteJid, kind,
 		return "", fmt.Errorf("instance %q not found", instance)
 	}
 	return conn.SendMedia(ctx, remoteJid, kind, mimetype, filename, caption, data)
+}
+
+// MarkRead implementa bridge.ReadMarker para que el outgoing pueda
+// disparar el read receipt de WhatsApp tras recibir conversation_updated.
+func (s senderAdapter) MarkRead(ctx context.Context, instance, chat, sender string, messageIDs []string, ts time.Time) error {
+	conn, ok := s.mgr.Get(instance)
+	if !ok {
+		return fmt.Errorf("instance %q not found", instance)
+	}
+	return conn.MarkRead(ctx, chat, sender, messageIDs, ts)
 }
 
 // spamguardAdapter expone al bridge la config + emisión de eventos del Manager.

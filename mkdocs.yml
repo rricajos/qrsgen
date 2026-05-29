@@ -125,6 +125,7 @@ nav:
       - Prefijo de grupo: integrations/group-sender-format.md
       - Reacciones sync: integrations/reactions-sync.md
       - Typing y read receipts: integrations/presence-and-receipts.md
+      - Contenido de mensajes: integrations/message-content.md
   - Migrations:
       - migrations/index.md
       - Desde Evolution API: migrations/from-evolution-api.md

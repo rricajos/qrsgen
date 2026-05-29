@@ -130,6 +130,38 @@ agregado ("alguien está escribiendo..."); privacy settings del sender
 pueden ocultar receipts (cobertura parcial). Detalles en
 [Typing indicators y read receipts](../integrations/presence-and-receipts.md).
 
+## Soporte de contenido de mensajes (location, polls, media polish)
+
+Desde **v0.36.0**, **v0.37.0** y **v0.38.0**, qrsgen extiende
+`extractTextContent` / `extractMedia` para serializar tipos de payload
+WhatsApp que antes caían en el path "sin contenido" y se descartaban.
+
+- **Location messages (v0.36.0)** — cuando el cliente comparte una
+  ubicación, qrsgen renderiza un body multilínea con header
+  `📍 Ubicación compartida` (o `Ubicación en vivo` si `IsLive`), nombre
+  del POI en bold si WA lo provee, dirección, link a Google Maps con
+  `%.6f` de precisión y comentario del sender en italic. Coordenadas
+  `0,0` se descartan como inválidas. Live locations llegan como
+  múltiples snapshots independientes — qrsgen no agrega.
+- **Polls (v0.37.0)** — `PollCreationMessage` (v1) y
+  `PollCreationMessageV3` se renderizan como `🗳️ **Encuesta:** <pregunta>`
+  + lista numerada de opciones + hint `_(elige 1 opción)_` /
+  `_(elige hasta N opciones)_` según `SelectableOptionsCount`. Sin
+  hint para `max=0` (unlimited). Los votos posteriores
+  (`PollUpdateMessage`) NO se propagan: Chatwoot no tiene widget
+  nativo de polls que pueda reflejarlos correctamente.
+- **Media polish (v0.38.0)** — sin transcodificar contenido, mejora la
+  compatibilidad con reproductores HTML5: voice notes (PTT=true) usan
+  filename `voice-note.ogg` en lugar de `audio.opus`, el mime se sanea
+  con `sanitizeMime` (`audio/ogg; codecs=opus` → `audio/ogg`), y los
+  stickers con mime vacío reciben default `image/webp`. **No** incluye
+  conversión WebP→PNG ni Opus→AAC (requiere ffmpeg en container, fuera
+  de scope).
+
+Las tres comparten propiedad: **no hay env var nueva**. Aplican siempre
+que el payload llegue por el WebSocket. Detalles completos en
+[Soporte de contenido de mensajes](../integrations/message-content.md).
+
 ## Observabilidad de features real-time
 
 Desde **v0.35.0**, las cuatro features real-time (avatar sync,
@@ -278,3 +310,32 @@ reproducido). qrsgen filtra por `Type` y solo propaga `read` y
 deduplica los POSTs `toggle_typing_status` al downstream. Cambios de
 estado siempre emiten; mismo estado dentro de `minInterval` (default
 4s) NO emite.
+
+**`LocationMessage`**: payload de WhatsApp cuando el cliente comparte
+una ubicación. Trae `DegreesLatitude`/`DegreesLongitude` y
+opcionalmente `Name` (POI), `Address`, `Comment`, `IsLive`. Desde
+v0.36.0 qrsgen lo serializa con `formatLocationContent` a un body
+multilínea con link a Google Maps.
+
+**Live location**: ubicación compartida de forma continua durante un
+periodo (15min/1h/8h). WhatsApp envía múltiples `LocationMessage` con
+`IsLive=true` y coords actualizadas. qrsgen NO agrega: cada snapshot
+llega como mensaje incoming independiente al downstream.
+
+**`PollCreationMessage` / `PollCreationMessageV3`**: dos shapes del
+payload de encuesta (v1 legacy, v3 moderno). Mismos campos relevantes:
+`Name` (pregunta), `Options[]`, `SelectableOptionsCount`. Desde v0.37.0
+qrsgen renderiza ambos con `formatPollContent` como lista numerada.
+
+**`PollUpdateMessage`**: payload de voto en una encuesta. NO se propaga
+al downstream: Chatwoot no tiene UI de polls nativa que pueda reflejar
+los votos aggregados sin contaminar el thread.
+
+**`sanitizeMime`**: helper (v0.38.0) que quita el parámetro de codec
+del `Content-Type` (`audio/ogg; codecs=opus` → `audio/ogg`). Maximiza
+compatibilidad con reproductores HTML5.
+
+**Voice note (PTT)**: grabación de audio del botón micrófono de WA
+(push-to-talk). Detectado vía `am.GetPTT()`. Desde v0.38.0 se sube con
+filename `voice-note.ogg` para que los browsers disparen el decoder
+Opus automáticamente.

@@ -31,6 +31,19 @@ bridge/incoming.go:
         │                                          ▼
         │                                        (fin)
         │ si fromMe=true: dedup.ShouldDrop() para evitar twin
+        │ body = extractTextContent(msg)
+        │        ├─ Conversation / ExtendedTextMessage ──► texto plano
+        │        ├─ LocationMessage    ──► formatLocationContent (v0.36.0)
+        │        │                        "📍 Ubicación compartida\n**<POI>**\n
+        │        │                         <dir>\nhttps://maps.google.com/?q=<lat>,<lng>"
+        │        ├─ PollCreationMessage(V3) ──► formatPollContent (v0.37.0)
+        │        │                              "🗳️ **Encuesta:** <q>\n1. ...\n
+        │        │                               _(elige N opción/es)_"
+        │        └─ (nada) ──► ""  → mensaje descartado si tampoco hay media
+        │ media = extractMedia(msg)
+        │        ├─ AudioMessage + PTT ──► filename="voice-note.ogg" (v0.38.0)
+        │        ├─ AudioMessage       ──► sanitizeMime + default audio/ogg
+        │        └─ StickerMessage     ──► default image/webp si mime vacío
         │ si grupo: applyGroupSenderPrefix(body, msg, resolver)
         │           ├─ IsContactSaved(sender)? ──► sí: prefix = "**~<name>**"
         │           └─                             no: prefix = "**~<name>** `+<E164>`"
@@ -149,6 +162,38 @@ Casos de descarte: `IsFromMe=true` (reacción propia desde otro
 device), contacto no existe en downstream (no se crea por una
 reacción suelta), `QRSGEN_REACTIONS_SYNC=false`. Detalles en
 [Sincronización de reacciones](../integrations/reactions-sync.md).
+
+## Content extraction (location, polls, media polish)
+
+Desde v0.36.0 / v0.37.0 / v0.38.0, `extractTextContent` y
+`extractMedia` en `internal/bridge/incoming.go` cubren tipos de payload
+que antes caían en el path "sin contenido" y se descartaban
+silenciosamente:
+
+- **`LocationMessage`** (v0.36.0): `formatLocationContent(loc)` produce
+  un body multilínea con header `📍 Ubicación compartida` (o
+  `Ubicación en vivo` si `IsLive=true`), nombre del POI en bold,
+  dirección, link `https://maps.google.com/?q=<lat>,<lng>` con `%.6f`
+  de precisión, y comentario del sender en italic. Coords `0,0`
+  descartan (devuelve `""`). Live locations: cada snapshot llega como
+  mensaje independiente; no hay agregación.
+- **`PollCreationMessage` / `PollCreationMessageV3`** (v0.37.0):
+  `formatPollContent(poll)` produce `🗳️ **Encuesta:** <pregunta>`,
+  opciones numeradas 1-based, y hint `_(elige 1 opción)_` /
+  `_(elige hasta N opciones)_` según `SelectableOptionsCount` (sin hint
+  para `max=0`). `PollUpdateMessage` (votos) **no** se procesa —
+  Chatwoot no tiene UI de polls que pueda reflejarlos.
+- **Media polish** (v0.38.0): voice notes (PTT=true) usan filename
+  `voice-note.ogg` en lugar de `audio.opus`; `sanitizeMime` quita el
+  parámetro de codec del `Content-Type` (`audio/ogg; codecs=opus` →
+  `audio/ogg`); stickers con mime vacío reciben default `image/webp`.
+  **Sin transcodificación** — los bytes son los mismos que llegan por
+  WA. Solo cambia el `Content-Type` y filename anunciados al
+  downstream para maximizar compatibilidad con reproductores HTML5.
+
+Las tres versiones no introducen env vars nuevas — aplican siempre que
+el payload llegue por el WebSocket. Detalles en
+[Soporte de contenido de mensajes](../integrations/message-content.md).
 
 ## Typing (handleChatPresence)
 

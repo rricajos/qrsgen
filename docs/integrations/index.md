@@ -32,6 +32,13 @@ para los integradores más comunes.
   read receipts (`read`/`read-self` → `contact_last_seen_at` y doble
   tick azul). Throttle in-memory de 4s para typing; filtro de tipos de
   receipt accionables. Read-only sobre WhatsApp.
+- **[Soporte de contenido de mensajes](message-content.md)** — v0.36.0,
+  v0.37.0 y v0.38.0. Location messages se renderizan como header +
+  POI + dirección + link Google Maps + comentario; polls
+  (`PollCreationMessage` v1 y v3) como pregunta + lista numerada +
+  hint de modo; media polish para mejor compat HTML5 en voice notes
+  (`voice-note.ogg`) y stickers (default `image/webp`) sin
+  transcodificar contenido.
 
 ## Patrones comunes a todas las integraciones
 

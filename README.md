@@ -65,6 +65,24 @@ Tu sistema (n8n, app custom, CRM, etc.)
   container.
 - **Lifecycle observable**: 12 eventos distintos, incluyendo
   `ban_risk`, `outgoing_expired`, `spam_blocked`.
+- **Group prefix + retroactive rename** (v0.40.0+, persistido en
+  Postgres v0.41.0): mensajes de grupo llevan
+  `` `+phone · ~name` `` como header (tilde solo si el contacto no
+  está en la agenda). Cuando añades un contacto a tu agenda
+  WhatsApp, qrsgen **reescribe retroactivamente** los headers de
+  mensajes históricos en Chatwoot Y renombra el contact (v0.43.0).
+  Endpoint admin `POST /api/instances/:name/retroactive/reconcile`
+  para backfillear toda la agenda de golpe.
+- **Quote/reply context bidireccional** (v0.42.0+v0.44.0): cuando
+  un usuario WhatsApp responde a un mensaje, qrsgen renderiza el
+  citado como blockquote sobre el body en Chatwoot
+  (`` `↪ +phone · name` `` + texto). Al revés: cuando el agente
+  hace quote-reply en el composer de Chatwoot, qrsgen propaga la
+  respuesta como reply nativo de WhatsApp con `ContextInfo`.
+- **Avatar sync bidireccional, reactions, typing indicators, read
+  receipts, mark-as-read** (v0.31.0..v0.39.0): el estado en
+  WhatsApp se refleja en Chatwoot y viceversa donde tiene sentido
+  (doble check azul, "está escribiendo", reactions inline).
 
 ## Integración
 

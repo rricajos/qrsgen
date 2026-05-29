@@ -26,8 +26,13 @@ Tu webhook endpoint
   BanWatcher, audit log, usage tracking, HMAC, hardening, avatar sync,
   formato adaptativo del prefijo de grupo, sincronización de reacciones,
   typing indicators, read receipts y mark-as-read bidireccional,
-  observabilidad de features real-time, soporte para location, polls y
-  media polish.
+  observabilidad de features real-time, soporte para location, polls,
+  media polish, **retroactive name update con persistencia Postgres
+  (v0.40-v0.43)** — reescritura de headers + rename del contact en
+  Chatwoot cuando añades un contacto a la agenda WhatsApp, y
+  **quote/reply context bidireccional (v0.42 + v0.44)** — citas
+  WhatsApp como blockquote sobre los mensajes en Chatwoot, y reply
+  nativo cuando el agente quote-replea desde Chatwoot.
 - **[Por dónde empezar](home/getting-started.md)** — caminos para
   integrar, entender, desplegar u operar.
 - **[Estado del proyecto](home/status.md)** — telemetría en vivo

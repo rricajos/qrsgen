@@ -213,6 +213,103 @@ Las tres comparten propiedad: **no hay env var nueva**. Aplican siempre
 que el payload llegue por el WebSocket. Detalles completos en
 [Soporte de contenido de mensajes](../integrations/message-content.md).
 
+## Retroactive name update (v0.40-v0.43)
+
+Cuando recibes un mensaje de un contacto que **no está guardado** en
+la agenda de WhatsApp del bot owner, qrsgen renderiza el header con
+tilde (`~Richard`) y nombre PushName. Si más tarde añades ese
+contacto a tu agenda (típicamente desde el móvil), qrsgen detecta el
+cambio vía `*events.Contact` y **reescribe retroactivamente**:
+
+1. **Headers de mensajes históricos** (v0.40.0) — PATCH del `content`
+   de cada msg posteado al downstream con el nombre canónico y sin
+   tilde. Estado tracked en `bridge_msg_history` (v0.41.0 persistencia
+   Postgres) — sobrevive a restarts.
+2. **Nombre del contact en Chatwoot** (v0.43.0) — PUT
+   `/contacts/{id}` con el name canónico. Aplica también en 1:1
+   chats donde no hay prefix de grupo pero el contact name sí se ve
+   en sidebar.
+3. **Bulk reconcile endpoint** (v0.43.0):
+   `POST /api/instances/:name/retroactive/reconcile` itera el
+   contact store local de whatsmeow y dispara updates por cada
+   saved. Útil para bootstrap inicial al adoptar la feature por
+   primera vez. Devuelve `{instance, scanned, triggered}`.
+
+Control:
+- `QRSGEN_RETROACTIVE_NAME_UPDATE` (default `true`)
+- `QRSGEN_RETROACTIVE_PERSIST` (default `true`) — sin esto, in-memory
+  only y se pierde en restart.
+- `QRSGEN_RETROACTIVE_TTL` (default `720h`) — retención en DB; cron
+  cleanup cada 6h.
+- `QRSGEN_RETROACTIVE_CAP_PER_SENDER` (default `200`) — cap FIFO de
+  mensajes recordados por sender.
+
+Métricas:
+`qrsgen_realtime_events_total{feature="retroactive_name", result=...}`
+con results: `ok`, `ds_error`, `skip_disabled`, `skip_fullsync`,
+`skip_empty_name`, `skip_no_entries`.
+
+## Quote/reply context bidireccional (v0.42 + v0.44)
+
+WhatsApp permite responder a un mensaje específico (long-press →
+Reply). qrsgen propaga ese contexto en ambos sentidos:
+
+### Incoming: quote como blockquote en Chatwoot
+
+Desde **v0.42.0**, cuando un usuario WhatsApp envía un reply, qrsgen
+extrae el `ContextInfo.QuotedMessage` y lo renderiza como blockquote
+markdown sobre el body. Desde **v0.44.4** el formato se alinea con
+el group prefix:
+
+```
+`+34604021705 · Ricajos`
+> `↪ +34600000099 · ~Pepito`
+> hola, qué tal?
+todo bien gracias
+```
+
+- `↪` (U+21AA) sustituye al emoji ↩️ — glyph plano sin variation
+  selector, sale uniforme en cualquier renderer.
+- Author resuelto vía `WAResolver` con la misma cadena que el group
+  prefix (saved/unsaved con `~`, fix v0.39.9 LID→PN canónico).
+- Texto citado truncado a 200 runas con `…` para no inflar la conv.
+- Soporta todos los tipos media con placeholders emoji
+  (🖼️/🎥/🎤/📄/🟩/📍).
+- En 1:1 (sin Participant) el header se omite — el author es
+  trivialmente el otro extremo del chat.
+
+### Outgoing: reply nativo en WhatsApp
+
+Desde **v0.44.0**, cuando el agente hace quote-reply en el composer
+de Chatwoot (long-tap → Reply en un msg incoming, o el botón quote),
+Chatwoot envía el webhook outgoing con
+`content_attributes.in_reply_to=<chatwoot_msg_id>`. qrsgen:
+
+1. Resuelve `chatwoot_msg_id → WAID` vía el `msg_history` tracker
+   (que registra TODOS los incoming desde v0.44.0, no solo los con
+   prefix de grupo).
+2. Envía el mensaje vía whatsmeow con `ContextInfo` poblado
+   (`StanzaId`, `Participant`, `QuotedMessage`).
+3. El cliente WA receptor ve el quoted preview tappable que enlaza
+   al mensaje original.
+
+Si el WAID no se encuentra (msg pre-feature, evicted del cap, o pre
+v0.44.0 sin columna `waid` poblada), degrada silencioso a SendText
+plano — no es un error.
+
+### Burst tracker fix (v0.44.1)
+
+Antes de v0.44.1 el `groupTracker` (supresor de headers en bursts
+del mismo sender) no se actualizaba cuando el bot enviaba — whatsmeow
+no emite `*events.Message` para envíos del propio cliente, así que el
+flow de `Incoming.Handle` nunca veía los msgs del bot. Resultado: tras
+una respuesta del agente en un grupo, el siguiente msg del usuario
+seguía dentro del burst original sin emitir header.
+
+Fix: `Outgoing.markBotInGroup` llama `Incoming.MarkBotSentInGroup`
+tras un send exitoso a un `@g.us`. El groupTracker registra `_bot`
+como último sender, rompiendo el burst.
+
 ## Observabilidad de features real-time
 
 Desde **v0.35.0**, las cuatro features real-time (avatar sync,

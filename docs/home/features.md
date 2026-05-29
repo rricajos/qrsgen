@@ -54,20 +54,27 @@ Detalles completos en [Avatar sync](../integrations/avatar-sync.md).
 
 ## Formato del prefijo de grupo
 
-Desde **v0.39.4**, el prefijo que qrsgen antepone al body de mensajes
-de grupo tiene un único formato para todos los senders: la línea de
-header (nombre bold + tab(s) + teléfono) va envuelta en un **inline
-code block** con backticks, y el teléfono se incluye **siempre**, esté
-o no guardado el contacto.
+Desde **v0.39.5**, el prefijo que qrsgen antepone al body de mensajes
+de grupo va envuelto en un **inline code block** con backticks (la
+línea de header: nombre bold + tab(s) + teléfono) y el teléfono se
+incluye **siempre**. El único bit que cambia según el contact store
+es el **tilde `~`** delante del nombre: aparece solo para senders **no
+guardados** en la libreta del bot owner. Replica la convención de la
+propia UI de WhatsApp.
 
-- **Nombre corto** (≤12 runes, 2 tabs):
+- **Saved, nombre corto** (≤12 runes, 2 tabs, sin tilde):
   ```
-  `**~Richard**\t\t+34604021705`
+  `**Jean Paul**\t\t+34604021705`
   hola buenas
   ```
-- **Nombre largo** (>12 runes, 1 tab):
+- **No saved, nombre corto** (≤12 runes, 2 tabs, con tilde):
   ```
-  `**~Ivan Madrid Sánchez**\t+34633185248`
+  `**~Marcelo Lopez**\t+34663504782`
+  hola buenas
+  ```
+- **Saved, nombre largo** (>12 runes, 1 tab, sin tilde):
+  ```
+  `**Ivan Madrid Sánchez**\t+34633185248`
   buenas
   ```
 
@@ -75,14 +82,17 @@ Chatwoot renderiza el header como monoespaciado con fondo sutil; los
 `**` aparecen literales porque inline code suprime el formato interno,
 pero el tratamiento visual del code block aporta la jerarquía. El
 número de tabs sigue dependiendo de `utf8.RuneCountInString(name)`
-(cutoff 12 runes, regla introducida en v0.39.3) para alinear los
-teléfonos cuando varios senders se intercalan.
+(cutoff 12 runes, regla introducida en v0.39.3) y se calcula **sobre
+el nombre sin el `~`**, así que añadirlo o quitarlo no desalinea los
+teléfonos.
 
-**Cambio respecto a v0.39.3**: hasta v0.39.3, `IsContactSaved`
-determinaba si se omitía el teléfono para contactos guardados; v0.39.4
-revierte esa rama — el número se muestra siempre. `IsContactSaved`
-sigue en la interfaz `WAResolver` pero `applyGroupSenderPrefix` ya no
-lo consulta. Sin env vars. Detalles e histórico en
+**Cambio respecto a v0.39.4**: en v0.39.4 el `~` se ponía siempre,
+sin mirar el contact store. v0.39.5 reintroduce la llamada a
+`IsContactSaved` en `applyGroupSenderPrefix` **solo** para decidir si
+prepende el tilde — el teléfono se sigue mostrando siempre. Saved
+significa `FullName` o `FirstName` en el contact store; PushName solo
+no cuenta como saved (lo pone el sender, no el bot owner). Sin env
+vars. Detalles e histórico en
 [Formato del prefijo de grupo](../integrations/group-sender-format.md).
 
 ## Sincronización de reacciones WhatsApp
@@ -96,10 +106,12 @@ un nuevo mensaje incoming. Antes de esta versión los eventos
   ```
   **~Jean Paul** reaccionó con 👍
   ```
-- **Reacción en grupo** (formato v0.39.4: header en code block con
-  tab(s) + teléfono siempre presente):
+- **Reacción en grupo** (formato v0.39.5: header en code block con
+  tab(s) + teléfono siempre presente; `~` solo si el sender no está
+  guardado):
   ```
-  `**~Richard**\t\t+34604021705` reaccionó con ❤️
+  `**Jean Paul**\t\t+34604021705` reaccionó con ❤️       (saved)
+  `**~Marcelo Lopez**\t+34663504782` reaccionó con ❤️    (no saved)
   ```
 - **Reacción retirada**:
   ```
@@ -288,18 +300,29 @@ de tabs es variable: 2 si el nombre tiene ≤ 12 runes, 1 si > 12.
 Desde **v0.39.4** toda la línea de header va envuelta en un **inline
 code block** (backticks) y el teléfono se incluye **siempre**, esté o
 no guardado el contacto (revierte el branching saved/omit-phone que
-existió entre v0.32.0 y v0.39.3).
+existió entre v0.32.0 y v0.39.3). Desde **v0.39.5** el tilde `~`
+delante del nombre aparece **solo si el contacto no está guardado**
+en la libreta del bot owner — replica la convención de la UI de
+WhatsApp.
 
 **Contacto saved (libreta)**: JID que el dueño del número conectado
 tiene en su libreta del móvil, con `FullName` o `FirstName` propagado
-hasta el contact store de whatsmeow. Sigue afectando a qué string se
-muestra como nombre (FullName/FirstName sobre PushName), pero desde
-v0.39.4 **ya no condiciona** si el teléfono aparece en el prefijo de
-grupo — siempre aparece.
+hasta el contact store de whatsmeow. Afecta a qué string se muestra
+como nombre (FullName/FirstName sobre PushName) y, desde v0.39.5,
+también a si el nombre lleva tilde `~` delante (sin tilde si saved,
+con tilde si no saved). No afecta a la presencia del teléfono — desde
+v0.39.4 va siempre.
 
 **PushName**: nombre que el propio sender configura en su WhatsApp.
 qrsgen lo usa como fallback de display pero NO lo cuenta como
 "guardado" — viene del sender, no de la decisión del bot owner.
+Senders con solo PushName aparecen con `~` delante desde v0.39.5.
+
+**Tilde `~` del prefijo de grupo (v0.39.5)**: marca visual antes del
+nombre que indica "este contacto no está en la libreta del bot
+owner". Se prepende cuando `IsContactSaved(jid) == false` (solo
+PushName disponible). Para contactos saved (FullName/FirstName) el
+nombre va plano. Sigue la convención de la propia UI de WhatsApp.
 
 **Reacción (WhatsApp)**: emoji que un usuario añade a un mensaje
 existente mediante long-press → tap en el emoji. WhatsApp lo entrega

@@ -1,10 +1,13 @@
 # Formato del prefijo de grupo
 
-A partir de **v0.39.4**, el prefijo que qrsgen antepone al body de los
-mensajes de grupo tiene un único formato: la línea completa de header
-(nombre bold + tab(s) + teléfono) va envuelta en **inline code block**
-con backticks. El teléfono se incluye **siempre**, sin importar si el
-remitente está guardado en la libreta del número conectado.
+A partir de **v0.39.5**, el prefijo que qrsgen antepone al body de los
+mensajes de grupo siempre va envuelto en un **inline code block**
+(backticks) con la línea de header (nombre bold + tab(s) + teléfono),
+y el teléfono se incluye **siempre**. El único punto en el que el
+formato cambia según el estado del contact store es el **tilde `~`
+delante del nombre**: aparece solo cuando el remitente **no está
+guardado** en la libreta del número conectado. Esto replica la
+convención de la propia UI de WhatsApp.
 
 > **Read-only sobre WhatsApp**: qrsgen solo lee
 > `client.Store.Contacts.GetContact`. No edita la libreta del móvil ni
@@ -16,11 +19,22 @@ remitente está guardado en la libreta del número conectado.
 
 | Caso | Formato del prefijo | Versión |
 |---|---|---|
-| Nombre corto (≤12 runes) | `` `**~Richard**\t\t+34604021705` `` | v0.39.4 |
-| Nombre largo (>12 runes) | `` `**~Ivan Madrid Sánchez**\t+34633185248` `` | v0.39.4 |
+| Saved, nombre corto (≤12 runes) | `` `**Jean Paul**\t\t+34604021705` `` | v0.39.5 |
+| Saved, nombre largo (>12 runes) | `` `**Ivan Madrid Sánchez**\t+34633185248` `` | v0.39.5 |
+| No saved, nombre corto | `` `**~Marcelo Lopez**\t+34663504782` `` | v0.39.5 |
+| No saved, nombre largo | `` `**~Anon Pseudonym User**\t+34611111111` `` | v0.39.5 |
 | Sin nombre, solo teléfono | `+34604021705:` | v0.39.2 |
 | Sin nombre y sin teléfono | (body sin tocar) | v0.31.x y posteriores |
 
+> **Tilde `~` solo para no saved (v0.39.5)**: el carácter `~` antes del
+> nombre indica que el remitente **no está en la libreta del bot owner**
+> y por tanto el nombre mostrado viene del `PushName` (auto-asignado
+> por el propio sender). Para contactos saved (FullName o FirstName en
+> el contact store) el nombre va plano, sin tilde. Replica la
+> convención de la app WA: en tu chat de grupo, los nombres con `~`
+> son los que tu libreta no conoce. Entre v0.39.4 y antes el `~` se
+> ponía siempre, lo que perdía esa señal.
+>
 > **Code block wrap (v0.39.4)**: toda la línea de header va dentro de
 > un par de backticks. Los `**` dejan de procesarse como bold markdown
 > (inline code suprime el formato interno) y aparecen como caracteres
@@ -40,10 +54,16 @@ remitente está guardado en la libreta del número conectado.
 >
 > Así los teléfonos quedan alineados visualmente cuando senders con
 > nombres de distinto largo se mezclan en el mismo grupo.
+>
+> **Nota sobre runes y el tilde**: el cálculo del número de tabs se
+> hace sobre el nombre **sin** el `~`. El tilde se prepende después de
+> decidir la cantidad de tabs, así que añadirlo o quitarlo no
+> desalinea los teléfonos.
 
 El comportamiento es **automático**: no hay env var nuevo. Desde
-v0.39.4 el formato no depende del estado del contact store: el header
-se construye igual para todos los senders.
+v0.39.5 el único bit que depende del contact store es la presencia
+del `~`; la presencia del teléfono **no** depende del estado saved
+(siempre va, hereda v0.39.4).
 
 ## Histórico de versiones
 
@@ -97,8 +117,11 @@ Dos cambios sobre v0.39.3:
    monoespaciada con fondo sutil; los `**` aparecen literales pero el
    tratamiento visual del code block aporta la jerarquía.
 2. **Teléfono siempre presente**. `applyGroupSenderPrefix` deja de
-   consultar `IsContactSaved` para decidir el formato del prefijo.
-   Saved y unsaved comparten ahora el mismo header.
+   consultar `IsContactSaved` para decidir si omite el teléfono.
+   Saved y unsaved comparten el teléfono en el header.
+
+En esta versión el tilde `~` se prepende **siempre** al nombre, sin
+mirar el estado del contact store (en v0.39.5 esa parte se revisa).
 
 ```
 `**~Richard**\t\t+34604021705`
@@ -130,13 +153,78 @@ Tabla de runes y tabs (sin cambios respecto a v0.39.3):
 `utf8.RuneCountInString` cuenta runes (no bytes), así que los acentos
 suman una sola unidad ("Sánchez" = 7 runes, no 8).
 
-## `IsContactSaved`: sigue existiendo en el resolver
+### v0.39.5 — tilde `~` solo para no saved
 
-El método `IsContactSaved(jid)` permanece en la interfaz `WAResolver`
-y sigue consultando `client.Store.Contacts.GetContact` de whatsmeow.
-Lo que cambió en v0.39.4 es que **`applyGroupSenderPrefix` ya no lo
-llama** para decidir el formato del prefijo de grupo. Otros callers
-(si los hay en el futuro) pueden seguir usándolo.
+Único cambio sobre v0.39.4: `applyGroupSenderPrefix` reintroduce la
+llamada a `saved := r.IsContactSaved(...)` que se había retirado en
+v0.39.4, pero la usa **solo para decidir si prepende el `~`** al
+nombre — no para decidir si incluye el teléfono.
+
+- **Saved** (`IsContactSaved(jid) == true`, es decir hay `FullName` o
+  `FirstName` en el contact store): el nombre va plano, sin `~`.
+- **No saved** (solo `PushName`, o resolver no encuentra el contacto):
+  el nombre se prefija con `~`.
+
+Esto replica la convención de la propia UI de WhatsApp: en un grupo,
+el cliente WA muestra `~` delante de los miembros que tu libreta del
+móvil no conoce y deja sin tilde a los que sí. El bit lleva la misma
+semántica al downstream (Chatwoot) para que el agente sepa, de un
+vistazo, si el nombre que ve viene de la libreta del bot owner o lo
+puso el propio sender.
+
+El teléfono **sigue presente siempre** (hereda v0.39.4). Las tabs y
+el code block wrap no cambian.
+
+```
+`**Jean Paul**\t\t+34604021705`     ← saved (FullName en libreta)
+hola buenas
+
+`**~Marcelo Lopez**\t+34663504782`  ← no saved (solo PushName)
+hola buenas
+
+`**~Anon**\t\t+34611111111`         ← no saved
+hola buenas
+
+`**Ivan Madrid Sánchez**\t+34633185248`  ← saved
+buenas
+```
+
+**Implementación**:
+
+- `applyGroupSenderPrefix` reintroduce el branch `saved :=
+  r.IsContactSaved(jid)`. Si `saved`, se omite el tilde; si no,
+  `name = "~" + name`.
+- **LID → PN fallback**: si el sender llega como LID y `IsContactSaved`
+  devuelve `false` (o no hay nombre), qrsgen resuelve a PN vía
+  `PNForLID` y re-chequea `IsContactSaved` con el PN. Cubre el caso de
+  contactos guardados que se intercambian con su LID anonimizado.
+- **PushName nunca cuenta como saved**: aunque whatsmeow tenga
+  PushName cacheado, `IsContactSaved` exige `FullName` o `FirstName`
+  (los pone el bot owner, no el sender). Senders con solo PushName
+  conservan el `~`.
+
+### Resumen del bit saved/unsaved a través de versiones
+
+| Versión | `~` se pone | Teléfono se muestra |
+|---|---|---|
+| v0.31.x | siempre | siempre |
+| v0.32.0–v0.39.3 | siempre | solo si no saved |
+| v0.39.4 | siempre | siempre |
+| **v0.39.5** | **solo si no saved** | **siempre** |
+
+## `IsContactSaved`: vuelve a consultarse, pero solo para el tilde
+
+El método `IsContactSaved(jid)` siempre estuvo en la interfaz
+`WAResolver` y consulta `client.Store.Contacts.GetContact` de
+whatsmeow. Su uso en `applyGroupSenderPrefix` cambió varias veces:
+
+- **v0.32.0–v0.39.3**: se consultaba para decidir si **omitir el
+  teléfono** para senders guardados.
+- **v0.39.4**: `applyGroupSenderPrefix` dejó de consultarlo; el
+  prefijo era idéntico para saved y unsaved.
+- **v0.39.5**: vuelve a consultarse, pero solo para decidir si
+  **prepender el tilde `~`** al nombre. El teléfono sigue
+  incluyéndose siempre (no se revierte ese punto de v0.39.4).
 
 Para que qrsgen considere un JID como guardado, el nombre debe llegar
 hasta el contact store interno de whatsmeow. La ruta es:
@@ -169,10 +257,9 @@ ya tiene cacheado del backend de WhatsApp.
 | `PushName` | **No** | Auto-asignado por el propio sender en su WhatsApp |
 | `BusinessName` | **No** | Display name de cuentas WA Business |
 
-La distinción sigue siendo válida conceptualmente
-(**FullName/FirstName los pone el dueño del número conectado**;
-**PushName lo pone el sender**), aunque desde v0.39.4 no afecta al
-formato del prefijo de grupo.
+La distinción es la que decide el tilde desde v0.39.5: si el sender
+tiene `FullName` o `FirstName`, el nombre va plano; si solo hay
+`PushName` (o nada), se prepende `~`.
 
 ## Caso especial: LID → PN fallback
 
@@ -180,29 +267,38 @@ Con Multi-Device, el sender de un mensaje de grupo puede llegar como
 LID (identificador anónimo, server `lid`) en vez de PN (server
 `s.whatsapp.net`). qrsgen sigue resolviendo el LID a su PN vía
 `PNForLID` para obtener un `ContactName` y un teléfono presentables.
-Lo que ya no consulta es `IsContactSaved` con el resultado del
-fallback para decidir si omitir el teléfono — desde v0.39.4 el
-teléfono va siempre.
+Desde **v0.39.5** el fallback además vuelve a re-chequear
+`IsContactSaved` con el PN resuelto: si el contacto está en la libreta
+bajo su PN canónico, se le quita el tilde aunque el evento haya
+llegado por LID. Sin esa segunda comprobación, todos los senders
+guardados que mandaran via LID aparecerían como no saved.
+
+El teléfono se sigue incluyendo siempre (heredado de v0.39.4),
+independientemente del resultado de `IsContactSaved`.
 
 ## Grupos como sender
 
 Si el sender del mensaje es a su vez un JID de grupo (caso raro:
 forwards, anuncios de canal-grupo), el path no cambia: se renderiza
-nombre + tab(s) + el "teléfono" (que sería el ID del grupo). En v0.39.3
-y anteriores `IsContactSaved` devolvía `false` por construcción para
-groupJIDs; ahora ese check no se hace.
+nombre + tab(s) + el "teléfono" (que sería el ID del grupo).
+`IsContactSaved` devuelve `false` por construcción para groupJIDs, así
+que desde v0.39.5 estos se rinderizan con `~` por defecto.
 
 ## Verificar que funciona
 
-Tras un mensaje de grupo enviado por un contacto cualquiera (saved o
-no), los logs del downstream deberían mostrar el header envuelto en
-backticks con teléfono presente:
+Tras mensajes de grupo enviados por un contacto saved y otro no saved,
+los logs del downstream deberían mostrar ambos formatos:
 
 ```bash
 docker logs qrsgen 2>&1 | grep "incoming sync" | tail
-# → ... content="`**~Jean Paul**\t\t+34622222222`\nhola buenas" ...
-# → ... content="`**~Ivan Madrid Sánchez**\t+34633185248`\nbuenas" ...
+# → ... content="`**Jean Paul**\t\t+34622222222`\nhola buenas" ...        (saved)
+# → ... content="`**~Marcelo Lopez**\t+34663504782`\nhola buenas" ...     (no saved)
+# → ... content="`**Ivan Madrid Sánchez**\t+34633185248`\nbuenas" ...     (saved)
 ```
+
+Si todos los senders aparecen con `~` (o ninguno) revisa que la
+libreta del móvil del bot esté sincronizada con WhatsApp y que el
+contact store de whatsmeow refleje los nombres (sección siguiente).
 
 Para inspeccionar directamente el contact store de whatsmeow:
 
@@ -215,32 +311,32 @@ LIMIT 20;
 ```
 
 Sigue siendo útil para diagnosticar por qué un sender llega con
-`PushName` en lugar de `FullName` (el nombre que se muestra en el
-prefijo depende de esto), aunque ya no condiciona si el teléfono
-aparece o no.
+`PushName` en lugar de `FullName` (esto decide tanto qué string se
+muestra como nombre **como** si lleva el tilde `~` desde v0.39.5). El
+teléfono va siempre, independientemente.
 
 ## Modos de fallo
 
 | Situación | Resultado |
 |---|---|
-| Google Contacts sync deshabilitado en el móvil | El contacto aparece con PushName en lugar de FullName/FirstName. Teléfono igual visible (siempre lo es desde v0.39.4). |
-| App WhatsApp sin permiso "Acceder a contactos" | Igual: no llega FullName al store, se muestra PushName. |
-| Contacto recién añadido (segundos atrás) | Puede tardar minutos en propagarse al store de whatsmeow. Hasta entonces se ve PushName. |
-| Sender llega como LID anonymizado | Se resuelve a PN vía `PNForLID` para obtener nombre y teléfono. |
-| Sender LID sin posibilidad de resolver a PN | Se muestra el PushName que llegó en el evento; teléfono si está disponible. |
+| Google Contacts sync deshabilitado en el móvil | El contacto aparece con PushName en lugar de FullName/FirstName, y por tanto con `~` delante (desde v0.39.5). Teléfono igual visible. |
+| App WhatsApp sin permiso "Acceder a contactos" | Igual: no llega FullName al store, se muestra PushName + `~`. |
+| Contacto recién añadido (segundos atrás) | Puede tardar minutos en propagarse al store de whatsmeow. Hasta entonces se ve PushName con `~`; al refrescarse el store el `~` desaparece. |
+| Sender llega como LID anonymizado | Se resuelve a PN vía `PNForLID` para obtener nombre y teléfono; desde v0.39.5 se re-chequea `IsContactSaved` con el PN para acertar el bit del tilde. |
+| Sender LID sin posibilidad de resolver a PN | Se muestra el PushName que llegó en el evento con `~`; teléfono si está disponible. |
 
 ## Caveats
 
-- **El bot owner sigue mandando sobre el nombre mostrado**. Lo que
-  cuente como nombre canónico (FullName, FirstName, PushName) depende
-  de la libreta del dueño del número conectado. Desde v0.39.4 esto
-  solo afecta a qué string aparece tras `**~`; el teléfono va siempre.
+- **El bot owner sigue mandando sobre el nombre mostrado y el tilde**.
+  Lo que cuente como nombre canónico (FullName, FirstName, PushName)
+  depende de la libreta del dueño del número conectado. Desde v0.39.5
+  eso también decide si aparece el `~`; el teléfono va siempre.
 - **No write-back**. Si un agente edita el nombre del contacto en
   Chatwoot, ese cambio se queda en Chatwoot. qrsgen no propaga edits al
   contact store de WA ni a la libreta del móvil del bot.
 - **Sin opt-out por env var**. No hay flag para volver al formato sin
-  code block ni al branching saved/unsaved. Si necesitas el formato
-  pre-v0.39.4, considera abrir un issue.
+  code block, al branching saved/omit-phone, ni al `~` siempre de
+  v0.39.4. Si necesitas un formato anterior, considera abrir un issue.
 - **Render del code block depende del downstream**. Chatwoot pinta
   inline code monoespaciado con fondo gris claro. Otros downstreams
   pueden renderizarlo de forma distinta o ignorar los backticks.
@@ -254,8 +350,10 @@ y WhatsApp.
 
 **FullName / FirstName**: campos del contact store de whatsmeow que
 representan el nombre que el dueño del número conectado puso en su
-libreta. Desde v0.39.4 ya no condicionan si aparece el teléfono en el
-prefijo; solo influyen en qué string se muestra como nombre.
+libreta. Desde v0.39.5 condicionan si el nombre lleva tilde `~`
+delante (sin tilde si hay FullName/FirstName, con tilde si solo hay
+PushName). No condicionan la presencia del teléfono — siempre va
+desde v0.39.4.
 
 **PushName**: nombre que el propio sender configura en su WhatsApp
 ("Tu nombre" en ajustes). Llega en cada mensaje. Se usa como fallback
@@ -273,10 +371,12 @@ al PN equivalente. Cuando whatsmeow ya conoce la relación (porque el
 sender envió alguna vez como PN), devuelve el match.
 
 **`IsContactSaved`**: método del `WAResolver` que indica si un JID
-tiene `FullName` o `FirstName` en el contact store de whatsmeow. Sigue
-formando parte de la interfaz desde v0.32.0, pero **desde v0.39.4
-`applyGroupSenderPrefix` no lo consulta**: el formato del prefijo de
-grupo es el mismo para saved y unsaved.
+tiene `FullName` o `FirstName` en el contact store de whatsmeow.
+Forma parte de la interfaz desde v0.32.0. En v0.39.4
+`applyGroupSenderPrefix` dejó de consultarlo; **desde v0.39.5 vuelve a
+consultarse**, pero solo para decidir si prepende el tilde `~` al
+nombre (el teléfono sigue incluyéndose siempre, no se revierte en
+v0.39.5).
 
 **Bot owner**: dueño del número de WhatsApp que tiene la sesión
 emparejada con qrsgen.
@@ -290,10 +390,19 @@ alinear visualmente los teléfonos cuando senders con nombres de
 distinto largo intercambian mensajes en el mismo grupo.
 
 **Code block wrap del header (v0.39.4)**: envoltorio con backticks de
-toda la línea `**~Name**<tabs>+phone`. Chatwoot la renderiza
-monoespaciada con fondo sutil; los `**` aparecen literales porque
-inline code suprime el formato interno.
+toda la línea `**Name**<tabs>+phone` (o `**~Name**<tabs>+phone` para
+no saved desde v0.39.5). Chatwoot la renderiza monoespaciada con
+fondo sutil; los `**` aparecen literales porque inline code suprime el
+formato interno.
 
 **Teléfono siempre presente (v0.39.4)**: revierte el branching
 saved/omit-phone introducido en v0.32.0. El header incluye el número
-para todos los senders, saved o no.
+para todos los senders, saved o no. Se mantiene tal cual en v0.39.5.
+
+**Tilde `~` solo para no saved (v0.39.5)**: el `~` antes del nombre
+aparece únicamente cuando `IsContactSaved(jid) == false` (no hay
+FullName ni FirstName en el contact store; el nombre viene del
+PushName del sender). Replica la convención de la propia UI de
+WhatsApp y sirve al agente del downstream como señal visual de qué
+nombre viene de la libreta del bot owner y cuál se lo puso el propio
+sender.

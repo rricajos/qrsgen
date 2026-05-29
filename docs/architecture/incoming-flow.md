@@ -22,9 +22,10 @@ bridge/incoming.go:
         │                                          ▼
         │                                  resuelve sender + conv
         │                                  aplica name resolver (LID/PN)
-        │                                  body = "**~<name>** reaccionó con <emoji>"
+        │                                  body = "**<tilde><name>** reaccionó con <emoji>"
+        │                                          (tilde = "~" si !IsContactSaved, "" si saved — v0.39.5)
         │                                          (en grupo: header en code block,
-        │                                           "`**~<name>**<tabs>+<E164>` reaccionó con <emoji>";
+        │                                           "`**<tilde><name>**<tabs>+<E164>` reaccionó con <emoji>";
         │                                           o "_quitó su reacción_" si text=="")
         │                                  POST incoming con
         │                                    source_id="WAID:reaction:<ID>"
@@ -46,11 +47,17 @@ bridge/incoming.go:
         │        ├─ AudioMessage       ──► sanitizeMime + default audio/ogg
         │        └─ StickerMessage     ──► default image/webp si mime vacío
         │ si grupo: applyGroupSenderPrefix(body, msg, resolver)
-        │           prefix = "`**~<name>**<tabs>+<E164>`"
+        │           saved = resolver.IsContactSaved(jid)   (v0.39.5)
+        │             ├─ si LID y !saved: PNForLID → re-check IsContactSaved con PN
+        │           tilde = "" si saved, "~" si !saved      (v0.39.5)
+        │           prefix = "`**<tilde><name>**<tabs>+<E164>`"
         │           (v0.39.4: header completo envuelto en inline code block
-        │            con backticks; teléfono SIEMPRE presente — IsContactSaved
-        │            ya no se consulta. tabs: 2 si runes(name)≤12, 1 si >12 —
-        │            v0.39.3; separador tab \t U+0009 — v0.39.2)
+        │            con backticks; teléfono SIEMPRE presente.
+        │            v0.39.5: el tilde se prepende SOLO si el contacto no está
+        │            guardado — replica la convención de la UI de WhatsApp.
+        │            tabs: 2 si runes(name)≤12, 1 si >12 — v0.39.3 — se calculan
+        │            sobre el nombre sin el `~` para no desalinear;
+        │            separador tab \t U+0009 — v0.39.2)
         │ construye payload {content, attachments, source_id: WAID:..., ...}
         │ POST al endpoint downstream
         ▼
@@ -117,36 +124,55 @@ reformatee a otro shape si tu downstream no usa Channel::Api.
 `inbox_id` se obtiene de `bridge_instance.inbox_id` para esa instancia;
 si está `NULL` o `0`, cae al `DOWNSTREAM_INBOX_ID` global.
 
-## Prefijo de grupo (formato unificado v0.39.4)
+## Prefijo de grupo (v0.39.5: code block + teléfono siempre + tilde solo si no saved)
 
 Para mensajes cuyo `chat.Server == g.us` (grupos), antes del POST al
 downstream qrsgen llama `applyGroupSenderPrefix(body, msg, resolver)`.
-Desde **v0.39.4** la función ya no consulta `IsContactSaved`: el
-formato es el mismo para todos los senders, saved o no.
+Desde **v0.39.5** la función vuelve a consultar `IsContactSaved` (que
+se había retirado en v0.39.4), pero solo para decidir si prepende el
+tilde `~` al nombre. El teléfono se sigue incluyendo siempre (hereda
+v0.39.4).
 
-- **Name + phone** (caso normal):
-  `` `**~<name>**<tabs>+<E164>`\n<body> `` — toda la línea de header
-  va dentro de un par de backticks (inline code block, v0.39.4). El
-  separador entre nombre y teléfono es **tab `\t` (U+0009)** (v0.39.2)
-  y el número de tabs depende de `utf8.RuneCountInString(name)`:
-  **2 tabs** si `≤ 12`, **1 tab** si `> 12` (v0.39.3). Alinea los
-  teléfonos cuando senders con nombres de distinto largo se mezclan
-  en el mismo grupo.
-- **Solo name** (sin phone): `**~<name>**:\n<body>` — degenerado, sin
-  code block.
+```
+saved = resolver.IsContactSaved(jid)
+if jid es LID y !saved:
+    pn = resolver.PNForLID(jid)
+    if pn != "": saved = resolver.IsContactSaved(pn)  ← LID/PN fallback
+tilde = "~" if !saved else ""
+```
+
+- **Name + phone, saved** (sin tilde):
+  `` `**<name>**<tabs>+<E164>`\n<body> ``
+- **Name + phone, no saved** (con tilde):
+  `` `**~<name>**<tabs>+<E164>`\n<body> ``
+
+  Toda la línea de header va dentro de un par de backticks (inline
+  code block, v0.39.4). El separador entre nombre y teléfono es **tab
+  `\t` (U+0009)** (v0.39.2) y el número de tabs depende de
+  `utf8.RuneCountInString(name)`: **2 tabs** si `≤ 12`, **1 tab** si
+  `> 12` (v0.39.3) — calculado sobre el nombre sin `~` para no
+  desalinear. Alinea los teléfonos cuando senders con nombres de
+  distinto largo se mezclan en el mismo grupo.
+
+- **Solo name** (sin phone): `**<tilde><name>**:\n<body>` —
+  degenerado, sin code block.
 - **Solo phone** (sin name): `+<E164>:\n<body>` — degenerado, sin
   backticks (desde v0.39.2).
 
 Si el sender llega como LID, qrsgen sigue resolviendo a PN vía
-`PNForLID` para obtener `ContactName` y phone presentables. Lo que ya
-no se hace es preguntar `IsContactSaved` para decidir si omitir el
-teléfono — desde v0.39.4 el teléfono se incluye siempre.
+`PNForLID` para obtener `ContactName` y phone presentables, y desde
+v0.39.5 además re-chequea `IsContactSaved` con el PN resuelto para
+acertar el bit del tilde para contactos guardados que mandaron por su
+LID anonimizado.
 
-**Cambio respecto a v0.32.0..v0.39.3**: en ese rango, contactos
-saved (FullName o FirstName en el contact store) mostraban solo el
-nombre, sin teléfono. v0.39.4 revierte esa rama. `IsContactSaved`
-sigue en la interfaz `WAResolver` pero `applyGroupSenderPrefix` no lo
-llama.
+**Evolución del check `IsContactSaved` en este path**:
+
+- v0.32.0–v0.39.3: condicionaba si **se omitía el teléfono** (saved →
+  sin phone).
+- v0.39.4: no se consultaba; el prefijo era idéntico para saved y
+  unsaved, siempre con `~` y siempre con phone.
+- **v0.39.5**: vuelve a consultarse, pero condiciona solo el **tilde
+  `~`** del nombre. El teléfono se sigue incluyendo siempre.
 
 Detalles e histórico en
 [Formato del prefijo de grupo](../integrations/group-sender-format.md).
@@ -168,14 +194,16 @@ se descartaban. `handleReaction`:
 - Resuelve sender + conversación por el mismo camino que un mensaje
   normal (LID↔PN, contact lookup en downstream).
 - Aplica el name resolver compartido con `applyGroupSenderPrefix`.
-  Desde v0.39.4 ese resolver ya no consulta `IsContactSaved` para
-  decidir si incluye teléfono — siempre lo incluye en grupos.
-- Construye el body con uno de los formatos:
-  - 1:1 (no grupo): `**~<name>** reaccionó con <emoji>`
-  - Grupo (v0.39.4): `` `**~<name>**<tabs>+<E164>` reaccionó con <emoji> ``
+  Desde v0.39.4 el teléfono se incluye siempre en grupos; desde v0.39.5
+  el tilde `~` se prepende al nombre solo si el contacto no está
+  guardado (vía `IsContactSaved`).
+- Construye el body con uno de los formatos (siendo `<tilde>` = `"~"`
+  si !saved, `""` si saved — v0.39.5):
+  - 1:1 (no grupo): `**<tilde><name>** reaccionó con <emoji>`
+  - Grupo (v0.39.5): `` `**<tilde><name>**<tabs>+<E164>` reaccionó con <emoji> ``
     (header completo en code block; tabs: 2 si `runes(name)≤12`, 1 si
-    `>12`)
-  - Retracted (text=""): `**~<name>** _quitó su reacción_`
+    `>12`, calculadas sobre el nombre sin `~`)
+  - Retracted (text=""): `**<tilde><name>** _quitó su reacción_`
 - POSTea con `message_type: "incoming"` y
   `source_id: "WAID:reaction:<msg.Info.ID>"` — namespace separado del
   mensaje target para evitar colisión en el dedup del downstream.
@@ -392,13 +420,16 @@ minimizar tráfico.
 **Prefijo de grupo**: header que `applyGroupSenderPrefix` antepone
 al body para mensajes de grupo. Desde v0.32.0 hasta v0.39.3 fue
 adaptativo (omitía el teléfono para senders guardados, vía
-`IsContactSaved`). Desde **v0.39.4** el formato es único para todos:
-`` `**~<name>**<tabs>+<E164>` `` con toda la línea de header envuelta
-en un inline code block (backticks) y el teléfono siempre presente.
-`IsContactSaved` sigue en la interfaz `WAResolver` pero
-`applyGroupSenderPrefix` ya no lo consulta. Separador tab `\t`
-(U+0009) desde v0.39.2; número de tabs variable (2 si
-`utf8.RuneCountInString(name) ≤ 12`, 1 si `> 12`) desde v0.39.3.
+`IsContactSaved`). En **v0.39.4** se unificó: header en inline code
+block con backticks y teléfono siempre presente, sin consultar
+`IsContactSaved`. Desde **v0.39.5** `applyGroupSenderPrefix` vuelve a
+consultar `IsContactSaved` pero **solo para decidir si prepende el
+tilde `~`** al nombre: contactos saved (FullName/FirstName) van sin
+tilde, contactos solo PushName van con `~`. El teléfono sigue
+incluyéndose siempre (no se revierte el cambio de v0.39.4). Separador
+tab `\t` (U+0009) desde v0.39.2; número de tabs variable (2 si
+`utf8.RuneCountInString(name) ≤ 12`, 1 si `> 12`) desde v0.39.3, sobre
+el nombre sin `~`.
 
 **`handleReaction`**: handler en `bridge.Incoming` (desde v0.33.0) que
 intercepta `ReactionMessage` antes del path normal de texto/media y

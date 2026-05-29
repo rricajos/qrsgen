@@ -4,6 +4,54 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.6] - 2026-05-28
+
+Reordena el prefijo de grupo: teléfono primero, middle dot,
+nombre al final. Teléfono da ancho fijo natural (por E.164) que
+sirve de columna consistente entre mensajes.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora genera
+  `` `+phone · <tilde-si-no-saved><Name>` ``** en lugar del orden
+  previo `name + tabs + phone`. Ejemplos:
+  - Saved: `` `+34604021705 · Jean Paul` ``
+  - No saved: `` `+34663504782 · ~Marcelo Lopez` ``
+- **Drop tabs**: ya no usamos el sistema de 1/2 tabs según longitud
+  del nombre. El teléfono al inicio del code block ya da columna
+  consistente porque el formato E.164 tiene longitud predecible.
+- **Drop bold markers**: `**` ya no se incluyen porque dentro de
+  inline code markdown no procesa formato. El contraste lo da el
+  code block en sí (monospace + background distintivo).
+
+### Razón
+
+Pruebas en producción mostraron que Chatwoot dentro de inline code:
+- No procesa `**` bold (quedaban literales como `**Name**`)
+- Colapsa tabs a single space
+- Sí preserva chars literales como `·` y `~`
+
+Reordenar con phone primero + dot + name produce un layout
+consistente sin depender de whitespace especial ni formatting
+markdown que el renderer ignora.
+
+### Examples
+
+```
+Saved (Google Contacts → libreta → WA):
+  `+34604021705 · Jean Paul`
+  (mensaje)
+
+No saved (solo push name):
+  `+34663504782 · ~Marcelo Lopez`
+  (mensaje)
+```
+
+### Migration notes
+
+- Sin breaking changes en API. Parsers regex deben usar el patrón:
+  `` `\+\d+ · ~?[^`]+` ``
+
 ## [0.39.5] - 2026-05-28
 
 Tilde (`~`) delante del nombre solo cuando el contacto NO está

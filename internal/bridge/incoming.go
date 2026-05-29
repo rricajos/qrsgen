@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/rricajos/qrsgen/internal/downstream"
 	"github.com/rricajos/qrsgen/internal/metrics"
@@ -1084,26 +1083,21 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 		// no por el dueño del bot).
 	}
 
-	// v0.39.4: header completo wrapped en code block.
-	// v0.39.5: ~ delante del nombre SOLO si el contacto NO está guardado.
-	// Replica el convention de WhatsApp donde los contactos en agenda
-	// no llevan tilde y los conocidos solo por push name sí lo llevan.
-	nameMark := "**~" + name + "**"
+	// v0.39.6: formato unificado en code block — teléfono primero (ancho
+	// natural por E.164 da columna consistente entre mensajes), middle
+	// dot como separador, nombre al final. Tilde solo si no saved.
+	// Dentro del code block markdown no procesa formato, así que no
+	// usamos `**`; el monospace + background distintivo de Chatwoot
+	// hace el contraste visual con el body.
+	nameMark := "~" + name
 	if saved {
-		nameMark = "**" + name + "**"
+		nameMark = name
 	}
 
 	var prefix string
 	switch {
 	case phoneDigits != "" && name != "":
-		// Doble tab si el nombre es corto (<=12 runes) para empujar el
-		// teléfono a una columna más consistente cuando se mezclan
-		// senders con nombres de longitud distinta en una misma conv.
-		tabs := "	"
-		if utf8.RuneCountInString(name) <= 12 {
-			tabs = "		"
-		}
-		prefix = "`" + nameMark + tabs + formatE164(phoneDigits) + "`"
+		prefix = "`" + formatE164(phoneDigits) + " · " + nameMark + "`"
 	case name != "":
 		prefix = "`" + nameMark + ":`"
 	case phoneDigits != "":

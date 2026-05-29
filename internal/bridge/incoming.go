@@ -1062,35 +1062,27 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	}
 
 	name := ""
-	saved := false
 	if r != nil {
 		name = r.ContactName(sender.ToNonAD())
-		saved = r.IsContactSaved(sender.ToNonAD())
-		// LID sin nombre o sin saved: intentar via PN.
-		if sender.Server == types.HiddenUserServer && (name == "" || !saved) {
+		// LID sin nombre: intentar via PN. v0.39.4: ya no consultamos
+		// IsContactSaved porque siempre mostramos el teléfono.
+		if sender.Server == types.HiddenUserServer && name == "" {
 			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
-				if name == "" {
-					name = r.ContactName(pn)
-				}
-				if !saved {
-					saved = r.IsContactSaved(pn)
-				}
+				name = r.ContactName(pn)
 			}
 		}
 	}
 	if name == "" {
 		name = msg.Info.PushName
-		// PushName NO cuenta como "saved" — viene del propio sender, no
-		// de la libreta del bot owner. saved queda false aunque haya name.
 	}
 
+	// v0.39.4: el header completo va en code block (backticks) — pierde
+	// el bold de los `**` (markdown no procesa dentro de inline code) pero
+	// gana el background distintivo monospace de Chatwoot para el bloque
+	// entero. Siempre mostramos teléfono (sin omitir por IsContactSaved).
 	var prefix string
 	switch {
-	case saved && name != "":
-		// Contacto en agenda: solo nombre, el agente ya sabe quién es.
-		prefix = "**~" + name + "**"
 	case phoneDigits != "" && name != "":
-		// Push name + teléfono plano separado por TAB(s) U+0009.
 		// Doble tab si el nombre es corto (<=12 runes) para empujar el
 		// teléfono a una columna más consistente cuando se mezclan
 		// senders con nombres de longitud distinta en una misma conv.
@@ -1098,11 +1090,11 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 		if utf8.RuneCountInString(name) <= 12 {
 			tabs = "		"
 		}
-		prefix = "**~" + name + "**" + tabs + formatE164(phoneDigits)
+		prefix = "`**~" + name + "**" + tabs + formatE164(phoneDigits) + "`"
 	case name != "":
-		prefix = "**~" + name + "**:"
+		prefix = "`**~" + name + "**:`"
 	case phoneDigits != "":
-		prefix = formatE164(phoneDigits) + ":"
+		prefix = "`" + formatE164(phoneDigits) + ":`"
 	default:
 		return body
 	}

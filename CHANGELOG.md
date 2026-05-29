@@ -4,6 +4,36 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.4] - 2026-05-28
+
+Dos cambios en el prefijo de grupo:
+
+### Changed
+
+- **Header entero envuelto en code block** (`` `...` ``). Antes el
+  teléfono ya no llevaba code; ahora el header completo
+  (`**~Name** tabs +phone`) va dentro de backticks. Render: bloque
+  monospace con background distintivo de Chatwoot para todo el
+  header. Los `**` quedan literales porque markdown no procesa
+  formato dentro de inline code — pero el contraste visual del
+  bloque entero sigue distinguiendo header de body.
+
+- **El teléfono se muestra SIEMPRE**, esté el contacto en agenda o
+  no. Revierte la lógica `IsContactSaved → omit phone` que
+  introdujo v0.32.0. Razón: aún con contactos guardados, ver el
+  teléfono ayuda a hacer cross-reference cuando se manejan
+  múltiples plataformas o el mismo número con varias entradas.
+- **`IsContactSaved` sigue en la interfaz `WAResolver`**, pero
+  `applyGroupSenderPrefix` ya no lo consulta. Puede usarse por
+  callers externos si quieren su propia lógica.
+
+### Migration notes
+
+- Sin breaking changes en el contrato de `WAResolver` ni env vars.
+- Parsers regex deben usar `` ` `` como delimitador del header:
+  - Antes (v0.39.3): `\*\*~[^*]+\*\*\t+\+\d+`
+  - Ahora (v0.39.4): `` `\*\*~[^*]+\*\*\t+\+\d+` ``
+
 ## [0.39.3] - 2026-05-28
 
 UX micro-tweak: separador tab variable (1 o 2) según longitud del

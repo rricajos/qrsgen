@@ -4,6 +4,29 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.3] - 2026-05-28
+
+UX micro-tweak: separador tab variable (1 o 2) según longitud del
+nombre, para que los teléfonos queden alineados visualmente cuando
+se mezclan senders con nombres de longitud distinta en la misma conv.
+
+### Changed
+
+- **`applyGroupSenderPrefix` ahora usa 2 tabs si el nombre tiene
+  ≤12 runes, 1 tab si tiene >12 runes**. Razón: con un solo tab,
+  "**~Richard**\t+34..." y "**~Ivan Madrid Sánchez**\t+34..."
+  quedan en columnas distintas porque el name varía mucho de ancho.
+  Con doble tab para nombres cortos, ambos teléfonos quedan cerca
+  de la misma posición horizontal.
+- Usa `utf8.RuneCountInString` para contar caracteres (no bytes),
+  así "Sánchez" cuenta como 7 y no como 8.
+
+### Migration notes
+
+- Sin breaking changes. Parsers regex deben usar `\t+` en lugar de
+  `\t` exacto para matchear ambos formatos:
+  `\*\*~[^*]+\*\*\t+\+\d+`
+
 ## [0.39.2] - 2026-05-28
 
 UX tweak del prefijo de grupo: separador tab + teléfono sin code block.

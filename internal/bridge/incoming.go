@@ -1499,31 +1499,43 @@ func resolveSenderInfo(msg *events.Message, r wameow.WAResolver) senderInfo {
 	if si.phone != "" {
 		si.phoneFmt = formatE164(si.phone)
 	}
-	if r != nil {
-		si.name = r.ContactName(sender.ToNonAD())
-		si.saved = r.IsContactSaved(sender.ToNonAD())
-		if sender.Server == types.HiddenUserServer && (si.name == "" || !si.saved) {
-			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
-				pnSaved := r.IsContactSaved(pn)
-				// v0.39.9 fix: si PN está saved y LID no, preferimos
-				// el ContactName(pn) (agenda) sobre el del LID
-				// (típicamente un PushName auto-asignado).
-				if !si.saved && pnSaved {
-					si.name = r.ContactName(pn)
-					si.saved = true
-				} else if si.name == "" {
-					si.name = r.ContactName(pn)
-					if !si.saved {
-						si.saved = pnSaved
-					}
+	si.name, si.saved = resolveJIDNameSaved(sender, r)
+	if si.name == "" {
+		// PushName del *events.Message NO cuenta como saved
+		// (auto-asignado por el remitente).
+		si.name = msg.Info.PushName
+	}
+	return si
+}
+
+// resolveJIDNameSaved resuelve el nombre canónico + saved status de
+// un JID arbitrario. Aplica el fix v0.39.9 para LID→PN (si PN está
+// saved y LID no, prefiere el ContactName del PN sobre el push name
+// del LID). NO consulta msg.Info.PushName — solo el contact store.
+//
+// Devuelve ("", false) si el resolver es nil o no encuentra entry.
+// Usado por resolveSenderInfo (msg-based) y formatQuotedBlock
+// (jid-based desde ContextInfo.Participant).
+func resolveJIDNameSaved(jid types.JID, r wameow.WAResolver) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	name := r.ContactName(jid.ToNonAD())
+	saved := r.IsContactSaved(jid.ToNonAD())
+	if jid.Server == types.HiddenUserServer && (name == "" || !saved) {
+		if pn, ok := r.PNForLID(jid.ToNonAD()); ok {
+			pnSaved := r.IsContactSaved(pn)
+			if !saved && pnSaved {
+				return r.ContactName(pn), true
+			} else if name == "" {
+				name = r.ContactName(pn)
+				if !saved {
+					saved = pnSaved
 				}
 			}
 		}
 	}
-	if si.name == "" {
-		si.name = msg.Info.PushName
-	}
-	return si
+	return name, saved
 }
 
 // applyGroupSenderPrefix añade al body un prefijo identificando al
@@ -1767,23 +1779,24 @@ func formatQuotedBlock(msg *events.Message, r wameow.WAResolver) string {
 
 	// Resolver nombre del autor citado. Participant es el JID en grupos
 	// (en 1:1 es nil porque el author es la otra parte de la conv).
+	// v0.44.3: respeta la misma convención que el group prefix —
+	// `~Name` si el contacto NO está guardado en la agenda del bot
+	// owner, `Name` si sí lo está. Reutiliza resolveJIDNameSaved
+	// para heredar el fix v0.39.9 (LID con PN saved usa nombre canónico).
 	authorName := ""
+	authorSaved := false
 	if part := ci.GetParticipant(); part != "" {
 		if jid, err := types.ParseJID(part); err == nil {
-			if r != nil {
-				authorName = r.ContactName(jid.ToNonAD())
-				// Si LID sin nombre, intentar el PN canónico.
-				if authorName == "" && jid.Server == types.HiddenUserServer {
-					if pn, ok := r.PNForLID(jid.ToNonAD()); ok {
-						authorName = r.ContactName(pn)
-					}
-				}
-			}
+			authorName, authorSaved = resolveJIDNameSaved(jid, r)
 			if authorName == "" && jid.Server == types.DefaultUserServer {
-				// Fallback: phone formateado.
+				// Fallback: phone formateado (no saved por definición).
 				authorName = formatE164(jid.User)
 			}
 		}
+	}
+	authorMark := authorName
+	if authorName != "" && !authorSaved {
+		authorMark = "~" + authorName
 	}
 
 	// v0.44.2: header + primera línea del quoted en la MISMA línea del
@@ -1792,8 +1805,8 @@ func formatQuotedBlock(msg *events.Message, r wameow.WAResolver) string {
 	// → header y texto citado salían separados. Pegándolos en una
 	// sola línea quedan visualmente unidos.
 	headerInline := "_↩️ respondiendo:_"
-	if authorName != "" {
-		headerInline = "_↩️ respondiendo a " + authorName + ":_"
+	if authorMark != "" {
+		headerInline = "_↩️ respondiendo a " + authorMark + ":_"
 	}
 	lines := strings.Split(text, "\n")
 	out := make([]string, 0, len(lines))

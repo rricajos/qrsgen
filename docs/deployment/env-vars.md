@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.44.2` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.44.2 (UX: quote/reply context más compacto — header y texto citado pegados en la misma línea, y reply pegado al blockquote). |
+| `QRSGEN_VERSION` | `0.44.3` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.44.3 (UX: el author del blockquote del quote respeta el `~` para no-saved, igual que el group prefix v0.39.5). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

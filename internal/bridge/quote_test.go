@@ -53,7 +53,8 @@ func TestFormatQuotedBlock_PlainTextReply(t *testing.T) {
 		names: map[string]string{author.String(): "Pepito"},
 	}
 	got := formatQuotedBlock(msg, r)
-	want := "> _↩️ respondiendo a Pepito:_ hola, qué tal"
+	// Pepito está en `names` pero NO en `savedJIDs` → ~Pepito (v0.44.3).
+	want := "> _↩️ respondiendo a ~Pepito:_ hola, qué tal"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}
@@ -81,7 +82,51 @@ func TestFormatQuotedBlock_NoResolverFallsBackToPhone(t *testing.T) {
 	msg := mkQuotedTextMsg(chat, sender, author.String(), "msg cita", "msg reply")
 	got := formatQuotedBlock(msg, nil)
 	// Sin resolver: nombre cae a phone E.164.
-	want := "> _↩️ respondiendo a +34600000099:_ msg cita"
+	// Sin resolver → no saved → ~+34… (v0.44.3).
+	want := "> _↩️ respondiendo a ~+34600000099:_ msg cita"
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+func TestFormatQuotedBlock_SavedAuthorWithoutTilde(t *testing.T) {
+	// v0.44.3: si el autor está guardado en la agenda, sale sin `~`.
+	chat := types.NewJID("120363111@g.us", types.GroupServer)
+	sender := types.NewJID("34600000001", types.DefaultUserServer)
+	author := types.NewJID("34600000099", types.DefaultUserServer)
+
+	msg := mkQuotedTextMsg(chat, sender, author.String(), "msg", "reply")
+	r := &fakeResolver{
+		names:     map[string]string{author.String(): "Pepito Saved"},
+		savedJIDs: map[string]bool{author.String(): true},
+	}
+	got := formatQuotedBlock(msg, r)
+	want := "> _↩️ respondiendo a Pepito Saved:_ msg"
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+func TestFormatQuotedBlock_LIDAuthorWithSavedPN(t *testing.T) {
+	// v0.44.3 regression: si el author es LID con PushName pero el PN
+	// resuelto está saved con otro nombre, mostramos el canónico SIN `~`
+	// (hereda fix v0.39.9 vía resolveJIDNameSaved).
+	chat := types.NewJID("120363111@g.us", types.GroupServer)
+	sender := types.NewJID("34600000001", types.DefaultUserServer)
+	authorLID := types.NewJID("99887766554433", types.HiddenUserServer)
+	authorPN := types.NewJID("34600000099", types.DefaultUserServer)
+
+	msg := mkQuotedTextMsg(chat, sender, authorLID.String(), "msg", "reply")
+	r := &fakeResolver{
+		pnByLID: map[string]types.JID{authorLID.String(): authorPN},
+		names: map[string]string{
+			authorLID.String(): "PushName",      // LID name (no saved)
+			authorPN.String():  "Nombre Canónico", // PN name (saved)
+		},
+		savedJIDs: map[string]bool{authorPN.String(): true},
+	}
+	got := formatQuotedBlock(msg, r)
+	want := "> _↩️ respondiendo a Nombre Canónico:_ msg"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}
@@ -123,7 +168,8 @@ func TestFormatQuotedBlock_MultilineQuotedTextPrefixesEachLine(t *testing.T) {
 
 	msg := mkQuotedTextMsg(chat, sender, author.String(), "linea1\nlinea2\nlinea3", "ok")
 	got := formatQuotedBlock(msg, nil)
-	want := "> _↩️ respondiendo a +34600000099:_ linea1\n> linea2\n> linea3"
+	// Sin resolver → no saved → ~+34… (v0.44.3).
+	want := "> _↩️ respondiendo a ~+34600000099:_ linea1\n> linea2\n> linea3"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}

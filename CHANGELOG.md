@@ -4,6 +4,46 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.44.3] - 2026-05-29
+
+UX consistency: el author del blockquote en quote/reply context
+ahora respeta la misma convención que el group prefix (v0.39.5):
+`~Name` si el contacto NO está guardado en la agenda del bot owner,
+`Name` a secas si sí lo está. Antes el quote usaba `ContactName`
+sin chequear `IsContactSaved`, así que un PushName auto-asignado
+salía sin tilde aparentando ser un contacto saved.
+
+### Changed
+
+- **`formatQuotedBlock` aplica `~` cuando author no saved**:
+  - Antes: `> _↩️ respondiendo a Pepito:_ texto`
+  - Ahora: `> _↩️ respondiendo a ~Pepito:_ texto` (si no saved)
+  - Saved: `> _↩️ respondiendo a Pepito Saved:_ texto`
+
+### Refactor
+
+- **`resolveJIDNameSaved(jid, r)` extraído**: helper que toma un
+  JID directo (no un `*events.Message`) y devuelve `(name, saved)`.
+  Aplica el fix v0.39.9 (LID→PN saved usa nombre canónico).
+- **`resolveSenderInfo` reutiliza `resolveJIDNameSaved`**: misma
+  lógica que antes pero centralizada — DRY. Sin cambio de
+  comportamiento.
+
+### Tests
+
+- 10/10 cases en `TestFormatQuotedBlock` (8 actualizados + 2
+  nuevos):
+  - `SavedAuthorWithoutTilde` (saved → sin `~`).
+  - `LIDAuthorWithSavedPN` (LID con PushName pero PN saved → usa
+    canonical sin `~`, hereda fix v0.39.9).
+  - Los 8 existentes actualizados con `~` donde corresponde.
+
+### Migration notes
+
+- Sin breaking changes. Parsers regex sobre el blockquote del
+  quote necesitan tolerar el `~` opcional:
+  `> _↩️ respondiendo a (~)?(.*):_ (.*)`.
+
 ## [0.44.2] - 2026-05-29
 
 UX tweak sobre el quote/reply context (v0.42.0). Chatwoot renderiza

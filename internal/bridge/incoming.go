@@ -1118,11 +1118,12 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 	if body == "" {
 		return prefix
 	}
-	// v0.39.9: paragraph break (\n\n). El hard break CommonMark ("  \n")
-	// que probamos en v0.39.8 no lo renderizaba Chatwoot — quedaba
-	// el body inline con el header. \n\n garantiza separación visible
-	// en cualquier renderer markdown.
-	return prefix + "\n\n" + body
+	// v0.39.10: HTML <br> directo. v0.39.8 ("  \n") no lo renderizaba
+	// Chatwoot (quedaba inline). v0.39.9 ("\n\n") sí pero generaba un
+	// salto de párrafo con demasiado aire. Chatwoot pasa el <br> por su
+	// sanitizer markdown→HTML, dando un line break compacto (igual que
+	// shift+enter en su composer).
+	return prefix + "<br>" + body
 }
 
 // formatE164 toma "34604021705" → "+34604021705". Devuelve el número

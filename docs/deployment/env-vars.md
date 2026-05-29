@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.39.9` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.39.9 (fix LID→PN saved name resolution + separador header/body con `\n\n`). |
+| `QRSGEN_VERSION` | `0.39.10` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.39.10 (separador header/body con `<br>` HTML, más compacto que `\n\n`). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

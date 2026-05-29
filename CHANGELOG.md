@@ -4,6 +4,27 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.39.10] - 2026-05-29
+
+Patch UX: separador header/body cambia a `<br>` HTML directo.
+
+v0.39.9 usaba `\n\n` (paragraph break) — funciona pero el aire entre
+header y body queda más grande de lo deseado. v0.39.10 usa `<br>`
+literal: Chatwoot lo pasa por el sanitizer markdown→HTML, dando un
+line break compacto (equivalente a shift+enter en su composer).
+
+### Changed
+
+- **`applyGroupSenderPrefix` devuelve `prefix + "<br>" + body`** en
+  lugar de `prefix + "\n\n" + body`.
+
+### Migration notes
+
+- Sin breaking changes funcionales. Si tu renderer downstream
+  sanitiza HTML estrictamente (sin `<br>` en allowlist), volverás
+  a ver el body inline con el header — en ese caso revertir a
+  `\n\n` localmente.
+
 ## [0.39.9] - 2026-05-29
 
 Patch que arregla dos bugs reportados sobre el formato de prefix

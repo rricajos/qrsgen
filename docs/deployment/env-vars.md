@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.39.10` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.39.10 (separador header/body con `<br>` HTML, más compacto que `\n\n`). |
+| `QRSGEN_VERSION` | `0.40.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.40.0 (retroactive name update — al añadir contacto a la agenda, reescribe mensajes históricos en el downstream). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |
@@ -33,6 +33,8 @@
 | `QRSGEN_TYPING_SYNC` | `true` | Si `true`, los eventos de typing (composing/paused) que emite WhatsApp se propagan al downstream como `toggle_typing_status` — el agente ve "está escribiendo" en la UI. Throttle interno de 4s para evitar saturar. `false` ignora los eventos. Desde v0.34.0. |
 | `QRSGEN_READ_RECEIPTS_SYNC` | `true` | Si `true`, los read receipts WhatsApp (cliente abrió el chat y vio los mensajes del agente) actualizan el `contact_last_seen_at` del conv en el downstream — la UI marca los mensajes como leídos. `false` los ignora. Desde v0.34.1. |
 | `QRSGEN_MARK_AS_READ_OUTGOING` | `true` | Si `true`, qrsgen rastrea los WAIDs de mensajes incoming y los marca como leídos en WhatsApp cuando el downstream envía un webhook `conversation_updated` con un nuevo `agent_last_seen_at`. El cliente ve doble check azul. REQUIERE config explícita del downstream para enviar ese evento. Desde v0.39.0. |
+| `QRSGEN_RETROACTIVE_NAME_UPDATE` | `true` | Si `true`, qrsgen recuerda mensajes posteados con prefix de grupo "no-saved" (`~Name`) y los reescribe vía PATCH cuando el dueño añade el contacto a su agenda WhatsApp. El histórico en el downstream pasa a mostrar el nombre canónico sin tilde. State in-memory: restart pierde el tracked. Desde v0.40.0. |
+| `QRSGEN_RETROACTIVE_CAP_PER_SENDER` | `200` | Cap de mensajes recordados por sender en el tracker de retroactive name update. Al desbordar, los más viejos caen FIFO. >100 da margen para que el update llegue tras horas/días. Desde v0.40.0. |
 | `DEDUP_ENABLED` | `true` | |
 | `DEDUP_WINDOW_MS` | `10000` | Ventana LID-twin dedup. |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. |

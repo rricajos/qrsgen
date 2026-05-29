@@ -261,6 +261,27 @@ func (c *Client) CreateConversation(ctx context.Context, req CreateConversationR
 	return &conv, nil
 }
 
+// UpdateMessageContent reescribe el campo `content` de un mensaje ya
+// posteado en el downstream. Usado para retroactive name update
+// (v0.40.0): cuando el dueño del bot añade un contacto a su agenda
+// tras haber recibido mensajes de él, qrsgen reescribe los mensajes
+// históricos para que el nuevo nombre/sin tilde aparezca también.
+//
+// PATCH /api/v1/accounts/{a}/conversations/{c}/messages/{m}
+// Body: {"content": "<nuevo content>"}
+//
+// Importante: la API de Chatwoot estándar solo permite editar `content`
+// en ciertos tipos de mensaje (depende de la versión + permisos del
+// token). Si el downstream rechaza el PATCH, el caller debe loguear
+// warning y seguir — el feature degrada gracioso.
+func (c *Client) UpdateMessageContent(ctx context.Context, convID, msgID int, content string) error {
+	path := fmt.Sprintf("/conversations/%d/messages/%d", convID, msgID)
+	_, err := c.request(ctx, http.MethodPatch, path, map[string]string{
+		"content": content,
+	})
+	return err
+}
+
 // UpdateContactLastSeen actualiza el timestamp "contact_last_seen_at"
 // de la conversación en el downstream. En Chatwoot esto hace que los
 // mensajes del agente queden marcados como leídos (icono check azul).

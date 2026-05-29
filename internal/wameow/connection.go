@@ -50,6 +50,16 @@ type ChatPresenceHandler func(ctx context.Context, instance string, chat types.J
 // chat=sender). messageIDs son los WAIDs de los msgs marcados read.
 type ReceiptHandler func(ctx context.Context, instance string, chat types.JID, sender types.JID, kind string, messageIDs []string, ts time.Time, r WAResolver)
 
+// ContactHandler se dispara cuando whatsmeow emite *events.Contact (un
+// contacto fue añadido, renombrado o eliminado desde otro device — vía
+// la sincronización del address book del cliente principal).
+//
+// fullName / firstName: nuevos valores del contacto (vacío si fue
+// eliminado o si solo se cambió el otro campo). El caller debe consultar
+// el contact store via WAResolver.ContactName() para tener la verdad
+// canónica — los campos aquí son una hint del Action.
+type ContactHandler func(ctx context.Context, instance string, jid types.JID, fullName, firstName string, fromFullSync bool, r WAResolver)
+
 // WAResolver expone consultas al estado local del cliente whatsmeow.
 type WAResolver interface {
 	// ContactName devuelve el nombre cacheado para un JID, o "" si no hay info.
@@ -117,6 +127,7 @@ type Conn struct {
 	onPicture      PictureHandler
 	onChatPresence ChatPresenceHandler
 	onReceipt      ReceiptHandler
+	onContact      ContactHandler
 
 	mu        sync.RWMutex
 	lastQRPNG []byte
@@ -193,6 +204,12 @@ func (c *Conn) SetChatPresenceHandler(h ChatPresenceHandler) { c.onChatPresence 
 // SetReceiptHandler registra el callback para *events.Receipt
 // (delivery / read receipts sobre mensajes que envió este device).
 func (c *Conn) SetReceiptHandler(h ReceiptHandler) { c.onReceipt = h }
+
+// SetContactHandler registra el callback para *events.Contact
+// (cambios en el address book del cliente principal sincronizados via
+// Multi-Device). Útil para retroactive update de mensajes ya posteados
+// al downstream cuando el dueño del bot añade un contacto a su agenda.
+func (c *Conn) SetContactHandler(h ContactHandler) { c.onContact = h }
 
 // Connect arranca la conexión. Si el device aún no está pareado, abre canal QR.
 func (c *Conn) Connect(ctx context.Context) error {
@@ -477,6 +494,16 @@ func (c *Conn) handle(rawEvt any) {
 				ids = append(ids, string(id))
 			}
 			c.onReceipt(context.Background(), c.name, evt.Chat, evt.Sender, string(evt.Type), ids, evt.Timestamp, c)
+		}
+	case *events.Contact:
+		if c.onContact != nil {
+			full := ""
+			first := ""
+			if evt.Action != nil {
+				full = evt.Action.GetFullName()
+				first = evt.Action.GetFirstName()
+			}
+			c.onContact(context.Background(), c.name, evt.JID, full, first, evt.FromFullSync, c)
 		}
 	case *events.Connected:
 		c.logger.Info("connected to whatsapp")

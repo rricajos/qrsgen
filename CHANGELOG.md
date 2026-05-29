@@ -4,6 +4,99 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-05-29
+
+Feature: **retroactive name update**.
+
+Cuando el dueño del bot añade un contacto a la agenda WhatsApp tras
+haber recibido mensajes de él (típicamente desde grupos), qrsgen
+ahora reescribe los mensajes históricos posteados al downstream
+para que reflejen el nuevo nombre y desaparezca el `~` de
+"no-saved". El header de cada mensaje viejo pasa de
+`` `+34604021705 · ~Richard` `` a `` `+34604021705 · Ricard Penin` ``
+sin tener que esperar al siguiente mensaje.
+
+### Added
+
+- **`Incoming.EnableRetroactiveNameUpdate(capPerSender int)`**: activa
+  el feature. `cap` controla cuántos mensajes recordamos por sender
+  (FIFO al desbordar). Default `200` vía `QRSGEN_RETROACTIVE_CAP_PER_SENDER`.
+
+- **`Incoming.HandleContactUpdate(ctx, instance, jid, fullName, firstName, fromFullSync, r)`**:
+  orchestrator que se cablea al `events.Contact` de whatsmeow. Si
+  el JID tiene mensajes tracked, los PATCHa con el header nuevo.
+  Ignora `fromFullSync=true` (sync inicial al conectar — el state no
+  cambió, solo se propaga la agenda).
+
+- **`downstream.Client.UpdateMessageContent(ctx, convID, msgID, content)`**:
+  wrapper de `PATCH /conversations/{c}/messages/{m}` con
+  `{"content": "..."}`. Usado por el orchestrator.
+
+- **`wameow.ContactHandler`** + `Conn.SetContactHandler` + `Manager.SetContactHandler`:
+  cableado para subscribirse a `*events.Contact` (whatsmeow emite uno
+  por cada add/edit en la agenda local del dueño).
+
+- **`internal/bridge/msg_history_tracker.go`**: tracker in-memory de
+  mensajes posteados, indexado por `instance|senderJID`. Guarda
+  `convID`, `msgID`, `phone`, `nameUsed`, `wasSaved`, `body`,
+  `postedAt`. Estado se pierde en restart (mensajes pre-restart no
+  se actualizarán — aceptable MVP).
+
+### Config
+
+- **`QRSGEN_RETROACTIVE_NAME_UPDATE`** (default `true`): activa el feature.
+- **`QRSGEN_RETROACTIVE_CAP_PER_SENDER`** (default `200`): cap de
+  mensajes recordados por sender. >100 da margen para que el update
+  llegue tras horas/días de acumulación.
+
+### Changed
+
+- **`applyGroupSenderPrefix` refactor**: ahora delega a
+  `resolveSenderInfo` + `renderGroupSenderPrefix` (helpers nuevos
+  expuestos para reutilización desde el orchestrator de retroactive
+  update). Sin cambios funcionales para el caller.
+- **Separador header/body extraído a constante `groupHeaderBodySep`**:
+  permite cambiar la implementación (actualmente `<br>`) en un solo
+  lugar. Aplica también al render retroactivo.
+- **`resolveSenderInfo` hereda el fix v0.39.9**: cuando el sender es
+  LID con PushName y el PN está saved, prefiere `ContactName(pn)`
+  como nombre canónico.
+
+### Limitaciones
+
+- **State in-memory**: un restart de qrsgen pierde el histórico
+  tracked. Los mensajes posteados antes del restart no se
+  actualizarán retroactivamente cuando cambien sus senders.
+  Aceptable como MVP — persistir en Postgres sería el siguiente paso.
+- **Solo grupos**: solo se trackean mensajes que llevan
+  prefix de grupo (es donde la rename tiene impacto visual). Chats
+  1:1 no usan el prefix → no se trackean.
+- **Cap finito**: con tráfico alto en un grupo, los mensajes más
+  viejos del cap caen FIFO antes de poder actualizarse.
+- **No revierte si se elimina de agenda**: si el contacto se quita
+  de la agenda, qrsgen recibe `events.Contact` con name vacío.
+  Como no guardamos el PushName original al postear, saltamos en
+  lugar de romper el histórico con un nombre vacío.
+
+### Tests
+
+- `internal/bridge/msg_history_tracker_test.go`: 5 tests
+  (Record+List, Cap enforced, Per-sender isolation, UpdateAfterPatch,
+  Empty list returns nil).
+- `internal/bridge/handle_contact_update_test.go`: 7 tests
+  (PatchesStaleEntries, SkipsFromFullSync, SkipsWhenDisabled,
+  NoEntriesForSender, EmptyNameSkips, FirstNameFallback,
+  AlreadyUpToDateNoPatch). Stub via httptest.
+
+### Migration notes
+
+- Sin breaking changes. Feature on por default. Desactivar con
+  `QRSGEN_RETROACTIVE_NAME_UPDATE=false` si no quieres PATCHes al
+  downstream o si el token no tiene permisos para editar mensajes.
+- El feature degrada gracioso: si el downstream rechaza el PATCH
+  (HTTP 4xx/5xx), se loguea un warning y se continúa con el
+  siguiente mensaje.
+
 ## [0.39.10] - 2026-05-29
 
 Patch UX: separador header/body cambia a `<br>` HTML directo.

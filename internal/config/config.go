@@ -117,6 +117,19 @@ type Config struct {
 	// conversation_updated al webhook de qrsgen — sin esa config el
 	// feature no hace nada. Default true. Desde v0.39.0.
 	MarkAsReadOutgoing bool `env:"QRSGEN_MARK_AS_READ_OUTGOING" envDefault:"true"`
+
+	// RetroactiveNameUpdate: si true, qrsgen recuerda los mensajes
+	// posteados al downstream con el formato "no saved" (tilde + push
+	// name) y los reescribe vía PATCH cuando el dueño del bot añade el
+	// contacto a su agenda WhatsApp. Estado in-memory por instancia —
+	// un restart pierde el histórico tracked. Default true. Desde v0.40.0.
+	RetroactiveNameUpdate bool `env:"QRSGEN_RETROACTIVE_NAME_UPDATE" envDefault:"true"`
+
+	// RetroactiveCapPerSender: número máximo de mensajes recordados por
+	// sender en el tracker de retroactive name update. Cuando se supera,
+	// los más viejos caen FIFO. >100 da margen para que el update llegue
+	// tras horas/días de mensajes acumulados. Default 200. Desde v0.40.0.
+	RetroactiveCapPerSender int `env:"QRSGEN_RETROACTIVE_CAP_PER_SENDER" envDefault:"200"`
 }
 
 func Load() (Config, error) {

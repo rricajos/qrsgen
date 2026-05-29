@@ -233,6 +233,16 @@ func main() {
 	mgr.SetReceiptHandler(func(ctx context.Context, instance string, chat types.JID, sender types.JID, kind string, messageIDs []string, ts time.Time, r wameow.WAResolver) {
 		incoming.HandleReceipt(ctx, instance, chat, sender, kind, messageIDs, ts, r)
 	})
+	// v0.40.0: retroactive name update. Cuando whatsmeow emite Contact
+	// (contacto añadido/editado en la agenda local del dueño), reescribir
+	// el content de los mensajes históricos posteados al downstream para
+	// que reflejen el nuevo nombre / sin tilde.
+	if cfg.RetroactiveNameUpdate {
+		incoming.EnableRetroactiveNameUpdate(cfg.RetroactiveCapPerSender)
+		mgr.SetContactHandler(func(ctx context.Context, instance string, jid types.JID, fullName, firstName string, fromFullSync bool, r wameow.WAResolver) {
+			incoming.HandleContactUpdate(ctx, instance, jid, fullName, firstName, fromFullSync, r)
+		})
+	}
 	metrics.VersionInfo.WithLabelValues(version).Set(1)
 
 	banWatcher := banwatch.New(banwatch.DefaultConfig(), spamguardAdapter{mgr: mgr}, logger)

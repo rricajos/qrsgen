@@ -81,6 +81,11 @@ type Incoming struct {
 	// evento conversation_updated del downstream. Si nil, no se rastrea
 	// (feature mark-as-read desactivado). Desde v0.39.0.
 	waids *waidTracker
+
+	// msgHistory tracker de mensajes posteados para retroactive name
+	// update cuando un contacto se añade a la agenda (v0.40.0). nil =
+	// feature desactivado, no se rastrea ni se reescribe.
+	msgHistory *msgHistoryTracker
 }
 
 // NewIncomingDynamic crea un handler con resolución dinámica de inbox por instancia.
@@ -120,6 +125,18 @@ func (i *Incoming) EnableMarkAsRead() *waidTracker {
 		i.waids = newWAIDTracker(50)
 	}
 	return i.waids
+}
+
+// EnableRetroactiveNameUpdate activa el tracker de mensajes posteados
+// para reescribir su content cuando el sender pase de no-saved a saved
+// (o cambie de nombre). cap es el número máximo de mensajes que
+// recordamos por sender; >100 da margen razonable para que el
+// retroactive update encuentre msgs viejos cuando el contacto se añade
+// tras horas/días.
+func (i *Incoming) EnableRetroactiveNameUpdate(capPerSender int) {
+	if i.msgHistory == nil {
+		i.msgHistory = newMsgHistoryTracker(capPerSender)
+	}
 }
 
 // SetUsage attaches a usage recorder. Pass nil to disable.
@@ -730,6 +747,13 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 		contactName = msg.Info.PushName
 	}
 
+	// rawBody preserva el body sin prefix para guardarlo en msgHistory
+	// (retroactive name update, v0.40.0). Si el prefix no se emite,
+	// rawBody == content.
+	rawBody := content
+	var emittedSenderInfo senderInfo
+	emittedPrefix := false
+
 	// En grupos, prefijar la identidad del participante al body para que
 	// múltiples senders dentro de la misma conv del downstream sean
 	// distinguibles. Solo aplica a mensajes incoming (los fromMe del agente
@@ -751,7 +775,16 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 			shouldEmit = i.groupTracker.RecordAndCheck(instance, msg.Info.Chat.String(), senderKey)
 		}
 		if !fromMe && shouldEmit {
-			content = applyGroupSenderPrefix(content, msg, r)
+			si := resolveSenderInfo(msg, r)
+			if prefix, ok := renderGroupSenderPrefix(si); ok {
+				if content == "" {
+					content = prefix
+				} else {
+					content = prefix + groupHeaderBodySep + content
+				}
+				emittedSenderInfo = si
+				emittedPrefix = true
+			}
 		}
 	}
 
@@ -781,12 +814,130 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 	}
 
 	inboxID := i.resolve(instance)
-	if err := i.sync(ctx, instance, inboxID, rs, content, fromMe, contactName, msg.Info.ID, media, r, msg.Message); err != nil {
+	var postedMsgID, postedConvID int
+	if err := i.sync(ctx, instance, inboxID, rs, content, fromMe, contactName, msg.Info.ID, media, r, msg.Message, &postedMsgID, &postedConvID); err != nil {
 		i.logger.Error("sync to downstream failed", "err", err, "instance", instance, "primaryJID", rs.primaryJID)
+		return
+	}
+
+	// v0.40.0: si emitimos prefix de grupo y el post fue OK, registramos
+	// en msgHistory para poder reescribirlo si el sender pasa de no-saved
+	// a saved (o cambia de nombre) más tarde. Indexamos por el PN canónico
+	// — events.Contact llega como PN JID, no como LID.
+	if i.msgHistory != nil && emittedPrefix && postedMsgID != 0 && postedConvID != 0 {
+		trackerKey := canonicalSenderKey(msg.Info.Sender, r)
+		i.msgHistory.Record(instance, trackerKey, trackedMsg{
+			convID:   postedConvID,
+			msgID:    postedMsgID,
+			phone:    emittedSenderInfo.phoneFmt,
+			nameUsed: emittedSenderInfo.name,
+			wasSaved: emittedSenderInfo.saved,
+			body:     rawBody,
+			postedAt: time.Now(),
+		})
 	}
 }
 
-func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs resolvedSender, content string, fromMe bool, contactName, waID string, media *mediaInfo, r wameow.WAResolver, rawMsg *waE2E.Message) error {
+// canonicalSenderKey devuelve el JID que se usará como índice en
+// msgHistory. Cuando el sender es LID, intentamos resolver al PN
+// (events.Contact llega como PN, no como LID — para que el lookup
+// retroactivo encuentre los mensajes). Si no hay PN resoluble, cae
+// al primary JID (LID a secas).
+func canonicalSenderKey(sender types.JID, r wameow.WAResolver) string {
+	s := sender.ToNonAD()
+	if s.Server == types.HiddenUserServer && r != nil {
+		if pn, ok := r.PNForLID(s); ok {
+			return pn.String()
+		}
+	}
+	return s.String()
+}
+
+// HandleContactUpdate procesa un *events.Contact de whatsmeow cuando
+// un contacto se añade/edita en la agenda local del dueño del bot
+// (v0.40.0 retroactive name update).
+//
+// Si la feature está activa (i.msgHistory != nil) y hay mensajes
+// tracked para este sender, reescribe el `content` de cada uno en el
+// downstream con el nombre nuevo / sin tilde.
+//
+// Se ignora `fromFullSync=true`: al conectar, whatsmeow dispara un
+// event por cada contacto de la agenda — saltarlos evita un burst de
+// cientos/miles de PATCHes innecesarios (el state no cambió, es solo
+// la propagación inicial).
+func (i *Incoming) HandleContactUpdate(ctx context.Context, instance string, jid types.JID, fullName, firstName string, fromFullSync bool, r wameow.WAResolver) {
+	if i.msgHistory == nil {
+		return
+	}
+	if fromFullSync {
+		return
+	}
+
+	// Nombre nuevo: preferimos FullName, fallback a FirstName. Ambos
+	// vacíos = contacto eliminado de la agenda; no tenemos el PushName
+	// original guardado, así que saltamos en lugar de romper el
+	// histórico con un nombre vacío.
+	newName := strings.TrimSpace(fullName)
+	if newName == "" {
+		newName = strings.TrimSpace(firstName)
+	}
+	if newName == "" {
+		return
+	}
+
+	key := jid.ToNonAD().String()
+	entries := i.msgHistory.ListBySender(instance, key)
+	if len(entries) == 0 {
+		return
+	}
+
+	ds := i.ds.For(ctx, instance)
+	if ds == nil {
+		i.logger.Warn("retroactive update: no downstream client",
+			"instance", instance, "jid", jid)
+		return
+	}
+
+	// senderInfo para renderizar el header nuevo. events.Contact siempre
+	// llega con PN como JID, así que jid.User es el teléfono directo.
+	si := senderInfo{
+		name:     newName,
+		saved:    true,
+		phone:    jid.User,
+		phoneFmt: formatE164(jid.User),
+	}
+	newPrefix, ok := renderGroupSenderPrefix(si)
+	if !ok {
+		return
+	}
+
+	patched := 0
+	for _, e := range entries {
+		// No-op si ya está al día.
+		if e.nameUsed == newName && e.wasSaved {
+			continue
+		}
+		newContent := newPrefix
+		if e.body != "" {
+			newContent = newPrefix + groupHeaderBodySep + e.body
+		}
+		if err := ds.UpdateMessageContent(ctx, e.convID, e.msgID, newContent); err != nil {
+			i.logger.Warn("retroactive update PATCH failed",
+				"err", err, "instance", instance,
+				"convID", e.convID, "msgID", e.msgID)
+			continue
+		}
+		i.msgHistory.UpdateAfterPatch(instance, key, e.msgID, newName, true)
+		patched++
+	}
+	if patched > 0 {
+		i.logger.Info("retroactive name update applied",
+			"instance", instance, "jid", jid,
+			"newName", newName, "patched", patched, "scanned", len(entries))
+	}
+}
+
+func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs resolvedSender, content string, fromMe bool, contactName, waID string, media *mediaInfo, r wameow.WAResolver, rawMsg *waE2E.Message, postedMsgIDOut *int, postedConvIDOut *int) error {
 	// Resolvemos el client downstream apropiado para esta instancia
 	// (multi-tenant si está configurado, fallback global si no).
 	ds := i.ds.For(ctx, instance)
@@ -855,15 +1006,21 @@ func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs re
 			} else {
 				fallback += fmt.Sprintf("\n\n[adjunto %s no se pudo descargar: %s]", media.kind, media.mimetype)
 			}
-			_, err := ds.PostMessage(ctx, downstream.PostMessageReq{
+			respFB, errFB := ds.PostMessage(ctx, downstream.PostMessageReq{
 				ConversationID: conv.ID,
 				Content:        fallback,
 				MessageType:    msgType,
 				SourceID:       "WAID:" + waID,
 			})
-			return err
+			if respFB != nil && postedMsgIDOut != nil {
+				*postedMsgIDOut = respFB.ID
+			}
+			if postedConvIDOut != nil {
+				*postedConvIDOut = conv.ID
+			}
+			return errFB
 		}
-		_, err = ds.PostMessageWithAttachment(ctx, downstream.PostMessageAttachmentReq{
+		respAtt, errAtt := ds.PostMessageWithAttachment(ctx, downstream.PostMessageAttachmentReq{
 			ConversationID: conv.ID,
 			Content:        content,
 			MessageType:    msgType,
@@ -872,10 +1029,16 @@ func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs re
 			MimeType:       media.mimetype,
 			Data:           data,
 		})
-		return err
+		if respAtt != nil && postedMsgIDOut != nil {
+			*postedMsgIDOut = respAtt.ID
+		}
+		if postedConvIDOut != nil {
+			*postedConvIDOut = conv.ID
+		}
+		return errAtt
 	}
 
-	_, err = ds.PostMessage(ctx, downstream.PostMessageReq{
+	resp, err := ds.PostMessage(ctx, downstream.PostMessageReq{
 		ConversationID: conv.ID,
 		Content:        content,
 		MessageType:    msgType,
@@ -885,6 +1048,13 @@ func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs re
 		// Tracker para mark-as-read outgoing (v0.39.0). Solo incoming
 		// reales (NO los fromMe que el agente envió por la app móvil).
 		i.waids.RecordIncoming(instance, identifier, waID, rs.primaryJID, time.Now())
+	}
+	// v0.40.0: registrar para retroactive name update. Lo hacemos via
+	// recordPostedGroupMsg que se invoca desde Handle (donde tenemos
+	// acceso al *events.Message). Aquí solo guardamos el msgID si se
+	// devolvió, vía un puntero al postedMsgID que el caller pasa.
+	if resp != nil && postedMsgIDOut != nil {
+		*postedMsgIDOut = resp.ID
 	}
 	return err
 }
@@ -1029,6 +1199,63 @@ func filenameFromMime(mime, prefix, defaultExt string) string {
 	return prefix + "." + ext
 }
 
+// senderInfo captura los datos resueltos del sender de un mensaje de
+// grupo — útil tanto para construir el prefix como para registrar el
+// mensaje en el history tracker (v0.40.0 retroactive name update).
+type senderInfo struct {
+	name      string // nombre resuelto (ContactName o PushName)
+	saved     bool   // IsContactSaved al momento del resolve
+	phone     string // teléfono raw (sin formatear) del sender
+	phoneFmt  string // teléfono formateado E.164 (con +)
+}
+
+// resolveSenderInfo aplica la misma lógica de resolución que
+// applyGroupSenderPrefix pero la devuelve como struct, sin generar el
+// content. Permite al caller usar los datos para múltiples propósitos
+// (prefix + recording).
+func resolveSenderInfo(msg *events.Message, r wameow.WAResolver) senderInfo {
+	si := senderInfo{}
+	sender := msg.Info.Sender
+	switch sender.Server {
+	case types.DefaultUserServer:
+		si.phone = sender.User
+	case types.HiddenUserServer:
+		if r != nil {
+			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
+				si.phone = pn.User
+			}
+		}
+	}
+	if si.phone != "" {
+		si.phoneFmt = formatE164(si.phone)
+	}
+	if r != nil {
+		si.name = r.ContactName(sender.ToNonAD())
+		si.saved = r.IsContactSaved(sender.ToNonAD())
+		if sender.Server == types.HiddenUserServer && (si.name == "" || !si.saved) {
+			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
+				pnSaved := r.IsContactSaved(pn)
+				// v0.39.9 fix: si PN está saved y LID no, preferimos
+				// el ContactName(pn) (agenda) sobre el del LID
+				// (típicamente un PushName auto-asignado).
+				if !si.saved && pnSaved {
+					si.name = r.ContactName(pn)
+					si.saved = true
+				} else if si.name == "" {
+					si.name = r.ContactName(pn)
+					if !si.saved {
+						si.saved = pnSaved
+					}
+				}
+			}
+		}
+	}
+	if si.name == "" {
+		si.name = msg.Info.PushName
+	}
+	return si
+}
+
 // applyGroupSenderPrefix añade al body un prefijo identificando al
 // remitente dentro del grupo. Formato actual:
 //
@@ -1048,82 +1275,52 @@ func filenameFromMime(mime, prefix, defaultExt string) string {
 //
 // El teléfono se formatea E.164 separando solo el CC (formatE164).
 func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolver) string {
-	sender := msg.Info.Sender
-	phoneDigits := ""
-	switch sender.Server {
-	case types.DefaultUserServer:
-		phoneDigits = sender.User
-	case types.HiddenUserServer:
-		if r != nil {
-			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
-				phoneDigits = pn.User
-			}
-		}
-	}
-
-	name := ""
-	saved := false
-	if r != nil {
-		name = r.ContactName(sender.ToNonAD())
-		saved = r.IsContactSaved(sender.ToNonAD())
-		// LID sin nombre o sin saved: intentar via PN.
-		// v0.39.9: si el PN está guardado pero el LID no, preferimos
-		// el ContactName del PN (canónico) sobre el nombre del LID
-		// (que suele ser un PushName auto-asignado). Antes solo
-		// rellenábamos cuando name=="" → quedaba el PushName del
-		// LID aunque el contacto estuviera guardado con otro nombre.
-		if sender.Server == types.HiddenUserServer && (name == "" || !saved) {
-			if pn, ok := r.PNForLID(sender.ToNonAD()); ok {
-				pnSaved := r.IsContactSaved(pn)
-				if !saved && pnSaved {
-					name = r.ContactName(pn)
-					saved = true
-				} else if name == "" {
-					name = r.ContactName(pn)
-					if !saved {
-						saved = pnSaved
-					}
-				}
-			}
-		}
-	}
-	if name == "" {
-		name = msg.Info.PushName
-		// PushName NO cuenta como saved (auto-asignado por el remitente,
-		// no por el dueño del bot).
-	}
-
-	// v0.39.6: formato unificado en code block — teléfono primero (ancho
-	// natural por E.164 da columna consistente entre mensajes), middle
-	// dot como separador, nombre al final. Tilde solo si no saved.
-	// Dentro del code block markdown no procesa formato, así que no
-	// usamos `**`; el monospace + background distintivo de Chatwoot
-	// hace el contraste visual con el body.
-	nameMark := "~" + name
-	if saved {
-		nameMark = name
-	}
-
-	var prefix string
-	switch {
-	case phoneDigits != "" && name != "":
-		prefix = "`" + formatE164(phoneDigits) + " · " + nameMark + "`"
-	case name != "":
-		prefix = "`" + nameMark + ":`"
-	case phoneDigits != "":
-		prefix = "`" + formatE164(phoneDigits) + ":`"
-	default:
+	si := resolveSenderInfo(msg, r)
+	prefix, ok := renderGroupSenderPrefix(si)
+	if !ok {
 		return body
 	}
 	if body == "" {
 		return prefix
 	}
-	// v0.39.10: HTML <br> directo. v0.39.8 ("  \n") no lo renderizaba
-	// Chatwoot (quedaba inline). v0.39.9 ("\n\n") sí pero generaba un
-	// salto de párrafo con demasiado aire. Chatwoot pasa el <br> por su
-	// sanitizer markdown→HTML, dando un line break compacto (igual que
-	// shift+enter en su composer).
-	return prefix + "<br>" + body
+	return prefix + groupHeaderBodySep + body
+}
+
+// groupHeaderBodySep es el separador entre el header (`+phone · name`)
+// y el body en mensajes posteados al downstream.
+//
+// Historia:
+//   - v0.39.7  "\n"     soft break — invisible inline en Chatwoot
+//   - v0.39.8  "  \n"   CommonMark hard break — Chatwoot lo ignora
+//   - v0.39.9  "\n\n"   paragraph break — funciona pero demasiado aire
+//   - v0.39.10 "<br>"   HTML directo — line break compacto,
+//                       equivalente a shift+enter en composer Chatwoot
+//
+// Si en una versión futura Chatwoot empieza a sanitizar `<br>`
+// estrictamente, revertir a "\n\n" aquí.
+const groupHeaderBodySep = "<br>"
+
+// renderGroupSenderPrefix construye el prefix (code block) a partir de
+// un senderInfo ya resuelto. Devuelve (prefix, true) si pudo
+// identificar al sender; (—, false) si no hay ni phone ni nombre.
+//
+// Reutilizable por retroactive name update (v0.40.0): el orchestrator
+// resuelve el senderInfo actual y reusa este helper para producir el
+// header nuevo.
+func renderGroupSenderPrefix(si senderInfo) (string, bool) {
+	nameMark := "~" + si.name
+	if si.saved {
+		nameMark = si.name
+	}
+	switch {
+	case si.phoneFmt != "" && si.name != "":
+		return "`" + si.phoneFmt + " · " + nameMark + "`", true
+	case si.name != "":
+		return "`" + nameMark + ":`", true
+	case si.phoneFmt != "":
+		return "`" + si.phoneFmt + ":`", true
+	}
+	return "", false
 }
 
 // formatE164 toma "34604021705" → "+34604021705". Devuelve el número

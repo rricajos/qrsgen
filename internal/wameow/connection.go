@@ -68,6 +68,20 @@ type ContactHandler func(ctx context.Context, instance string, jid types.JID, fu
 // mensajes históricos a Chatwoot.
 type HistorySyncHandler func(ctx context.Context, instance string, data *waHistorySync.HistorySync, r WAResolver)
 
+// GroupInfoHandler se dispara cuando whatsmeow emite
+// *events.GroupInfo (cambio de nombre/topic/locked/announce, miembros
+// añadidos/expulsados, promote/demote, etc.). v0.47.0.
+type GroupInfoHandler func(ctx context.Context, instance string, evt *events.GroupInfo, r WAResolver)
+
+// JoinedGroupHandler se dispara cuando whatsmeow emite
+// *events.JoinedGroup (te añaden a un grupo nuevo, o lo creas). v0.47.0.
+type JoinedGroupHandler func(ctx context.Context, instance string, evt *events.JoinedGroup, r WAResolver)
+
+// IdentityChangeHandler se dispara cuando whatsmeow emite
+// *events.IdentityChange (otro usuario cambió su primary device y
+// el código de seguridad ha cambiado). v0.47.0.
+type IdentityChangeHandler func(ctx context.Context, instance string, evt *events.IdentityChange, r WAResolver)
+
 // WAResolver expone consultas al estado local del cliente whatsmeow.
 type WAResolver interface {
 	// ContactName devuelve el nombre cacheado para un JID, o "" si no hay info.
@@ -148,6 +162,9 @@ type Conn struct {
 	onReceipt      ReceiptHandler
 	onContact      ContactHandler
 	onHistorySync  HistorySyncHandler
+	onGroupInfo    GroupInfoHandler
+	onJoinedGroup  JoinedGroupHandler
+	onIdentityChg  IdentityChangeHandler
 
 	mu        sync.RWMutex
 	lastQRPNG []byte
@@ -234,6 +251,18 @@ func (c *Conn) SetContactHandler(h ContactHandler) { c.onContact = h }
 // SetHistorySyncHandler registra el callback para *events.HistorySync
 // (v0.46.0 history import). Llamar antes de Connect/Bootstrap.
 func (c *Conn) SetHistorySyncHandler(h HistorySyncHandler) { c.onHistorySync = h }
+
+// SetGroupInfoHandler registra el callback para *events.GroupInfo
+// (v0.47.0 group events). Llamar antes de Connect/Bootstrap.
+func (c *Conn) SetGroupInfoHandler(h GroupInfoHandler) { c.onGroupInfo = h }
+
+// SetJoinedGroupHandler registra el callback para *events.JoinedGroup.
+// Llamar antes de Connect/Bootstrap.
+func (c *Conn) SetJoinedGroupHandler(h JoinedGroupHandler) { c.onJoinedGroup = h }
+
+// SetIdentityChangeHandler registra el callback para *events.IdentityChange.
+// Llamar antes de Connect/Bootstrap.
+func (c *Conn) SetIdentityChangeHandler(h IdentityChangeHandler) { c.onIdentityChg = h }
 
 // Connect arranca la conexión. Si el device aún no está pareado, abre canal QR.
 func (c *Conn) Connect(ctx context.Context) error {
@@ -567,6 +596,18 @@ func (c *Conn) handle(rawEvt any) {
 			// que ejecutamos en goroutine para no bloquear el event
 			// loop de whatsmeow.
 			go c.onHistorySync(context.Background(), c.name, evt.Data, c)
+		}
+	case *events.GroupInfo:
+		if c.onGroupInfo != nil {
+			c.onGroupInfo(context.Background(), c.name, evt, c)
+		}
+	case *events.JoinedGroup:
+		if c.onJoinedGroup != nil {
+			c.onJoinedGroup(context.Background(), c.name, evt, c)
+		}
+	case *events.IdentityChange:
+		if c.onIdentityChg != nil {
+			c.onIdentityChg(context.Background(), c.name, evt, c)
 		}
 	case *events.Connected:
 		c.logger.Info("connected to whatsapp")

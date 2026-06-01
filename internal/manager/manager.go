@@ -36,6 +36,9 @@ type Manager struct {
 	onReceipt       wameow.ReceiptHandler
 	onContact       wameow.ContactHandler
 	onHistorySync   wameow.HistorySyncHandler
+	onGroupInfo     wameow.GroupInfoHandler
+	onJoinedGroup   wameow.JoinedGroupHandler
+	onIdentityChg   wameow.IdentityChangeHandler
 
 	// waiters: suscripciones a "esta instancia está ready". Cada canal
 	// recibe una señal cuando la instancia transiciona a ready y se cierra.
@@ -146,6 +149,37 @@ func (m *Manager) SetHistorySyncHandler(h wameow.HistorySyncHandler) {
 	m.onHistorySync = h
 	for _, conn := range m.instances {
 		conn.SetHistorySyncHandler(h)
+	}
+}
+
+// SetGroupInfoHandler registra el callback para *events.GroupInfo
+// (v0.47.0 group events). Lo propaga a las instancias actuales y futuras.
+func (m *Manager) SetGroupInfoHandler(h wameow.GroupInfoHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onGroupInfo = h
+	for _, conn := range m.instances {
+		conn.SetGroupInfoHandler(h)
+	}
+}
+
+// SetJoinedGroupHandler registra el callback para *events.JoinedGroup.
+func (m *Manager) SetJoinedGroupHandler(h wameow.JoinedGroupHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onJoinedGroup = h
+	for _, conn := range m.instances {
+		conn.SetJoinedGroupHandler(h)
+	}
+}
+
+// SetIdentityChangeHandler registra el callback para *events.IdentityChange.
+func (m *Manager) SetIdentityChangeHandler(h wameow.IdentityChangeHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onIdentityChg = h
+	for _, conn := range m.instances {
+		conn.SetIdentityChangeHandler(h)
 	}
 }
 
@@ -388,6 +422,15 @@ func (m *Manager) startLocked(ctx context.Context, name, jidStr string) (*wameow
 	}
 	if m.onHistorySync != nil {
 		conn.SetHistorySyncHandler(m.onHistorySync)
+	}
+	if m.onGroupInfo != nil {
+		conn.SetGroupInfoHandler(m.onGroupInfo)
+	}
+	if m.onJoinedGroup != nil {
+		conn.SetJoinedGroupHandler(m.onJoinedGroup)
+	}
+	if m.onIdentityChg != nil {
+		conn.SetIdentityChangeHandler(m.onIdentityChg)
 	}
 	if err := conn.Connect(ctx); err != nil {
 		return nil, err

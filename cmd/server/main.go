@@ -147,6 +147,9 @@ func main() {
 	if cfg.HistoryImportEnabled {
 		incoming.EnableHistoryImport(cfg.HistoryImportDays, cfg.HistoryImportRatePerSec)
 	}
+	if cfg.GroupEventsEnabled {
+		incoming.SetGroupEventsEnabled(true)
+	}
 	incoming.SetAvatarSync(cfg.AvatarSync)
 	incoming.SetAvatarRefreshTTL(cfg.AvatarRefreshTTL)
 	incoming.SetReactionsSync(cfg.ReactionsSync)
@@ -240,6 +243,20 @@ func main() {
 	mgr.SetReceiptHandler(func(ctx context.Context, instance string, chat types.JID, sender types.JID, kind string, messageIDs []string, ts time.Time, r wameow.WAResolver) {
 		incoming.HandleReceipt(ctx, instance, chat, sender, kind, messageIDs, ts, r)
 	})
+	// v0.47.0: group events (info changes, join, identity change)
+	// renderizados como activity msgs en la conv del grupo/1:1.
+	if cfg.GroupEventsEnabled {
+		mgr.SetGroupInfoHandler(func(ctx context.Context, instance string, evt *events.GroupInfo, r wameow.WAResolver) {
+			incoming.HandleGroupInfo(ctx, instance, evt, r)
+		})
+		mgr.SetJoinedGroupHandler(func(ctx context.Context, instance string, evt *events.JoinedGroup, r wameow.WAResolver) {
+			incoming.HandleJoinedGroup(ctx, instance, evt, r)
+		})
+		mgr.SetIdentityChangeHandler(func(ctx context.Context, instance string, evt *events.IdentityChange, r wameow.WAResolver) {
+			incoming.HandleIdentityChange(ctx, instance, evt, r)
+		})
+	}
+
 	// v0.46.0: history import. Cuando whatsmeow emite HistorySync
 	// (al parear o como respuesta on-demand), Incoming.HandleHistorySync
 	// procesa el blob y postea los msgs al downstream con created_at

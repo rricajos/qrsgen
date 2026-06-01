@@ -569,9 +569,18 @@ func (i *Incoming) BulkImportHistory(ctx context.Context, instance string, inbox
 			}
 			chatRes, err := i.ImportHistoryOnDemand(ctx, instance, jid, countPerChat, timeoutPerChat, r)
 			if err != nil {
-				out.Errors++
-				i.logger.Warn("bulk history import: chat failed",
-					"err", err, "instance", instance, "chat", jid)
+				// Separar "no anchor" del resto: es esperado para
+				// chats sin actividad reciente tracked en msg_history,
+				// no es un error real del feature.
+				if strings.Contains(err.Error(), "no message anchor") {
+					out.NoAnchor++
+					i.logger.Debug("bulk history import: no anchor",
+						"instance", instance, "chat", jid)
+				} else {
+					out.Errors++
+					i.logger.Warn("bulk history import: chat failed",
+						"err", err, "instance", instance, "chat", jid)
+				}
 				continue
 			}
 			out.Imported++
@@ -597,9 +606,10 @@ type BulkImportResult struct {
 	Instance     string `json:"instance"`
 	Pages        int    `json:"pages"`         // páginas del downstream iteradas
 	Scanned      int    `json:"scanned"`       // contactos totales iterados
-	Imported     int    `json:"imported"`      // chats con sync exitoso
+	Imported     int    `json:"imported"`      // chats con sync exitoso (incluso 0 msgs)
 	Skipped      int    `json:"skipped"`       // identifier no parseable / server no soportado
-	Errors       int    `json:"errors"`        // chats que timeout/error
+	NoAnchor     int    `json:"no_anchor"`     // chats sin msg_history anchor (no es error)
+	Errors       int    `json:"errors"`        // chats que timeout/error real
 	TotalPosted  int    `json:"total_posted"`  // sum de msgs posteados en todos los chats
 	TotalSkipped int    `json:"total_skipped"` // sum de msgs skipped (sin texto)
 	TotalErrors  int    `json:"total_errors"`  // sum de errores POST

@@ -4,6 +4,91 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-06-01
+
+Feature: **group events como activity msgs en Chatwoot**. Cuando
+WhatsApp emite `*events.GroupInfo` (cambio nombre/topic/miembros/
+lock/announce/ephemeral), `*events.JoinedGroup` (bot añadido a un
+grupo nuevo) o `*events.IdentityChange` (código de seguridad
+cambia), qrsgen postea un activity msg en la conv de Chatwoot
+correspondiente. El agente ve la mismo contexto que vería en su
+phone WA.
+
+Incluye también el fix de polish del bulk history import del v0.46.x
+(reporting separado de "no anchor" vs errors reales).
+
+### Added
+
+- **`Incoming.HandleGroupInfo / HandleJoinedGroup / HandleIdentityChange`**
+  + `SetGroupEventsEnabled` setter. Procesan los eventos y postean
+  activity msgs vía `findContactByIdentifier` + `FindOpenConversation` +
+  `PostMessage`. Si la conv aún no existe (grupo sin actividad previa),
+  no-op silencioso.
+- **`wameow.GroupInfoHandler`** + `JoinedGroupHandler` +
+  `IdentityChangeHandler` types. Subscripciones en `Conn` + setters +
+  propagación en `Manager`.
+- **Formato de activity msgs**:
+  - `📝 **Pepito** cambió el nombre del grupo a _X_`
+  - `📝 **Pepito** cambió la descripción del grupo: _X_` / `quitó la descripción`
+  - `🔒 **Pepito** restringió la edición del grupo a admins` / `🔓 ... permitió a todos`
+  - `📢 **Pepito** activó modo anuncio` / `desactivó modo anuncio`
+  - `⏱️ **Pepito** activó mensajes temporales (Ns)` / `desactivó`
+  - `➕ **Pepito** añadió a Ana, ~Bea`
+  - `➖ Ana, ~Bea salieron/fueron expulsados del grupo`
+  - `⭐ **Pepito** promovió a admin: ...` / `quitó admin a: ...`
+  - `**Te añadieron a este grupo**\n_Grupo: <subject>_` (joined)
+  - `🔐 **El código de seguridad de Pepito cambió.** Toca para más información.`
+
+- **Métricas**: `qrsgen_realtime_events_total{feature="group_event"}`
+  con results `ok` / `ds_error`.
+
+### Config
+
+- **`QRSGEN_GROUP_EVENTS_ENABLED`** (default `false`): opt-in.
+  Activar implica POSTs adicionales a Chatwoot por cada cambio de
+  metadata del grupo / join / identity. Sin actividad en grupos
+  es prácticamente cero overhead.
+
+### Changed (v0.46.3 polish del bulk import)
+
+- **`BulkImportResult.NoAnchor` field nuevo** separado de `Errors`.
+  Chats sin msg tracked en `msg_history` (no aplica al feature
+  porque WA ON_DEMAND necesita anchor real) ahora cuentan como
+  `no_anchor`, no como `errors`. El JSON del endpoint
+  `/history/import-all` distingue ambos casos:
+  ```json
+  {
+    "scanned": 171,
+    "imported": 3,
+    "skipped": 7,
+    "no_anchor": 161,  // <-- nuevo, antes "errors"
+    "errors": 0,        // ahora solo timeouts/fallos reales
+    "total_posted": 45
+  }
+  ```
+
+### Tests
+
+- 8 unit tests en `group_events_test.go`:
+  - `BuildGroupInfoLines_*` (5 cases: name change, topic set/unset,
+    join/leave/promote/demote, locked/announce/ephemeral, unknown actor)
+  - `IdentityFromJID_*` (3 cases: saved sin tilde, unsaved con tilde,
+    fallback phone)
+
+### Migration notes
+
+- Sin breaking changes. Feature off por default. Activar con
+  `QRSGEN_GROUP_EVENTS_ENABLED=true` para empezar a propagar los
+  eventos.
+- Si tu downstream tiene rate limits agresivos, ten en cuenta que
+  grupos muy activos pueden generar varios activity msgs por hora
+  (cambios de nombre, miembros, etc.).
+- v0.46.x `BulkImportResult.errors` field semantics cambia:
+  ahora cuenta SOLO timeouts/fallos reales, no chats sin anchor.
+  Parsers que sumen `errors` para detectar "hubo problemas"
+  necesitan también considerar el caso "no_anchor=N" (que es
+  esperado, no error).
+
 ## [0.46.2] - 2026-06-01
 
 Bug fix de v0.46.0/v0.46.1: el on-demand history sync request fallaba

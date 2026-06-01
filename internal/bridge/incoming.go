@@ -111,6 +111,11 @@ type Incoming struct {
 	// nil = feature desactivado (EnableHistoryImport no llamada).
 	historyCfg *historyImportConfig
 
+	// groupEventsEnabled activa el render de *events.GroupInfo,
+	// JoinedGroup e IdentityChange como activity msgs en Chatwoot.
+	// Default false (opt-in via env QRSGEN_GROUP_EVENTS_ENABLED). v0.47.0.
+	groupEventsEnabled bool
+
 	// onDemandLatch sincroniza requests on-demand de history sync con
 	// el HandleHistorySync callback. Cada request adquiere un latch
 	// (chan) indexado por (instance, chat) y libera al recibir el

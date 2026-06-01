@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.46.2` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.46.2 (fix: history import on-demand resuelve anchor real desde msg_history tracker — sin esto, el phone primary ignoraba la request → timeout). |
+| `QRSGEN_VERSION` | `0.47.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.47.0 (group events — cambios de nombre/topic/miembros/lock/announce/ephemeral + JoinedGroup + IdentityChange se propagan como activity msgs en la conv de Chatwoot). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |
@@ -33,6 +33,7 @@
 | `QRSGEN_HISTORY_IMPORT_ENABLED` | `false` | Si `true`, qrsgen procesa los blobs de `*events.HistorySync` que recibe (al parear instancias o como respuesta on-demand) y postea los msgs históricos al downstream con `created_at` backdated + `source_id=WAID:<id>` para idempotencia. Opt-in por implicaciones de volumen (puede ser cientos de POSTs en una pasada). Desde v0.46.0. |
 | `QRSGEN_HISTORY_IMPORT_DAYS` | `7` | Cuántos días hacia atrás importar. Clamped a `[1, 30]`. WhatsApp limita el histórico que devuelve según ajustes del phone — pedir 30 cuando el phone solo guarda 7 da los 7. Desde v0.46.0. |
 | `QRSGEN_HISTORY_IMPORT_RATE_PER_SEC` | `5` | Límite de POST/s al downstream durante el import — evita bursts que estresen Chatwoot. Aumentar con cuidado (>20 puede generar rate limits en el backend). Desde v0.46.0. |
+| `QRSGEN_GROUP_EVENTS_ENABLED` | `false` | Si `true`, qrsgen propaga `*events.GroupInfo` (cambios de nombre/topic/miembros/lock/announce/ephemeral), `*events.JoinedGroup` (bot añadido a un grupo nuevo) y `*events.IdentityChange` (código de seguridad cambia) como activity msgs en la conv del grupo/contacto en Chatwoot. Default `false` (opt-in). Desde v0.47.0. |
 | `QRSGEN_AVATAR_SYNC` | `true` | Si `true`, qrsgen descarga la foto de perfil WhatsApp del contacto/grupo al crear el contact en downstream y la sube como avatar via PUT multipart. Fire-and-forget (no bloquea el msg). `false` desactiva la sincronización; los contactos quedan con letter-avatar autogenerado. Desde v0.31.0. |
 | `QRSGEN_AVATAR_REFRESH_TTL` | `24h` | Si > 0, contactos existentes se re-chequean cada este TTL para detectar cambios de foto WhatsApp. La comparación usa el `info.ID` (cheap metadata, no descarga); solo se descarga + sube si el ID cambió. `0` desactiva el refresh (solo sync al crear). Desde v0.31.1. |
 | `QRSGEN_REACTIONS_SYNC` | `true` | Si `true`, las reacciones (emojis) que los clientes WhatsApp añaden a mensajes se postean al downstream como mensaje incoming. Desde **v0.39.7** el formato se alinea con el prefijo de grupo v0.39.6: `` `+<E164> · <~?>name reaccionó con <emoji>` `` (línea completa en inline code block, phone-first, middle dot `·` como separador, tilde solo si el contacto no está guardado). Reacción retirada (`text=""`): `` `+<E164> · <~?>name quitó su reacción` `` (sin italic — markdown no se procesa dentro de inline code). `false` las ignora silenciosamente. Desde v0.33.0 (formato actualizado en v0.39.7). |

@@ -75,6 +75,13 @@ type Config struct {
 	// Default "10m". Desde v0.30.0.
 	GroupHeaderTTL time.Duration `env:"QRSGEN_GROUP_HEADER_TTL" envDefault:"10m"`
 
+	// GroupEventsEnabled activa la propagación de *events.GroupInfo
+	// (cambios de nombre/topic/miembros/lock/announce), *events.JoinedGroup
+	// (bot añadido a grupo nuevo) e *events.IdentityChange (código de
+	// seguridad cambia) como activity msgs en Chatwoot. Default false
+	// (opt-in). Desde v0.47.0.
+	GroupEventsEnabled bool `env:"QRSGEN_GROUP_EVENTS_ENABLED" envDefault:"false"`
+
 	// HistoryImportEnabled activa el feature de importar mensajes
 	// históricos al downstream (v0.46.0). Opt-in: implica POST
 	// rate-limited a Chatwoot al recibir un HistorySync de whatsmeow

@@ -46,6 +46,61 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.50.0] - 2026-06-01
+
+Feature: **group admin completeness** — 5 endpoints adicionales que
+cierran el conjunto operativo. Junto a los 3 de v0.48.0 da control
+total sobre grupos vía HTTP sin tocar el phone.
+
+### Added
+
+- **`POST /api/instances/:n/groups/:jid/topic`** — cambia el topic
+  (descripción). Body `{topic: "X"}`. Vacío = quitar descripción.
+- **`POST /api/instances/:n/groups/:jid/locked`** — toggle "solo
+  admins editan info". Body `{locked: bool}`.
+- **`POST /api/instances/:n/groups/:jid/announce`** — toggle modo
+  anuncio (solo admins envían msgs). Body `{announce: bool}`.
+- **`POST /api/instances/:n/groups`** — crea grupo nuevo. Body
+  `{name: "X", participants: [...]}`. max 25 chars name.
+  Response 201 con el JID generado.
+- **`DELETE /api/instances/:n/groups/:jid`** — bot abandona el grupo.
+
+- **`wameow.Conn` métodos nuevos**:
+  - `SetGroupTopic(ctx, jid, topic)`
+  - `SetGroupLocked(ctx, jid, bool)`
+  - `SetGroupAnnounce(ctx, jid, bool)`
+  - `CreateGroup(ctx, name, participants) (jidStr, error)`
+  - `LeaveGroup(ctx, jid)`
+
+### Conjunto completo (v0.48.0 + v0.50.0)
+
+| Operation | Endpoint |
+|---|---|
+| Read info | `GET /groups/:jid` |
+| Rename | `POST /groups/:jid/name` |
+| Topic | `POST /groups/:jid/topic` |
+| Locked | `POST /groups/:jid/locked` |
+| Announce | `POST /groups/:jid/announce` |
+| Add/remove/promote/demote | `POST /groups/:jid/participants` |
+| Create | `POST /groups` |
+| Leave | `DELETE /groups/:jid` |
+
+Total 8 endpoints. Falta solo `ephemeral` que es uso menos común.
+
+### Side effects
+
+Con `QRSGEN_GROUP_EVENTS_ENABLED=true`, cada operación de escritura
+dispara el `*events.GroupInfo` correspondiente que se renderiza como
+activity msg en la conv del grupo en Chatwoot (mismos mensajes que
+en v0.47.0).
+
+### Migration notes
+
+- Sin breaking changes.
+- `CreateGroup` requiere ≥1 participant en el body — el bot se
+  añade implícitamente.
+- `name` máx 25 chars — WhatsApp rechaza con 406 si más largo.
+
 ## [0.49.0] - 2026-06-01
 
 Feature: **`bridge_chat_anchor` tracker** — sube cobertura del bulk

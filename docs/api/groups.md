@@ -132,13 +132,70 @@ desde su phone antes de empezar a gestionar vía API.
 Si la instancia está `disconnected` el endpoint devuelve 404 o 500
 según el caso. Verificar con `GET /api/instances` antes de operar.
 
-## Endpoints planeados (post v0.48.0)
+## `POST /api/instances/:name/groups/:jid/topic`
 
-- `POST /groups/:jid/topic` — cambiar descripción
-- `POST /groups/:jid/locked` — restringir edición a admins
-- `POST /groups/:jid/announce` — restringir envío de msgs a admins
-- `POST /groups/:jid/ephemeral` — mensajes temporales
-- `POST /groups` — crear grupo nuevo
-- `DELETE /groups/:jid` — bot abandona el grupo
+v0.50.0. Cambia el topic (descripción) del grupo. Body:
 
-Estos vendrán en una minor posterior con scope completo.
+```json
+{"topic": "Coordinación del proyecto"}
+```
+
+`topic: ""` quita la descripción. Requiere bot admin.
+
+Response 200: `{"jid":"...","topic":"..."}`.
+
+## `POST /api/instances/:name/groups/:jid/locked`
+
+v0.50.0. Toggle "solo admins pueden editar info del grupo".
+
+```json
+{"locked": true}
+```
+
+Response 200: `{"jid":"...","locked":true}`.
+
+## `POST /api/instances/:name/groups/:jid/announce`
+
+v0.50.0. Toggle "modo anuncio" — cuando `true`, solo los admins
+pueden enviar mensajes al grupo.
+
+```json
+{"announce": true}
+```
+
+Response 200: `{"jid":"...","announce":true}`.
+
+## `POST /api/instances/:name/groups`
+
+v0.50.0. Crea un grupo nuevo. Body:
+
+```json
+{
+  "name": "Nuevo Grupo",
+  "participants": ["34611111111@s.whatsapp.net", "34622222222@s.whatsapp.net"]
+}
+```
+
+- `name`: max 25 chars (WA rechaza con 406 si más largo).
+- `participants`: array de JIDs. El bot se añade implícitamente.
+
+Response 201: `{"jid":"120363...@g.us","name":"Nuevo Grupo"}`.
+
+Si la feature `QRSGEN_GROUP_EVENTS_ENABLED=true`, además llegará
+un `*events.JoinedGroup` que postea actividad en la conv recién
+creada (`"Te añadieron al grupo recién creado"`).
+
+## `DELETE /api/instances/:name/groups/:jid`
+
+v0.50.0. El bot abandona el grupo.
+
+Response 200: `{"jid":"...","left":true}`.
+
+Side effect: el grupo deja de generar eventos para el bot. La conv
+en Chatwoot queda en el estado actual; no se cierra automáticamente.
+
+## Endpoints planeados (post v0.50.0)
+
+- Promote/demote already en `/participants` con action.
+- `POST /groups/:jid/ephemeral` (mensajes temporales) — pendiente.
+- Bulk operations sobre múltiples grupos a la vez — pendiente.

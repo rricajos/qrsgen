@@ -806,6 +806,62 @@ func (c *Conn) SetGroupName(ctx context.Context, jid types.JID, name string) err
 	return c.client.SetGroupName(ctx, jid, name)
 }
 
+// SetGroupTopic cambia el topic (descripción) de un grupo. v0.50.0.
+// `previousID` y `newID` son opcionales (whatsmeow los autogenera si
+// vacío). Requiere bot admin.
+func (c *Conn) SetGroupTopic(ctx context.Context, jid types.JID, topic string) error {
+	if c.client == nil {
+		return fmt.Errorf("set topic: client nil")
+	}
+	return c.client.SetGroupTopic(ctx, jid, "", "", topic)
+}
+
+// SetGroupLocked controla si solo admins pueden editar la info del
+// grupo. v0.50.0.
+func (c *Conn) SetGroupLocked(ctx context.Context, jid types.JID, locked bool) error {
+	if c.client == nil {
+		return fmt.Errorf("set locked: client nil")
+	}
+	return c.client.SetGroupLocked(ctx, jid, locked)
+}
+
+// SetGroupAnnounce controla el modo anuncio (solo admins envían
+// mensajes). v0.50.0.
+func (c *Conn) SetGroupAnnounce(ctx context.Context, jid types.JID, announce bool) error {
+	if c.client == nil {
+		return fmt.Errorf("set announce: client nil")
+	}
+	return c.client.SetGroupAnnounce(ctx, jid, announce)
+}
+
+// CreateGroup crea un grupo nuevo. name max 25 chars, participants
+// debe incluir al menos 1 JID (el bot se añade implícitamente).
+// v0.50.0. Devuelve el JID del grupo creado.
+func (c *Conn) CreateGroup(ctx context.Context, name string, participants []types.JID) (string, error) {
+	if c.client == nil {
+		return "", fmt.Errorf("create group: client nil")
+	}
+	if len(participants) == 0 {
+		return "", fmt.Errorf("create group: at least 1 participant required")
+	}
+	info, err := c.client.CreateGroup(ctx, whatsmeow.ReqCreateGroup{
+		Name:         name,
+		Participants: participants,
+	})
+	if err != nil {
+		return "", err
+	}
+	return info.JID.String(), nil
+}
+
+// LeaveGroup hace que el bot abandone el grupo. v0.50.0.
+func (c *Conn) LeaveGroup(ctx context.Context, jid types.JID) error {
+	if c.client == nil {
+		return fmt.Errorf("leave group: client nil")
+	}
+	return c.client.LeaveGroup(ctx, jid)
+}
+
 // UpdateGroupParticipants añade, expulsa, promueve o degrada miembros
 // de un grupo. action ∈ {"add","remove","promote","demote"}.
 // Requiere que el bot sea admin. v0.48.0.

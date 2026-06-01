@@ -509,6 +509,102 @@ func (i *Incoming) ImportHistoryOnDemand(ctx context.Context, instance string, c
 	}
 }
 
+// BulkImportHistory itera todos los contactos del inbox asociado a la
+// instancia y dispara un ImportHistoryOnDemand secuencial por cada
+// chat. Devuelve stats agregadas. v0.46.1.
+//
+// Útil para backfillear todas las conversaciones existentes en
+// Chatwoot sin tener que llamar al endpoint per-chat.
+//
+// El procesamiento es secuencial (no paralelo) para no estresar al
+// phone primary ni al downstream. Cada chat respeta el rate limit
+// configurado en EnableHistoryImport.
+//
+// `count` por chat: 50 (cap WhatsApp recomendado). Configurable.
+// `timeoutPerChat`: 30s por defecto — el phone puede tardar varios
+// segundos en responder cada uno.
+func (i *Incoming) BulkImportHistory(ctx context.Context, instance string, inboxID, countPerChat int, timeoutPerChat time.Duration, r wameow.WAResolver) (BulkImportResult, error) {
+	out := BulkImportResult{Instance: instance}
+	if !i.historyImportEnabled() {
+		return out, fmt.Errorf("history import disabled")
+	}
+	if r == nil {
+		return out, fmt.Errorf("resolver nil")
+	}
+	if inboxID <= 0 {
+		return out, fmt.Errorf("inbox id required (got %d)", inboxID)
+	}
+	if countPerChat <= 0 {
+		countPerChat = 50
+	}
+	if timeoutPerChat <= 0 {
+		timeoutPerChat = 30 * time.Second
+	}
+
+	ds := i.ds.For(ctx, instance)
+	if ds == nil {
+		return out, fmt.Errorf("downstream not configured for instance %s", instance)
+	}
+
+	page := 1
+	for {
+		if ctx.Err() != nil {
+			return out, ctx.Err()
+		}
+		contacts, hasMore, err := ds.ListContactsByInbox(ctx, inboxID, page)
+		if err != nil {
+			return out, fmt.Errorf("list contacts page %d: %w", page, err)
+		}
+		out.Pages++
+		for _, contact := range contacts {
+			out.Scanned++
+			jid, parseErr := types.ParseJID(contact.Identifier)
+			if parseErr != nil {
+				out.Skipped++
+				continue
+			}
+			if !isSupportedChatServer(jid.Server) {
+				out.Skipped++
+				continue
+			}
+			chatRes, err := i.ImportHistoryOnDemand(ctx, instance, jid, countPerChat, timeoutPerChat, r)
+			if err != nil {
+				out.Errors++
+				i.logger.Warn("bulk history import: chat failed",
+					"err", err, "instance", instance, "chat", jid)
+				continue
+			}
+			out.Imported++
+			out.TotalPosted += chatRes.Posted
+			out.TotalSkipped += chatRes.Skipped
+			out.TotalErrors += chatRes.Errors
+		}
+		if !hasMore {
+			break
+		}
+		page++
+		if page > 200 {
+			i.logger.Warn("bulk history import: page cap reached",
+				"instance", instance, "pages", page, "scanned", out.Scanned)
+			break
+		}
+	}
+	return out, nil
+}
+
+// BulkImportResult resume una pasada de BulkImportHistory.
+type BulkImportResult struct {
+	Instance     string `json:"instance"`
+	Pages        int    `json:"pages"`         // páginas del downstream iteradas
+	Scanned      int    `json:"scanned"`       // contactos totales iterados
+	Imported     int    `json:"imported"`      // chats con sync exitoso
+	Skipped      int    `json:"skipped"`       // identifier no parseable / server no soportado
+	Errors       int    `json:"errors"`        // chats que timeout/error
+	TotalPosted  int    `json:"total_posted"`  // sum de msgs posteados en todos los chats
+	TotalSkipped int    `json:"total_skipped"` // sum de msgs skipped (sin texto)
+	TotalErrors  int    `json:"total_errors"`  // sum de errores POST
+}
+
 // onDemandLatchSet sincroniza requests on-demand con el callback
 // HandleHistorySync. Múltiples solicitudes para chats distintos
 // pueden estar en vuelo simultáneamente.

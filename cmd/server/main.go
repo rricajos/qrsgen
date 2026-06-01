@@ -704,6 +704,57 @@ func main() {
 		return c.JSON(http.StatusOK, banWatcher.Snapshot(c.Param("name")))
 	})
 
+	// POST /api/instances/:name/history/import-all
+	// v0.46.1: bulk import — itera TODOS los contactos del inbox de la
+	// instancia y dispara on-demand history sync para cada uno.
+	// Funciona sobre instancia ya conectada — NO requiere desconectar
+	// ni re-parear. Útil para backfillear toda una agenda al adoptar
+	// la feature.
+	//
+	// Query params:
+	//   - count_per_chat=N     (opcional, default 50)
+	//   - timeout_per_chat=N   (opcional, default 30 sec)
+	//
+	// Secuencial: procesa chat tras chat para no estresar al phone.
+	// Bloquea hasta terminar — para inboxes grandes puede tardar
+	// minutos. Considera ejecutarlo con un cliente que tolere
+	// timeouts largos (curl -m 600 por ejemplo).
+	api.POST("/instances/:name/history/import-all", func(c echo.Context) error {
+		instance := c.Param("name")
+		conn, ok := mgr.Get(instance)
+		if !ok {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
+		}
+		inboxID := resolveInbox(instance)
+		if inboxID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "no inbox_id for instance"})
+		}
+		count := 50
+		if v := c.QueryParam("count_per_chat"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				count = n
+			}
+		}
+		timeoutSec := 30
+		if v := c.QueryParam("timeout_per_chat"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				timeoutSec = n
+			}
+		}
+		result, err := incoming.BulkImportHistory(
+			c.Request().Context(),
+			instance,
+			inboxID,
+			count,
+			time.Duration(timeoutSec)*time.Second,
+			conn,
+		)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	// POST /api/instances/:name/history/import
 	// v0.46.0: trigger on-demand history sync para un chat específico.
 	// Query params:

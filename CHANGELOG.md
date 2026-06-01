@@ -4,6 +4,44 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.46.1] - 2026-06-01
+
+UX add-on de v0.46.0: bulk history import sin necesidad de desconectar
+la instancia.
+
+### Added
+
+- **`Incoming.BulkImportHistory(ctx, instance, inboxID, count, timeout, r)`**:
+  itera todos los contactos del inbox vía `ListContactsByInbox` y
+  dispara `ImportHistoryOnDemand` secuencialmente por cada uno.
+  Funciona sobre instancia ya conectada — NO requiere desconectar
+  ni re-parear. Devuelve `BulkImportResult` con stats agregadas
+  (`pages, scanned, imported, skipped, errors, total_posted,
+  total_skipped, total_errors`).
+- **Endpoint admin `POST /api/instances/:name/history/import-all`**:
+  - Query: `count_per_chat=N` (default 50), `timeout_per_chat=N`
+    (default 30s).
+  - Bloquea hasta terminar — para inboxes grandes puede tardar
+    minutos.
+
+### Notes
+
+- Secuencial por diseño: procesa un chat tras otro para no estresar
+  al phone primary (que sirve las requests on-demand) ni al
+  downstream (rate-limit existente del v0.46.0).
+- Ya estaba implícito en v0.46.0 que el endpoint single-chat
+  funciona sin desconectar — el bulk simplemente itera los chats
+  de la inbox.
+- Para chats que aún no tienen contacto en Chatwoot, este endpoint
+  no los descubre — usar el endpoint single-chat o esperar al
+  primer msg incoming.
+
+### Migration notes
+
+- Sin breaking changes. Endpoint nuevo bajo
+  `/api/instances/:name/history/import-all` — protegido por
+  middleware de auth si `QRSGEN_API_TOKEN` está set.
+
 ## [0.46.0] - 2026-06-01
 
 Feature: **history import** — backfill de mensajes históricos de

@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.46.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.46.0 (history import — backfill 1-30 días de chats al downstream, vía pareo o endpoint admin on-demand). |
+| `QRSGEN_VERSION` | `0.46.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.46.1 (bulk history import — endpoint `POST /history/import-all` itera todos los contactos del inbox sin desconectar la instancia). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

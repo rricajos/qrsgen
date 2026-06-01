@@ -100,6 +100,13 @@ type Incoming struct {
 	// el default `$phone · $name` (en backticks).
 	headerTemplate string
 
+	// reactionSep es el separador entre el header y el verb en las
+	// reacciones. Default `\n` (single newline) — más compacto que el
+	// `\n\n` del group prefix porque la reacción es visualmente más
+	// atómica que un msg con cuerpo arbitrario. v0.45.1. Configurable
+	// vía QRSGEN_REACTION_HEADER_SEP (mismos alias que GROUP_HEADER_SEP).
+	reactionSep string
+
 	// headerSep es el separador entre el header (`+phone · name`) y el
 	// body en mensajes posteados al downstream. Configurable porque
 	// ningún renderer markdown se comporta igual:
@@ -125,7 +132,18 @@ func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logge
 		readReceiptsSync:  true,
 		headerSep:         GroupHeaderSepParagraph,
 		headerTemplate:    GroupHeaderTemplateDefault,
+		reactionSep:       GroupHeaderSepSoftNL, // `\n` por defecto (v0.45.1)
 	}
+}
+
+// SetReactionSep cambia el separador entre header y verb en
+// reacciones (v0.45.1). Pasar "" mantiene el default (`\n`).
+func (i *Incoming) SetReactionSep(sep string) {
+	if sep == "" {
+		i.reactionSep = GroupHeaderSepSoftNL
+		return
+	}
+	i.reactionSep = sep
 }
 
 // SetHeaderTemplate cambia el template del header de sender (group
@@ -472,7 +490,10 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 	}
 	var content string
 	if ok {
-		content = header + i.headerSep + verb
+		// v0.45.1: reactionSep (default `\n`) — distinto del headerSep
+		// usado en group msgs (default `\n\n`) porque la reacción es
+		// visualmente más atómica.
+		content = header + i.reactionSep + verb
 	} else {
 		// Fallback: sin phone ni name → solo el verb plano.
 		content = verb

@@ -75,6 +75,17 @@ type Config struct {
 	// Default "10m". Desde v0.30.0.
 	GroupHeaderTTL time.Duration `env:"QRSGEN_GROUP_HEADER_TTL" envDefault:"10m"`
 
+	// ReactionHeaderSep controla el separador entre el header y el
+	// verb en reacciones (v0.45.1). Distinto del GroupHeaderSep porque
+	// la reacción es visualmente más atómica que un msg con cuerpo
+	// arbitrario. Default `nl` (`\n`) — formato compacto:
+	//
+	//   `+34611887663 · ~Agustina`
+	//   reaccionó con 👍
+	//
+	// Mismos alias que QRSGEN_GROUP_HEADER_SEP. Desde v0.45.1.
+	ReactionHeaderSep string `env:"QRSGEN_REACTION_HEADER_SEP" envDefault:"nl"`
+
 	// HeaderTemplate controla el render del header de sender (group
 	// prefix + reactions). Tokens: `$phone` (E.164 con `+`), `$name`
 	// (nombre canónico con `~` delante si no saved — automático).

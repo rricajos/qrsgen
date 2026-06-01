@@ -4,6 +4,48 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-06-01
+
+UX tweak post-v0.45.0: reactions tienen ahora un separador propio
+configurable, distinto del usado en group msgs. Default cambia a
+`\n` (single newline) — más compacto que el `\n\n` (paragraph)
+heredado de group prefix.
+
+Antes (v0.45.0 con default heredado):
+```
+`+34611887663 · ~Agustina Sant Martí Real Estate`
+
+reaccionó con 👍
+```
+
+Ahora (v0.45.1 default):
+```
+`+34611887663 · ~Agustina Sant Martí Real Estate`
+reaccionó con 👍
+```
+
+La reacción es visualmente más atómica que un msg con cuerpo
+arbitrario — un solo line break basta para identificar el verb sin
+inflar la conv.
+
+### Added
+
+- **`QRSGEN_REACTION_HEADER_SEP`** env var (default `nl` = `\n`).
+  Mismos alias que `QRSGEN_GROUP_HEADER_SEP` (`paragraph`/`p`, `br`,
+  `br_self`, `lsep`, `nl`/`soft`, `slash`, `spaced_br`).
+- **`Incoming.SetReactionSep(sep)`** + `Incoming.reactionSep` field.
+  `main.go` la cablea desde `cfg.ReactionHeaderSep`.
+
+### Changed
+
+- **`handleReaction` usa `i.reactionSep`** en lugar de `i.headerSep`.
+
+### Migration notes
+
+- Default cambia visualmente para reactions sin necesidad de tocar
+  env vars. Si quieres recuperar el `\n\n` de v0.45.0, setear
+  `QRSGEN_REACTION_HEADER_SEP=paragraph`.
+
 ## [0.45.0] - 2026-05-29
 
 Feature: **template configurable del header de sender + reactions

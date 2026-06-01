@@ -141,6 +141,7 @@ func (t *Tracker) IncLifecycle(instance string) {
 func (t *Tracker) Start(ctx context.Context, interval time.Duration) {
 	// loop uses ctx for its own lifecycle — gosec G118 false positive
 	// (the goroutine IS request-scoped to the bootstrap ctx).
+	// #nosec G118
 	go t.loop(ctx, interval) //nolint:gosec
 }
 

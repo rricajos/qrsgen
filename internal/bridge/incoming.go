@@ -487,6 +487,7 @@ func (i *Incoming) ResyncInstanceAvatars(ctx context.Context, instance string, r
 				// detecte cambio y descargue.
 				i.avatarTracker.UpdateID(instance, j.String(), "")
 			}
+			// #nosec G118 -- async avatar sync goroutine intentionally outlives request frame; ctx is request-scoped wallet
 			go i.syncAvatar(ds, r, cid, j, instance)
 			result.Queued++
 		}
@@ -649,6 +650,7 @@ func (i *Incoming) HandlePictureChange(ctx context.Context, instance string, jid
 		"jid", identifier, "new_picture_id", pictureID, "removed", removed,
 		"contact_id", contact.ID)
 
+	// #nosec G118 -- async avatar sync goroutine intentionally outlives event-handler frame
 	go i.syncAvatar(ds, r, contact.ID, jid, instance)
 }
 

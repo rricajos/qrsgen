@@ -212,6 +212,7 @@ func (o *Outgoing) handleConversationUpdated(_ context.Context, instance string,
 	// el response del webhook. Si falla, logueamos y los WAIDs ya
 	// drenados se pierden — el cliente WA no verá el doble check para
 	// esos msgs concretos. Cosmético, no impacta correctness.
+	// #nosec G118 -- async mark-as-read intentionally outlives the webhook handler frame
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()

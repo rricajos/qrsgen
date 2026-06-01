@@ -114,12 +114,22 @@ func (l *Logger) Query(ctx context.Context, instance string, limit int) ([]Entry
 // entradas a las instancias de un tenant concreto (vía JOIN/subquery sobre
 // bridge_instance.owner_tag). Si ambos filtros se pasan, se aplican en AND.
 // Si ninguno, todas las entradas.
+// QueryFiltered: maxLimit es el cap absoluto para `limit` — protege
+// contra excessive memory allocation (CodeQL "Slice memory allocation
+// with excessive size value" High, v0.64.6). El clamp ya existía pero
+// CodeQL no podía probar el bound; ahora con const explícita queda
+// inferible por el análisis estático.
+const maxLimit = 500
+
 func (l *Logger) QueryFiltered(ctx context.Context, instance, ownerTag string, limit int) ([]Entry, error) {
 	if l == nil || l.pool == nil {
 		return nil, fmt.Errorf("audit logger not configured")
 	}
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 {
 		limit = 100
+	}
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 	var rows = l.pool.Query
 	const base = `

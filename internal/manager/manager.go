@@ -511,6 +511,7 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 		}
 		// Fire-and-forget: el ctx del callsite no es relevante porque el webhook
 		// vive más allá del frame (retry exponencial). gosec G118 false positive.
+		// #nosec G118
 		go m.emitCustomWebhook(name, ev, extras, now) //nolint:gosec
 		return
 	case wameow.EventPaired:
@@ -573,7 +574,9 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 		delete(m.connectedEmitted, name)
 		m.connEmitMu.Unlock()
 		// Both goroutines outlive the callsite ctx by design. gosec G118 false positives.
-		go m.emitUnreachableAfterGrace(name, jid, now)            //nolint:gosec
+		// #nosec G118
+		go m.emitUnreachableAfterGrace(name, jid, now) //nolint:gosec
+		// #nosec G118
 		go m.emitLifecycleWebhook(name, wameow.EventDisconnected, jid, now) //nolint:gosec
 		return
 	}
@@ -646,6 +649,7 @@ func (m *Manager) onLifecycle(ctx context.Context, name string, ev wameow.Lifecy
 			return
 		}
 	}
+	// #nosec G118
 	go m.emitLifecycleWebhook(name, ev, jid, now) //nolint:gosec
 }
 

@@ -10,7 +10,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -576,8 +578,18 @@ func (c *Client) UpdateMessageSourceID(ctx context.Context, conversationID, mess
 // DownloadBlob descarga los bytes de una URL de downstream active_storage.
 // Las URLs son firmadas (con TTL) por lo que no requieren token, pero lo
 // incluimos por defensa por si downstream lo exigiera en alguna versión.
-func (c *Client) DownloadBlob(ctx context.Context, url string) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+//
+// v0.64.6: validación SSRF — la URL DEBE pertenecer al host del baseURL
+// configurado para esta instancia del Client. CodeQL flaggeaba esto como
+// "Uncontrolled data used in network request" (Critical) porque el URL
+// venía del payload de webhook (potencialmente tainted). Ahora si un
+// downstream malicioso (o MitM) inserta una URL apuntando a otro host
+// arbitrario, esta función rechaza con error en lugar de fetchearla.
+func (c *Client) DownloadBlob(ctx context.Context, rawURL string) ([]byte, string, error) {
+	if err := c.validateBlobURL(rawURL); err != nil {
+		return nil, "", fmt.Errorf("download blob: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("new request: %w", err)
 	}
@@ -596,4 +608,30 @@ func (c *Client) DownloadBlob(ctx context.Context, url string) ([]byte, string, 
 	}
 	contentType := res.Header.Get("Content-Type")
 	return data, contentType, nil
+}
+
+// validateBlobURL rechaza URLs que no apunten al host configurado del
+// downstream. Permite paths arbitrarios (Chatwoot active_storage usa
+// rutas firmadas largas) pero NO permite cambio de scheme/host.
+// Returns nil if the URL is safe to fetch.
+func (c *Client) validateBlobURL(rawURL string) error {
+	target, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	if target.Scheme != "http" && target.Scheme != "https" {
+		return fmt.Errorf("scheme must be http(s); got %q", target.Scheme)
+	}
+	if target.Host == "" {
+		return fmt.Errorf("empty host")
+	}
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		// baseURL inválido es un bug de config (cero-day) — fallar fast.
+		return fmt.Errorf("internal: invalid baseURL %q: %w", c.baseURL, err)
+	}
+	if !strings.EqualFold(target.Host, base.Host) {
+		return fmt.Errorf("host mismatch: blob host %q != downstream host %q (SSRF protection)", target.Host, base.Host)
+	}
+	return nil
 }

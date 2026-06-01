@@ -121,6 +121,7 @@ nav:
       - Logs útiles: operations/logs.md
       - "Runbook: instancia atascada": operations/runbook-stuck-instance.md
       - "Runbook: backup y restore": operations/runbook-backup-restore.md
+      - "Runbook: rotación de credenciales": operations/runbook-token-rotation.md
   - Integrations:
       - integrations/index.md
       - n8n: integrations/n8n.md

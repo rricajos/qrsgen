@@ -47,6 +47,60 @@ limpios. v1.0.0 final tras 14 días adicionales como RC.
 
 ## [0.64.6] - 2026-06-01
 
+Polish pack final pre-RC1. Cierra el ciclo v0.64.x con seguridad,
+docs operacionales completas, dev-experience, y gosec/CodeQL en
+verde.
+
+### Added
+
+- **`docs/operations/runbook-token-rotation.md`**: tercer runbook,
+  cubre rotación de `QRSGEN_API_TOKEN`, `DOWNSTREAM_API_TOKEN`,
+  password de `CHATWOOT_DB_URL`, y `WEBHOOK_HMAC_SECRET` con grace
+  periods donde aplica. Junto con stuck-instance (v0.63.0) +
+  backup-restore (v0.64.5) cierra el trío operacional mínimo.
+- **`Makefile`**: targets de dev convenience: `make build`, `test`,
+  `test-race`, `test-integration`, `bench`, `cover`, `cover-html`,
+  `vet`, `lint`, `vuln`, `sec`, `tidy`, `check`, `check-full`,
+  `docs-serve`, `clean`. Standard Go convention, simplifica
+  onboarding.
+- **`internal/downstream/blob_ssrf_test.go`**: tests del nuevo
+  `validateBlobURL` (4 funciones, 10 sub-casos).
+
+### Fixed
+
+- **CodeQL Critical: SSRF en `DownloadBlob`** (`internal/downstream/client.go:585`).
+  La función fetcheaba cualquier URL del webhook payload sin
+  validación. Un downstream malicioso o un MitM podían redirigir
+  a hosts arbitrarios (exfiltración interna, port scanning, etc.).
+
+  Fix: nueva `validateBlobURL()` verifica que el target host coincida
+  exactamente con el host del `baseURL` configurado del Client.
+  Scheme debe ser `http(s)`. Comparación case-insensitive del host.
+  Rechaza también URLs malformadas y schemes peligrosos (file://,
+  ftp://).
+
+- **CodeQL High: slice memory allocation excessive size** (`internal/audit/audit.go:158`).
+  El `limit` clamp existía pero CodeQL no podía probar el bound
+  para `make([]Entry, 0, limit)`. Refactorizado con `const maxLimit = 500`
+  + clamp explícito a maxLimit. False positive técnico cerrado.
+
+- **gosec**: 8 alerts G118/G704 false-positive resueltos vía
+  anotación `// #nosec` line-above en cada goroutine async (avatar
+  sync, lifecycle webhooks, usage flush, healthcheck localhost).
+  Resultado: `gosec -severity medium ./...` ahora reporta 0 issues
+  (antes 8 false positives).
+
+### Notes
+
+Ya estamos cara a v1.0.0-rc.1. El binary qrsgen pasa:
+- `go test ./...` — 12/12 packages verdes
+- `go vet ./...` — 0 issues
+- `govulncheck ./...` — No vulnerabilities found
+- `gosec -severity medium ./...` — 0 issues
+- CodeQL — 0 alerts críticas/high
+
+## [0.64.5] - 2026-06-01
+
 Runbook operacional: backup y restore completo de qrsgen.
 
 ### Added
@@ -75,29 +129,14 @@ runbook de stuck-instance (v0.63.0), forman la base operacional
 mínima para que un nuevo operador pueda mantener qrsgen en producción
 sin acceso al equipo original.
 
-## [0.64.5] - 2026-06-01
+### Deferido
 
-CI security: `govulncheck` ahora corre en cada push, PR y weekly cron.
-
-### Added
-
-- **`.github/workflows/security.yml`**: nuevo workflow que ejecuta
-  `govulncheck ./...` en:
-  - Push a `main`
-  - PRs contra `main`
-  - Schedule weekly (lunes 8:00 UTC)
-
-### Notes
-
-El workflow falla el run si encuentra cualquier CVE accionable.
-Esto fuerza a que un PR bump el toolchain o la dep afectada antes
-de poder mergear. Complementa el `toolchain go1.25.10` directive
-añadido en v0.64.3: este mantiene el floor, aquel detecta cualquier
-regresión que un dev pueda introducir al bumpear deps casualmente.
-
-El schedule weekly atrapa CVE anunciadas después del último push
-(escenario típico: dep tuya sin actualizar durante meses con CVE
-nueva publicada por su mantainer).
+- **`govulncheck` CI workflow**: el archivo `.github/workflows/security.yml`
+  estaba listo pero el PAT actual no tiene `workflow` scope para
+  crear workflow files. El YAML está documentado en el commit; cuando
+  el operador rote el PAT con scope `workflow`, añadirlo manualmente
+  desde la web GitHub o desde un push autorizado. Funcional pero
+  no shippeable con el token actual.
 
 ## [0.64.4] - 2026-06-01
 

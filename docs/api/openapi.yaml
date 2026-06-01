@@ -1,0 +1,359 @@
+# qrsgen OpenAPI 3.0 spec.
+#
+# Cobertura: endpoints estables más usados a fecha v0.61.0. NO cubre
+# todavía endpoints internos (audit), legacy (public/stats) ni los
+# tenant CRUDs detallados — se irán añadiendo en minors posteriores.
+#
+# Validación: usar `swagger-cli validate openapi.yaml` o
+# https://editor.swagger.io para visualizarlo.
+openapi: 3.0.3
+
+info:
+  title: qrsgen HTTP API
+  version: "0.61.0"
+  description: |
+    HTTP API del bridge WhatsApp ↔ downstream (Chatwoot api_channel).
+
+    Todas las rutas viven bajo `/api/*` y están protegidas por
+    `Authorization: Bearer <QRSGEN_API_TOKEN>` excepto `/api/health`,
+    `/api/version` y `/api/public/stats` (opt-in).
+
+    Los endpoints de webhook (`/api/instances/:name/webhook`) son
+    callbacks desde Chatwoot — no requieren Bearer token, pero
+    pueden requerir HMAC vía `X-Qrsgen-Signature` si
+    `WEBHOOK_HMAC_SECRET` está configurado.
+
+servers:
+  - url: http://qrsgen:3100
+    description: Overlay alias dentro del swarm
+  - url: http://localhost:3100
+    description: Desarrollo local
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: meta
+    description: Health, version, stats
+  - name: instances
+    description: CRUD de instancias WhatsApp + lifecycle (QR, restart, logout)
+  - name: groups
+    description: Administración de grupos (subject, topic, locked, participantes)
+  - name: history
+    description: Importación on-demand y bulk de mensajes históricos
+  - name: messages
+    description: "Operaciones sobre mensajes individuales (edit, futuro: delete)"
+  - name: tenants
+    description: CRUD multi-tenant (mapeo owner_tag → downstream config)
+  - name: jobs
+    description: Inspección de jobs async
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        El token configurado en `QRSGEN_API_TOKEN`. Pasar como
+        `Authorization: Bearer <token>`. Si está vacío, qrsgen
+        deja todas las rutas públicas (modo dev).
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+    Version:
+      type: object
+      properties:
+        version: { type: string, example: "0.61.0" }
+        commit:  { type: string, example: "abc1234" }
+        build_date: { type: string, example: "2026-06-01T14:00:00Z" }
+        go_version: { type: string, example: "go1.25.0" }
+
+    Health:
+      type: object
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        version: { type: string }
+        ts: { type: string, format: date-time }
+        uptime_seconds: { type: integer }
+        checks:
+          type: object
+          properties:
+            db:
+              type: object
+              properties:
+                ok: { type: boolean }
+                latency_ms: { type: integer }
+            instances_connected: { type: integer }
+            instances_total: { type: integer }
+            outbox_pending: { type: integer }
+
+    InstanceInfo:
+      type: object
+      properties:
+        name: { type: string }
+        state:
+          type: string
+          enum: [connected, disconnected, qr_pending, logged_out, ready]
+        jid: { type: string, nullable: true }
+
+    CreateInstanceReq:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, example: "SAT-NEW" }
+        events_webhook_url: { type: string, nullable: true }
+        inbox_id: { type: integer, nullable: true }
+        owner_tag: { type: string, nullable: true }
+
+    EditMessageReq:
+      type: object
+      required: [chat, content]
+      properties:
+        chat: { type: string, example: "34600000000@s.whatsapp.net" }
+        content: { type: string }
+
+    HistoryImportResult:
+      type: object
+      properties:
+        instance: { type: string }
+        conversations: { type: integer }
+        messages_seen: { type: integer }
+        messages_kept: { type: integer }
+        posted: { type: integer }
+        skipped: { type: integer }
+        errors: { type: integer }
+        oldest_ts: { type: integer }
+        newest_ts: { type: integer }
+
+paths:
+  /api/health:
+    get:
+      tags: [meta]
+      summary: Health-check con DB ping + counters
+      security: []
+      responses:
+        '200':
+          description: Sano
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: Degraded — DB ping falló
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  /api/version:
+    get:
+      tags: [meta]
+      summary: Build info — version, commit SHA, build date
+      description: |
+        Pensado para diagnóstico operacional y verificación
+        post-deploy. v0.55.0+.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Version' }
+
+  /api/instances:
+    get:
+      tags: [instances]
+      summary: Lista todas las instancias
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/InstanceInfo' }
+    post:
+      tags: [instances]
+      summary: Crea una instancia nueva
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInstanceReq' }
+      responses:
+        '201':
+          description: Creada
+        '400':
+          description: Body inválido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/instances/{name}:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    get:
+      tags: [instances]
+      summary: Detalle de una instancia
+      responses:
+        '200': { description: OK }
+        '404':
+          description: Instance no existe
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [instances]
+      summary: Borra una instancia (logout + cleanup)
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+
+  /api/instances/{name}/qr:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    get:
+      tags: [instances]
+      summary: Devuelve el PNG del QR actual (binario, image/png)
+      responses:
+        '200':
+          description: PNG
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+
+  /api/instances/{name}/refresh-qr:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    post:
+      tags: [instances]
+      summary: Fuerza re-generación del QR
+      responses:
+        '200': { description: OK }
+
+  /api/instances/{name}/logout:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    post:
+      tags: [instances]
+      summary: Logout de WhatsApp (la sesión queda cerrada en el server WA)
+      responses:
+        '200': { description: OK }
+
+  /api/instances/{name}/history/import:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+      - in: query
+        name: chat
+        required: true
+        schema: { type: string, example: "34600000000@s.whatsapp.net" }
+      - in: query
+        name: count
+        schema: { type: integer, default: 50, maximum: 200 }
+      - in: query
+        name: timeout_sec
+        schema: { type: integer, default: 30 }
+      - in: query
+        name: days
+        description: v0.54.4+. Acota la antigüedad máxima per-request (clamp [1,30]).
+        schema: { type: integer, minimum: 1, maximum: 30 }
+    post:
+      tags: [history]
+      summary: On-demand history sync para un chat específico
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryImportResult' }
+
+  /api/instances/{name}/messages/{waid}/edit:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+      - in: path
+        name: waid
+        required: true
+        schema: { type: string, description: "WAID del mensaje saliente a editar" }
+    post:
+      tags: [messages]
+      summary: Edita el contenido de un mensaje saliente (v0.60.0)
+      description: |
+        Limitaciones de WhatsApp:
+        - Sólo mensajes salientes (fromMe).
+        - Ventana ~15 min tras el envío.
+        - Recipient debe estar online para aplicar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EditMessageReq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  waid: { type: string }
+                  edited: { type: boolean }
+        '400':
+          description: chat/content faltan
+        '500':
+          description: WhatsApp rechazó la edición (fuera de ventana, etc.)
+
+  /api/instances/{name}/groups/{jid}:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+      - in: path
+        name: jid
+        required: true
+        schema: { type: string, example: "120363111@g.us" }
+    get:
+      tags: [groups]
+      summary: Info del grupo (subject, topic, participantes con roles)
+      responses:
+        '200': { description: OK }
+
+  /api/tenants:
+    get:
+      tags: [tenants]
+      summary: Lista tenants (sin tokens)
+      responses:
+        '200': { description: OK }
+
+  /api/jobs/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [jobs]
+      summary: Estado + resultado de un job async
+      responses:
+        '200': { description: OK }
+        '404': { description: No existe }

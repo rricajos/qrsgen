@@ -46,6 +46,40 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.61.0] - 2026-06-01
+
+OpenAPI 3.0 spec inicial.
+
+### Added
+
+- **`docs/api/openapi.yaml`** (300+ líneas): spec OpenAPI 3.0.3
+  cubriendo los endpoints estables más usados (12 paths, 7 schemas).
+  Pensado para:
+  - Generar clientes en otros lenguajes (Postman / `openapi-generator`).
+  - Documentación interactiva (Swagger UI / Redoc).
+  - Validación contractual entre frontend/CI y el server.
+
+### Endpoints cubiertos
+
+- meta: `/api/health`, `/api/version`
+- instances: list, create, get, delete, qr (binario PNG), refresh-qr, logout
+- groups: GET info de grupo
+- history: import on-demand con `days` param
+- messages: edit (v0.60.0)
+- tenants: list
+- jobs: GET status
+
+### Notes
+
+NO cubre todavía: tenant CRUD completo, retroactive endpoints,
+group admin (rename/participants/topic/locked/announce), bulk
+endpoints, history bulk variants. Se añadirán incrementalmente en
+próximos minors. El skeleton actual es suficiente para que un
+integrator pueda implementar onboarding básico.
+
+Validable con `swagger-cli validate docs/api/openapi.yaml` o
+visualizable en https://editor.swagger.io.
+
 ## [0.60.0] - 2026-06-01
 
 Edit message support — soportar la operación de editar el contenido

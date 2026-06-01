@@ -45,6 +45,48 @@ v1.0.0-rc.1 candidato cuando el soak de v0.64.0 supere 7 días
 limpios. v1.0.0 final tras 14 días adicionales como RC.
 -->
 
+## [0.64.2] - 2026-06-01
+
+Patch: tests HTTP para handlers nuevos sin cobertura (edit msg en
+v0.60.0 + days query param en v0.54.4). Solo añade archivos
+`*_test.go`, cero cambios al binario o runtime.
+
+### Added
+
+- **`cmd/server/routes_messages_test.go`**: cubre el endpoint
+  `/api/instances/:name/messages/:waid/edit`:
+  - 404 cuando instance no existe (rama temprana).
+  - Body inválido no panic.
+- **`cmd/server/routes_history_test.go`**: cubre
+  `/api/instances/:name/history/import` con varios valores del
+  query param `days`:
+  - 404 cuando instance no existe.
+  - days fuera de rango (999), negativo (-5), inválido ("abc"),
+    cero, ausente — todos sin panic. El parseo es robusto.
+
+### Notes
+
+Los tests del path "happy" (instancia paireada + chat real +
+HistoryImportResult devuelto) están fuera del scope unit-test —
+necesitan whatsmeow stack + un peer real. La lógica de validación
+y clamp en estos handlers está cubierta por inspección directa.
+
+## [0.64.1] - 2026-06-01
+
+Patch tag-only: fix del workflow `docs` CI que estaba en rojo tras
+v0.64.0 por dos issues acumulados:
+
+### Fixed
+
+- **mkdocs.yml**: añadidos al nav los archivos creados durante el
+  ciclo v0.55-v0.64:
+  - `api/groups.md`, `api/openapi.yaml`
+  - `integrations/group-admin.md`, `integrations/history-import.md`
+  - `migrations/v0-to-v1.md`
+  - `operations/runbook-stuck-instance.md`
+- **`docs/migrations/v0-to-v1.md`**: link roto a `integrations/retroactive-name-update.md`
+  (archivo nunca creado) reemplazado por referencia al código fuente.
+
 ## [0.64.0] - 2026-06-01
 
 Release que marca **feature complete** de cara a v1.0.0. Sin código

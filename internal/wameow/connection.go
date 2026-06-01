@@ -772,6 +772,40 @@ func (c *Conn) SendText(ctx context.Context, remoteJid, content string) (string,
 	return resp.ID, nil
 }
 
+// EditMessage edita el contenido de un mensaje saliente previamente
+// enviado. WhatsApp expone el botón de "edit" en el cliente del
+// destinatario: el mensaje aparece marcado como editado (tooltip
+// "Editado · HH:MM"). v0.60.0.
+//
+//   - remoteJid: chat donde vive el mensaje (igual al original).
+//   - waid: WAID del mensaje a editar (el `id` que devolvió SendText).
+//   - newContent: nuevo texto. Reglas WhatsApp:
+//   - Solo editable si el msg es saliente (fromMe).
+//   - Hay ventana temporal (~15 min) tras la cual el server rechaza.
+//   - El cliente del destinatario debe estar online para aplicar el cambio.
+//
+// Devuelve el WAID (no cambia entre edits — siempre es el original).
+//
+// Si quieres trackear ediciones en msg_history para reflejarlas en
+// integraciones downstream, el caller debe actualizar el body en su
+// store al recibir confirmación de éxito (qrsgen no lo hace
+// automáticamente porque depende de la semántica del downstream).
+func (c *Conn) EditMessage(ctx context.Context, remoteJid, waid, newContent string) (string, error) {
+	if waid == "" {
+		return "", fmt.Errorf("edit: waid required")
+	}
+	jid, err := parseJID(remoteJid)
+	if err != nil {
+		return "", err
+	}
+	editMsg := c.client.BuildEdit(jid, waid, simpleTextMessage(newContent))
+	resp, err := c.client.SendMessage(ctx, jid, editMsg)
+	if err != nil {
+		return "", fmt.Errorf("edit: %w", err)
+	}
+	return resp.ID, nil
+}
+
 // SendTextReply envía un mensaje de texto como reply nativo de WhatsApp.
 // quotedWAID es el ID del mensaje al que se responde. quotedSenderJID
 // es el JID del autor del mensaje citado (vacío en 1:1; obligatorio

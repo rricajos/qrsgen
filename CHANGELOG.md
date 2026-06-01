@@ -46,6 +46,42 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.60.0] - 2026-06-01
+
+Edit message support — soportar la operación de editar el contenido
+de un mensaje saliente ya entregado. Hasta este release la memoria
+operacional decía "edit msg not supported"; ahora flipped.
+
+### Added
+
+- **`wameow.Conn.EditMessage(ctx, remoteJid, waid, newContent)`**:
+  primitiva que envuelve `whatsmeow.BuildEdit` + `SendMessage`.
+  Devuelve el WAID (no cambia entre ediciones — siempre el original).
+- **`POST /api/instances/:name/messages/:waid/edit`** (nuevo endpoint):
+  Body `{"chat":"<jid>", "content":"new text"}`. Edita el mensaje
+  identificado por `waid`. Respuesta 200 `{"waid":"<same>", "edited":true}`.
+- **`cmd/server/routes_messages.go`**: nuevo archivo para esta familia
+  de endpoints. Futuros candidatos: delete (revoke), forward,
+  react-on-behalf.
+
+### Restricciones de WhatsApp
+
+- Solo se puede editar mensajes salientes (fromMe).
+- Hay una ventana temporal (~15 min) tras la cual el server rechaza.
+- El cliente del destinatario debe estar online para aplicar el
+  cambio; offline lo verá editado al reconectarse.
+
+### Notes
+
+- **No tests live**: probar requiere una instancia paireada + un
+  mensaje saliente dentro de los últimos 15 min. La primitiva está
+  unit-test-able a través de la API pero los breakages reales
+  vendrían de la integración con whatsmeow upstream, no del wiring.
+- **No webhook trigger todavía**: Chatwoot api_channel no expone un
+  evento "message_updated" reliable, así que de momento el flujo
+  edit→qrsgen→whatsapp es purely explicit-API. Future work podría
+  detectar updates de Chatwoot y autocallar este endpoint.
+
 ## [0.59.0] - 2026-06-01
 
 Downstream resilience: respeto al header `Retry-After` que envía

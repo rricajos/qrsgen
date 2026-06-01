@@ -802,6 +802,10 @@ func main() {
 	// v0.54.2: endpoints de admin de grupos extraídos a routes_groups.go.
 	registerGroupRoutes(api, mgr)
 
+	// v0.60.0: endpoints de manipulación de mensajes (edit, futuro:
+	// delete/revoke, forward).
+	registerMessageRoutes(api, mgr)
+
 	// POST /api/instances/:name/retroactive/reconcile
 	// Bulk reconcile (v0.43.0): itera el contact store local de whatsmeow
 	// y dispara HandleContactUpdate por cada saved. Útil tras adoptar

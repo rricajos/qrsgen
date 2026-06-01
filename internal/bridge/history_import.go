@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -138,6 +139,13 @@ func (i *Incoming) runHistoryImport(ctx context.Context, instance string, data *
 			res.MessagesSeen++
 			tsRaw := webMsg.GetMessageTimestamp()
 			if tsRaw == 0 {
+				continue
+			}
+			// gosec G115: tsRaw es uint64 pero los timestamps WhatsApp
+			// (segundos desde epoch) no superan 2^63 en cualquier
+			// horizonte realista — capamos defensivamente para callar
+			// el linter y dejar la intención explícita.
+			if tsRaw > math.MaxInt64 {
 				continue
 			}
 			ts := time.Unix(int64(tsRaw), 0)

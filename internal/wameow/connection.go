@@ -841,11 +841,12 @@ func (c *Conn) GroupInfo(ctx context.Context, jid types.JID) (*GroupInfo, error)
 			IsAdmin:      p.IsAdmin,
 			IsSuperAdmin: p.IsSuperAdmin,
 		}
-		if p.JID.Server == types.HiddenUserServer {
+		switch p.JID.Server {
+		case types.HiddenUserServer:
 			if pn, ok := c.PNForLID(p.JID); ok {
 				gp.PhoneNumber = "+" + pn.User
 			}
-		} else if p.JID.Server == types.DefaultUserServer {
+		case types.DefaultUserServer:
 			gp.PhoneNumber = "+" + p.JID.User
 		}
 		out.Participants = append(out.Participants, gp)

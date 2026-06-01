@@ -292,7 +292,7 @@ func (i *Incoming) SetHeaderSep(sep string) {
 	i.headerSep = sep
 }
 
-// resolveHeaderSep mapea el alias env-friendly al valor literal. Si el
+// ResolveHeaderSep mapea el alias env-friendly al valor literal. Si el
 // alias no matchea, devuelve el alias tal cual (permite pasar un
 // separador arbitrario directamente vía env).
 func ResolveHeaderSep(alias string) string {

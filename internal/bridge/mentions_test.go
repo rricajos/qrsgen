@@ -102,6 +102,32 @@ func TestResolveMentions_TokenNotInTextIsNoOp(t *testing.T) {
 	}
 }
 
+func TestResolveMentions_LIDFallsBackToRedactedPhone(t *testing.T) {
+	// v0.53.1: LID sin PN resoluble + sin nombre → fallback a
+	// RedactedPhone que WA expone para privacy mode.
+	lidJID := "999111222333444@lid"
+	r := &fakeResolver{
+		// nada en names ni en pnByLID — LID completamente unresolved
+		redactedPhones: map[string]string{lidJID: "+1∙∙∙∙∙∙∙∙80"},
+	}
+	got := resolveMentions("hola @999111222333444", []string{lidJID}, r, MentionTemplateDefault)
+	want := "hola @+1∙∙∙∙∙∙∙∙80"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_LIDNoFallbackStaysRaw(t *testing.T) {
+	// LID sin name, sin PN, sin RedactedPhone → mantiene texto raw.
+	lidJID := "999111222333444@lid"
+	r := &fakeResolver{}
+	got := resolveMentions("hola @999111222333444", []string{lidJID}, r, MentionTemplateDefault)
+	want := "hola @999111222333444"
+	if got != want {
+		t.Errorf("got %q, want unchanged %q", got, want)
+	}
+}
+
 func TestResolveMentions_CustomTemplate(t *testing.T) {
 	r := &fakeResolver{
 		names:     map[string]string{"34600000099@s.whatsapp.net": "Ivan"},

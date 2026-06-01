@@ -13,12 +13,13 @@ import (
 
 // fakeResolver implementa wameow.WAResolver para tests determinísticos.
 type fakeResolver struct {
-	names     map[string]string    // jid (no-AD).String() → contact name
-	pnByLID   map[string]types.JID // lid.String() → pn JID
-	lidByPN   map[string]types.JID // pn.String() → lid JID
-	groupSubj map[string]string    // group jid (no-AD).String() → subject
-	pfp       map[string]fakePFP   // jid (no-AD).String() → profile picture
-	savedJIDs map[string]bool      // jid (no-AD).String() → IsContactSaved
+	names          map[string]string    // jid (no-AD).String() → contact name
+	pnByLID        map[string]types.JID // lid.String() → pn JID
+	lidByPN        map[string]types.JID // pn.String() → lid JID
+	groupSubj      map[string]string    // group jid (no-AD).String() → subject
+	pfp            map[string]fakePFP   // jid (no-AD).String() → profile picture
+	savedJIDs      map[string]bool      // jid (no-AD).String() → IsContactSaved
+	redactedPhones map[string]string    // jid.String() → "+1∙∙∙∙∙∙∙∙80" (WA privacy)
 }
 
 // fakePFP simula el retorno de GetProfilePicture / GetProfilePictureID
@@ -111,6 +112,23 @@ func (f *fakeResolver) DownloadAny(_ context.Context, _ *waE2E.Message) ([]byte,
 
 // RequestHistorySync test stub — no-op.
 func (f *fakeResolver) RequestHistorySync(_ context.Context, _ types.JID, _ string, _ bool, _ time.Time, _ int) error {
+	return nil
+}
+
+// RedactedPhone test stub — devuelve "" por defecto. Los tests que
+// quieran simular WhatsApp privacy mode pueden setear redactedPhones
+// en el fake.
+func (f *fakeResolver) RedactedPhone(jid types.JID) string {
+	if f.redactedPhones == nil {
+		return ""
+	}
+	return f.redactedPhones[jid.String()]
+}
+
+// RefreshGroupLIDs test stub — no-op. Los tests que quieran simular
+// el side-effect (populated PNForLID) deben modificar f.pnByLID
+// directamente.
+func (f *fakeResolver) RefreshGroupLIDs(_ context.Context, _ types.JID) error {
 	return nil
 }
 

@@ -46,6 +46,73 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.53.1] - 2026-06-01
+
+UX tweak post v0.53.0: cuando una @-mención apunta a un **LID sin
+PN mapeado localmente** (caso común para usuarios con privacy
+enabled o que aparecieron por primera vez en un grupo), v0.53.0
+dejaba el JID raw `@148855681191942`. v0.53.1 lo resuelve dos
+maneras:
+
+### Fix 1: GetGroupInfo on-demand para popular el LID store
+
+Cuando llega una mención LID sin resolución vía `PNForLID` y el
+chat es un grupo, qrsgen hace una llamada `GetGroupInfo(group)`
+cuyo side effect es popular el `LIDs` store de whatsmeow con las
+mappings de los participantes. La próxima vez (y muchas veces
+inmediatamente en el mismo msg) el LID se resuelve a phone.
+
+Con cache TTL **1h por grupo** para evitar spammear el server WA
+si llegan muchas menciones LID seguidas.
+
+### Fix 2: RedactedPhone fallback
+
+WhatsApp expone `ContactInfo.RedactedPhone` (`+1∙∙∙∙∙∙∙∙80`) para
+LIDs que se ven en grupos cuando el usuario opta por privacidad.
+Si `PNForLID` no resuelve (después del refresh on-demand), qrsgen
+ahora usa este redacted phone — sigue siendo más legible que un
+LID raw.
+
+### Cadena final de fallback (renderMention)
+
+1. `Saved name` (FullName/FirstName de la agenda)
+2. `PushName / BusinessName` (con `~` automático si no saved)
+3. `+phone` resuelto vía PNForLID
+4. `+phone redactado` (v0.53.1, privacy mode)
+5. Texto raw `@<lid>` si todo lo demás falla
+
+### Para usernames
+
+Próximamente WhatsApp expondrá usernames como tal en la API. Cuando
+whatsmeow añada el campo `Username` a `ContactInfo`, qrsgen lo
+integrará en la cadena de fallback (probablemente entre 2 y 3).
+Por ahora WA empaqueta el username en `PushName` cuando aplica, así
+que el comportamiento actual ya lo cubre transparentemente.
+
+### Added
+
+- **`WAResolver.RedactedPhone(jid) string`** + impl en `Conn`
+  consulta `ContactInfo.RedactedPhone`.
+- **`WAResolver.RefreshGroupLIDs(ctx, group) error`** + impl en
+  `Conn` (wraps `GetGroupInfo`).
+- **`lidRefreshTracker`**: cache TTL 1h por grupo para evitar
+  refrescos repetidos.
+- **`maybeRefreshLIDs`** invocado desde `handleMessage` antes de
+  resolver menciones.
+
+### Tests
+
+- `TestResolveMentions_LIDFallsBackToRedactedPhone`
+- `TestResolveMentions_LIDNoFallbackStaysRaw`
+- `fakeResolver.RedactedPhone` + `RefreshGroupLIDs` stubs +
+  `redactedPhones map` field.
+
+### Migration notes
+
+- Sin breaking changes funcionales.
+- `WAResolver` interface gana 2 métodos. Si tienes implementaciones
+  custom, añade stubs.
+
 ## [0.53.0] - 2026-06-01
 
 Feature: **resolución de @-menciones inline**. Hasta ahora, cuando

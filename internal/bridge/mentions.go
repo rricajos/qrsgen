@@ -1,7 +1,10 @@
 package bridge
 
 import (
+	"context"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/rricajos/qrsgen/internal/wameow"
 	"go.mau.fi/whatsmeow/types"
@@ -52,11 +55,15 @@ func resolveMentions(text string, mentionedJIDs []string, r wameow.WAResolver, t
 // renderMention resuelve un JID a "@Nombre" (con o sin tilde según
 // saved) usando el template configurado. Tokens disponibles:
 //   - $name  → nombre canónico (con `~` automático si no saved)
-//   - $phone → E.164 con `+` (si resoluble)
+//   - $phone → E.164 con `+` (si resoluble); fallback a RedactedPhone
+//             (`+1∙∙∙∙∙∙∙∙80`) si WA respeta privacidad del LID.
 //
-// Default template `@$name`. Si el resolver no encuentra nombre, cae
-// al phone si está disponible; sin nombre ni phone, mantiene el
-// token raw (devolviendo "").
+// Cadena de fallback (v0.53.1):
+//  1. Saved name (FullName/FirstName del store)
+//  2. PushName / BusinessName (con `~` por no saved)
+//  3. Phone resuelto vía PNForLID (LID → PN)
+//  4. RedactedPhone (LID con privacy enabled — WA da partial)
+//  5. Si nada: devuelve "" → mantiene el token raw en el texto.
 func renderMention(jid types.JID, r wameow.WAResolver, template string) string {
 	name, saved := resolveJIDNameSaved(jid, r)
 	phone := ""
@@ -67,6 +74,13 @@ func renderMention(jid types.JID, r wameow.WAResolver, template string) string {
 		if r != nil {
 			if pn, ok := r.PNForLID(jid.ToNonAD()); ok {
 				phone = "+" + pn.User
+			} else {
+				// v0.53.1 fallback: si el LID no resuelve a PN
+				// (privacy mode o mapping aún no conocida),
+				// usamos RedactedPhone que WA expone para grupos.
+				if rp := r.RedactedPhone(jid); rp != "" {
+					phone = rp
+				}
 			}
 		}
 	}
@@ -93,3 +107,67 @@ func renderMention(jid types.JID, r wameow.WAResolver, template string) string {
 // MentionTemplateDefault es el template default cuando la feature está
 // activa. v0.53.0.
 const MentionTemplateDefault = "@$name"
+
+// lidRefreshTTL es el tiempo mínimo entre llamadas a RefreshGroupLIDs
+// por el mismo grupo. Evita inundar GetGroupInfo si llegan muchos
+// mensajes con menciones LID seguidas. v0.53.1.
+const lidRefreshTTL = 1 * time.Hour
+
+// lidRefreshTracker registra cuándo se refrescó last time el LID
+// store de cada grupo, para no spammear GetGroupInfo. v0.53.1.
+type lidRefreshTracker struct {
+	mu       sync.Mutex
+	lastSeen map[string]time.Time
+}
+
+func newLIDRefreshTracker() *lidRefreshTracker {
+	return &lidRefreshTracker{lastSeen: map[string]time.Time{}}
+}
+
+// shouldRefresh devuelve true si han pasado más de TTL desde el
+// último refresh del grupo. Marca el grupo como recién refrescado
+// si devuelve true (evita races concurrentes).
+func (t *lidRefreshTracker) shouldRefresh(group string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	last, ok := t.lastSeen[group]
+	if ok && time.Since(last) < lidRefreshTTL {
+		return false
+	}
+	t.lastSeen[group] = time.Now()
+	return true
+}
+
+// maybeRefreshLIDs llama RefreshGroupLIDs si:
+//   - El chat es un grupo
+//   - Hay al menos una mention LID sin PN resoluble
+//   - No se ha refrescado este grupo en la última hora
+//
+// Side effect: tras el refresh, whatsmeow's LID store puede tener
+// las mappings que faltaban → próximo resolveMentions resuelve.
+// v0.53.1.
+func maybeRefreshLIDs(chat types.JID, mentionedJIDs []string, r wameow.WAResolver, tracker *lidRefreshTracker) {
+	if chat.Server != types.GroupServer || r == nil || tracker == nil {
+		return
+	}
+	hasUnresolved := false
+	for _, jidStr := range mentionedJIDs {
+		jid, err := types.ParseJID(jidStr)
+		if err != nil || jid.Server != types.HiddenUserServer {
+			continue
+		}
+		if _, ok := r.PNForLID(jid.ToNonAD()); !ok {
+			hasUnresolved = true
+			break
+		}
+	}
+	if !hasUnresolved {
+		return
+	}
+	if !tracker.shouldRefresh(chat.String()) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = r.RefreshGroupLIDs(ctx, chat)
+}

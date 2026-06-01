@@ -116,6 +116,11 @@ type Incoming struct {
 	// `@$name`. Desde v0.53.0.
 	mentionTemplate string
 
+	// lidRefresher rastrea cuándo se refrescó el LID store de cada
+	// grupo. Evita spammear GetGroupInfo cuando llegan muchas
+	// menciones LID sin resolver. Desde v0.53.1.
+	lidRefresher *lidRefreshTracker
+
 	// chatAnchor trackea el último incoming conocido por chat (no
 	// por sender). Distinto del msg_history tracker — indexa por
 	// (instance, chatJID). Usado por history import on-demand como
@@ -164,6 +169,7 @@ func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logge
 		onDemandLatch:     newOnDemandLatchSet(),
 		chatAnchor:        newChatAnchorTracker(),
 		mentionTemplate:   MentionTemplateDefault,
+		lidRefresher:      newLIDRefreshTracker(),
 	}
 }
 
@@ -920,10 +926,17 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 	// `@148855681191942` en lugar de `@~Ivan Madrid`. La feature está
 	// activa por default (template `@$name`); desactivable poniendo
 	// QRSGEN_MENTION_TEMPLATE="".
+	//
+	// v0.53.1: si llega una mención LID que no tiene PN mapeado en
+	// el LID store local, hacemos un GetGroupInfo on-demand (con
+	// TTL 1h por grupo) que side-effects la actualización del store.
+	// Después de eso, PNForLID puede resolver y mostramos `@+34...`
+	// en lugar del LID raw.
 	if content != "" && i.mentionTemplate != "" {
 		if ci := extractContextInfo(msg.Message); ci != nil {
 			mentioned := ci.GetMentionedJID()
 			if len(mentioned) > 0 {
+				maybeRefreshLIDs(msg.Info.Chat, mentioned, r, i.lidRefresher)
 				content = resolveMentions(content, mentioned, r, i.mentionTemplate)
 			}
 		}

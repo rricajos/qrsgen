@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.53.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.53.0 (resolución de @-menciones inline — `@148855681191942` se transforma en `@~Ivan Madrid` legible). |
+| `QRSGEN_VERSION` | `0.53.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.53.1 (LID refresh on-demand para popular el LID store + fallback a RedactedPhone para menciones LID sin PN). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

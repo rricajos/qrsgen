@@ -119,6 +119,16 @@ type WAResolver interface {
 	// Usado por el bulk reconcile del retroactive name update (v0.43.0)
 	// para iterar la agenda al boot o vía endpoint admin.
 	GetSavedContacts(ctx context.Context) (map[types.JID]string, error)
+	// RedactedPhone devuelve el phone redactado (`+1∙∙∙∙∙∙∙∙80`)
+	// que WhatsApp expone para LIDs en grupos cuando el contacto no
+	// ha compartido su PN completo. Se almacena en
+	// `ContactInfo.RedactedPhone` de whatsmeow. v0.53.1.
+	RedactedPhone(jid types.JID) string
+	// RefreshGroupLIDs fuerza un `GetGroupInfo` para que whatsmeow
+	// actualice su LID store con las mappings de los participantes.
+	// Side effect: tras esta llamada, `PNForLID` de los participantes
+	// puede empezar a funcionar. v0.53.1.
+	RefreshGroupLIDs(ctx context.Context, group types.JID) error
 	// RequestHistorySync envía a la primary device del usuario una
 	// petición de N msgs más de histórico para `chat`. La respuesta
 	// llega como *events.HistorySync con type ON_DEMAND. v0.46.0.
@@ -303,6 +313,35 @@ func (c *Conn) listenQR(qrChan <-chan whatsmeow.QRChannelItem) {
 			c.logger.Info("qr event", "event", evt.Event)
 		}
 	}
+}
+
+// RedactedPhone consulta el contact store local y devuelve
+// `RedactedPhone` (`+1∙∙∙∙∙∙∙∙80`) si está disponible. WhatsApp lo
+// expone para LIDs en grupos cuando el contacto opta por privacidad.
+// v0.53.1.
+func (c *Conn) RedactedPhone(jid types.JID) string {
+	if c.client == nil || c.client.Store == nil || c.client.Store.Contacts == nil {
+		return ""
+	}
+	info, err := c.client.Store.Contacts.GetContact(context.Background(), jid.ToNonAD())
+	if err != nil || !info.Found {
+		return ""
+	}
+	return info.RedactedPhone
+}
+
+// RefreshGroupLIDs llama a GetGroupInfo cuyo side effect es popular
+// el LID store con los participantes. Tras esto, PNForLID puede
+// resolver LIDs que antes faltaban. v0.53.1.
+func (c *Conn) RefreshGroupLIDs(ctx context.Context, group types.JID) error {
+	if c.client == nil {
+		return fmt.Errorf("refresh group lids: client nil")
+	}
+	if group.Server != types.GroupServer {
+		return nil
+	}
+	_, err := c.client.GetGroupInfo(ctx, group)
+	return err
 }
 
 // GetSavedContacts itera el contact store local y devuelve un map

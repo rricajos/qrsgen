@@ -46,10 +46,33 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
-## [0.55.0] - 2026-06-01
+## [0.56.0] - 2026-06-01
 
-Observabilidad operacional. Sin features nuevas para el flujo de
-mensajes; sólo nuevas formas de saber qué qrsgen estás ejecutando.
+Continuación del split, ahora sobre `internal/bridge/incoming.go`.
+Sin cambios de comportamiento. Mismo patrón que el split de
+`cmd/server/main.go` (v0.54.2/3): mover bloques cohesivos a archivos
+hermanos en el mismo paquete.
+
+### Changed
+
+- **`incoming.go`**: 2155 → 1840 líneas (-15%).
+- **`internal/bridge/incoming_reactions.go`** (nuevo, 127 líneas):
+  todo el código de `handleReaction` (procesa ReactionMessage,
+  postea quote-reply visual vía `content_attributes.in_reply_to`
+  desde v0.53.2).
+- **`internal/bridge/incoming_retroactive.go`** (nuevo, 215 líneas):
+  `HandleContactUpdate`, `applyRetroactiveUpdates`, `ReconcileResult`
+  type y `ReconcileSavedContacts`. Toda la lógica del retroactive
+  name update (v0.40.0+) queda agrupada.
+
+### Notes
+
+Queda pendiente para próximos minors mover `HandleReceipt`,
+`HandleChatPresence`, `HandlePictureChange` y `Resync*Avatars` a sus
+propios archivos — son ~300 líneas adicionales fáciles. No las
+toqué en este release para mantener el diff manejable.
+
+## [0.55.0] - 2026-06-01
 
 ### Added
 

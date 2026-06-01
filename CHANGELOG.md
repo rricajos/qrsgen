@@ -46,6 +46,41 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.54.4] - 2026-06-01
+
+Issue #9 parte 2: parámetro `days` per-request en el endpoint
+on-demand de history import.
+
+### Added
+
+- `POST /api/instances/:name/history/import?days=N` — nuevo query
+  param opcional que acota la antigüedad máxima de los msgs
+  importados sin tocar la config global del proceso. Clamp `[1, 30]`
+  consistente con `QRSGEN_HISTORY_IMPORT_DAYS`. 0/ausente = usar
+  el default global.
+- **`Incoming.ImportHistoryOnDemandWithMaxAge(...)`** — variante de
+  `ImportHistoryOnDemand` con un `maxAge time.Duration` extra. El
+  wrapper original `ImportHistoryOnDemand` se mantiene para
+  compatibilidad (delega con maxAge=0).
+- **`runHistoryImport(ctx, instance, data, r, maxAgeOverride)`** —
+  firma extendida con override per-request. maxAgeOverride=0 usa el
+  default de `historyCfg.maxAge`.
+- Tests en `history_import_test.go` para los 3 casos de override
+  (zero/explícito/sub-día).
+
+### Notes
+
+Cierra issue #9 completo. La parte 1 (backdate worker) se shipped
+en v0.54.0; la parte 2 (days param) en este release. El endpoint
+ahora es lo suficientemente expresivo para importar selectivamente
+sin pre-configurar el proceso entero.
+
+Ejemplo de uso:
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  "https://qrsgen/api/instances/ATC/history/import?chat=34600000000@s.whatsapp.net&days=3&count=200"
+```
+
 ## [0.54.3] - 2026-06-01
 
 Continuación del split de `cmd/server/main.go`. Sin cambios de

@@ -99,7 +99,7 @@ func (i *Incoming) HandleHistorySync(ctx context.Context, instance string, data 
 		return
 	}
 
-	result := i.runHistoryImport(ctx, instance, data, r)
+	result := i.runHistoryImport(ctx, instance, data, r, 0)
 	i.logger.Info("history import done",
 		"instance", instance, "type", syncType,
 		"convs", result.Conversations, "seen", result.MessagesSeen,
@@ -110,7 +110,11 @@ func (i *Incoming) HandleHistorySync(ctx context.Context, instance string, data 
 // runHistoryImport hace el trabajo iterativo + rate-limited. Separado
 // de HandleHistorySync para que el endpoint admin pueda invocarlo
 // directamente y devolver el HistoryImportResult.
-func (i *Incoming) runHistoryImport(ctx context.Context, instance string, data *waHistorySync.HistorySync, r wameow.WAResolver) HistoryImportResult {
+//
+// maxAgeOverride > 0 sobreescribe el cutoff per-request (usado por el
+// endpoint on-demand v0.54.4 con `days` query param). 0 = usar el
+// default global de historyCfg.maxAge.
+func (i *Incoming) runHistoryImport(ctx context.Context, instance string, data *waHistorySync.HistorySync, r wameow.WAResolver, maxAgeOverride time.Duration) HistoryImportResult {
 	res := HistoryImportResult{Instance: instance}
 	if data == nil {
 		return res
@@ -119,7 +123,11 @@ func (i *Incoming) runHistoryImport(ctx context.Context, instance string, data *
 	if cfg == nil {
 		return res
 	}
-	cutoff := time.Now().Add(-cfg.maxAge)
+	maxAge := cfg.maxAge
+	if maxAgeOverride > 0 {
+		maxAge = maxAgeOverride
+	}
+	cutoff := time.Now().Add(-maxAge)
 	res.Conversations = len(data.GetConversations())
 
 	// Recolectar todos los msgs (filtrados por edad) para sortear globalmente
@@ -492,7 +500,28 @@ func extractHistoryText(m *waE2E.Message) string {
 // timeout: cuánto esperar la respuesta del phone (default 30s).
 //
 // Si la feature no está activa, retorna error indicativo.
+//
+// Wrapper retro-compatible que pasa maxAge=0 (usa el default global
+// QRSGEN_HISTORY_IMPORT_DAYS). Para acotar la ventana per-request,
+// usar ImportHistoryOnDemandWithMaxAge (v0.54.4).
 func (i *Incoming) ImportHistoryOnDemand(ctx context.Context, instance string, chat types.JID, count int, timeout time.Duration, r wameow.WAResolver) (HistoryImportResult, error) {
+	return i.ImportHistoryOnDemandWithMaxAge(ctx, instance, chat, count, timeout, 0, r)
+}
+
+// ImportHistoryOnDemandWithMaxAge es la versión completa de
+// ImportHistoryOnDemand con un cutoff per-request. v0.54.4.
+//
+// maxAge: edad máxima de los msgs a importar. 0 = usar el default
+// global de historyCfg.maxAge (típicamente QRSGEN_HISTORY_IMPORT_DAYS).
+// Permite, por ejemplo, importar sólo los últimos 3 días sin tocar la
+// config global del proceso.
+//
+// El phone primary siempre devuelve hasta `count` msgs anteriores al
+// anchor; el filtrado por edad se aplica client-side al recibir la
+// respuesta. Por tanto pedir `count=200, maxAge=3 días` puede devolver
+// 0 si los últimos 200 msgs son anteriores a 3 días — sube `count`
+// proporcionalmente al volumen del chat.
+func (i *Incoming) ImportHistoryOnDemandWithMaxAge(ctx context.Context, instance string, chat types.JID, count int, timeout time.Duration, maxAge time.Duration, r wameow.WAResolver) (HistoryImportResult, error) {
 	if !i.historyImportEnabled() {
 		return HistoryImportResult{}, fmt.Errorf("history import disabled")
 	}
@@ -545,7 +574,7 @@ func (i *Incoming) ImportHistoryOnDemand(ctx context.Context, instance string, c
 
 	select {
 	case data := <-latch.ch:
-		return i.runHistoryImport(ctx, instance, data, r), nil
+		return i.runHistoryImport(ctx, instance, data, r, maxAge), nil
 	case <-time.After(timeout):
 		return HistoryImportResult{}, fmt.Errorf("timeout waiting history sync response")
 	case <-ctx.Done():

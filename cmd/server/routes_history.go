@@ -109,13 +109,18 @@ func registerHistoryRoutes(api *echo.Group, mgr *manager.Manager, incoming *brid
 		return c.JSON(http.StatusOK, result)
 	})
 
-	// POST /api/instances/:name/history/import (v0.46.0)
+	// POST /api/instances/:name/history/import (v0.46.0, days añadido v0.54.4)
 	// On-demand history sync para un chat específico.
 	//
 	// Query params:
 	//   - chat=<jid>           (requerido) chat JID a importar
 	//   - count=N              (opcional, default 50, max 200)
 	//   - timeout_sec=N        (opcional, default 30)
+	//   - days=N               (opcional, v0.54.4) — cota de antigüedad
+	//                          per-request. Si está set, sobreescribe el
+	//                          QRSGEN_HISTORY_IMPORT_DAYS global. Útil para
+	//                          importar sólo los últimos N días sin tocar
+	//                          la config del proceso. Clamp [1, 30].
 	//
 	// Bloquea hasta recibir el HistorySync ON_DEMAND del phone.
 	// Requiere QRSGEN_HISTORY_IMPORT_ENABLED=true.
@@ -145,12 +150,24 @@ func registerHistoryRoutes(api *echo.Group, mgr *manager.Manager, incoming *brid
 				timeoutSec = n
 			}
 		}
-		result, err := incoming.ImportHistoryOnDemand(
+		// v0.54.4: days override per-request. Clamp [1, 30] consistente
+		// con QRSGEN_HISTORY_IMPORT_DAYS. 0 = usar el default global.
+		var maxAge time.Duration
+		if v := c.QueryParam("days"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				if n > 30 {
+					n = 30
+				}
+				maxAge = time.Duration(n) * 24 * time.Hour
+			}
+		}
+		result, err := incoming.ImportHistoryOnDemandWithMaxAge(
 			c.Request().Context(),
 			instance,
 			chatJID,
 			count,
 			time.Duration(timeoutSec)*time.Second,
+			maxAge,
 			conn,
 		)
 		if err != nil {

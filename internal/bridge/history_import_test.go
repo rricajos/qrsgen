@@ -1,7 +1,9 @@
 package bridge
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 )
@@ -88,5 +90,34 @@ func TestEnableHistoryImport_RateDefaultWhenInvalid(t *testing.T) {
 	inc.EnableHistoryImport(7, 0)
 	if inc.historyCfg.ratePerSec != 5 {
 		t.Errorf("rate = %d, want default 5", inc.historyCfg.ratePerSec)
+	}
+}
+
+// v0.54.4: documenta el comportamiento del runHistoryImport con un
+// maxAgeOverride. Con data=nil cualquier override produce el mismo
+// resultado vacío — verificamos que la firma extendida no rompe los
+// callers que pasan 0.
+func TestRunHistoryImport_MaxAgeOverrideAcceptedWithNilData(t *testing.T) {
+	inc := &Incoming{}
+	inc.EnableHistoryImport(7, 5)
+
+	cases := []struct {
+		name string
+		mo   time.Duration
+	}{
+		{"zero (use global)", 0},
+		{"3 días explícitos", 3 * 24 * time.Hour},
+		{"1 hora (sub-día)", time.Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := inc.runHistoryImport(context.Background(), "INST", nil, nil, tc.mo)
+			if res.Instance != "INST" {
+				t.Errorf("instance not propagated: got %q", res.Instance)
+			}
+			if res.MessagesSeen != 0 {
+				t.Errorf("expected 0 msgs seen with nil data, got %d", res.MessagesSeen)
+			}
+		})
 	}
 }

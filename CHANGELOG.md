@@ -46,6 +46,44 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.54.2] - 2026-06-01
+
+Polish técnico pre-v1.0.0. Sin features, sin cambios de comportamiento;
+sólo limpieza de deuda detectada en la audit del día.
+
+### Changed
+
+- **Doc comments en 35 símbolos exportados** previamente sin describir.
+  Mejora godoc y reduce el "what does this do?" mental load. Incluye
+  `Config`, `Load`, `Manager`, `Client`, todos los `Send*` adapters de
+  `senderAdapter`/`spamguardAdapter`, y el filtro `filteredWALog`.
+- **Bump `go.mau.fi/whatsmeow`** de `8d3700152a69` a `9ff5508a26c2`
+  (1 día más reciente del upstream). Arrastra `libsignal v0.2.1→v0.2.2`
+  y `edwards25519 v1.1.1→v1.2.0`. Tests verdes, sin breaks.
+
+### Added
+
+- **`cmd/server/routes_groups.go`** — extracción de los 8 endpoints
+  de admin de grupos (`/instances/:name/groups/*`) a su propio archivo.
+  Reduce `main.go` de 1792 a 1592 líneas (-11%). Lógica idéntica:
+  `registerGroupRoutes(api, mgr)` reemplaza el bloque inline.
+- **Tests `internal/outbox/outbox_test.go`**: cubre `DefaultConfig`,
+  `SetEncryptionKey` (incluido el path de validación de longitud) y
+  los helpers `truncate` + `previewFromPayload`. Coverage del paquete
+  pasa de 14.0% → 22.2%.
+- **Tests `internal/manager/manager_test.go`** añade
+  `TestInBootstrapWindow` y `TestOwnerTag_*` (con `stubResolver`).
+  Cubre los 3 casos del bootstrap window + ambos paths del wrapper
+  con/sin resolver. Coverage 6.4% → 7.4%.
+
+### Notes
+
+Tests totales: 12/12 paquetes verdes, 0 vet warnings, lint CI ✓.
+Tamaño qrsgen tras el split: 32 archivos Go + 36 archivos de test.
+La auditoría que originó este release está documentada en commit
+message del fix anterior del mismo día (`fix(lifecycle)` en
+integration repo).
+
 ## [0.54.1] - 2026-06-01
 
 Fix puntual al worker introducido en v0.54.0. Descubierto al intentar

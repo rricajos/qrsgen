@@ -31,6 +31,8 @@ func newFilteredWALog(base waLog.Logger) waLog.Logger {
 	return &filteredWALog{base: base}
 }
 
+// Warnf emite el mensaje a la base salvo que matchee algún
+// noisyWarnPatterns conocido, en cuyo caso lo descarta silenciosamente.
 func (l *filteredWALog) Warnf(msg string, args ...interface{}) {
 	for _, p := range noisyWarnPatterns {
 		if strings.Contains(msg, p) {
@@ -40,9 +42,17 @@ func (l *filteredWALog) Warnf(msg string, args ...interface{}) {
 	l.base.Warnf(msg, args...)
 }
 
+// Errorf delega sin filtro — los errores nunca se ocultan.
 func (l *filteredWALog) Errorf(msg string, args ...interface{}) { l.base.Errorf(msg, args...) }
-func (l *filteredWALog) Infof(msg string, args ...interface{})  { l.base.Infof(msg, args...) }
+
+// Infof delega sin filtro.
+func (l *filteredWALog) Infof(msg string, args ...interface{}) { l.base.Infof(msg, args...) }
+
+// Debugf delega sin filtro.
 func (l *filteredWALog) Debugf(msg string, args ...interface{}) { l.base.Debugf(msg, args...) }
+
+// Sub devuelve otro filteredWALog envolviendo el sub-logger de base —
+// el filtro de noisyWarnPatterns se aplica también a la cascada.
 func (l *filteredWALog) Sub(module string) waLog.Logger {
 	return &filteredWALog{base: l.base.Sub(module)}
 }

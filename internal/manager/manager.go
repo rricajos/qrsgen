@@ -22,8 +22,16 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
+// ErrNotFound se devuelve cuando se invoca una operación sobre una
+// instancia que no está registrada en el Manager. Permite a los
+// callers distinguir "no existe" de un error técnico.
 var ErrNotFound = errors.New("instance not found")
 
+// Manager orquesta el ciclo de vida de todas las instancias WhatsApp
+// del proceso. Mantiene un mapa name→*wameow.Conn, la persistencia
+// en `bridge_instance`, y los callbacks de eventos (mensaje, lifecycle,
+// presence, etc.) que se propagan automáticamente a cualquier
+// instancia nueva creada vía Create() o Bootstrap().
 type Manager struct {
 	mu        sync.RWMutex
 	container *sqlstore.Container
@@ -242,6 +250,11 @@ func (m *Manager) ownerTag(name string) string {
 	return m.ownerTagResolver.OwnerTagFor(ctx, name)
 }
 
+// New construye un Manager con un sqlstore.Container compartido para
+// todas las instancias whatsmeow. `dsn` debe apuntar a la misma DB
+// que `pool` (qrsgen usa el mismo Postgres para whatsmeow + estado
+// propio). `onMsg` es el handler de mensajes entrantes — los demás
+// handlers se registran después con SetXxxHandler.
 func New(ctx context.Context, dsn string, pool *pgxpool.Pool, logger *slog.Logger, onMsg wameow.MessageHandler) (*Manager, error) {
 	container, err := wameow.NewContainer(ctx, dsn)
 	if err != nil {
@@ -1069,6 +1082,9 @@ func (m *Manager) List() []InstanceInfo {
 	return out
 }
 
+// InstanceInfo es la proyección JSON-friendly de una instancia para
+// el endpoint List() y respuestas HTTP. `State` toma valores como
+// "connected", "disconnected", "qr_pending", "logged_out".
 type InstanceInfo struct {
 	Name  string `json:"name"`
 	State string `json:"state"`

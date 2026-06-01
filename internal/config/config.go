@@ -8,6 +8,10 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
+// Config agrupa todas las env vars que qrsgen lee al arrancar. Los
+// envDefault aplican cuando la var está ausente; los `,required`
+// abortan el boot si faltan. Cada campo lleva su propio comentario
+// explicando qué controla y desde qué versión existe.
 type Config struct {
 	Port     int    `env:"PORT" envDefault:"3100"`
 	LogLevel string `env:"LOG_LEVEL" envDefault:"info"`
@@ -262,6 +266,9 @@ type Config struct {
 	BackdateToleranceSec int `env:"QRSGEN_BACKDATE_TOLERANCE_SEC" envDefault:"5"`
 }
 
+// Load lee la configuración de las env vars del proceso. Devuelve
+// error si alguna var marcada como required está ausente o si un
+// tipo no parsea. Llamar exactamente una vez al boot.
 func Load() (Config, error) {
 	var cfg Config
 	if err := env.Parse(&cfg); err != nil {
@@ -270,6 +277,9 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
+// PostgresDSN compone el DSN para el pool propio de qrsgen (no la DB
+// de Chatwoot — para esa ver ChatwootDBURL). sslmode=disable porque
+// asumimos red overlay confiable; ajustar si despliegas en otra topología.
 func (c Config) PostgresDSN() string {
 	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		c.PostgresUser, c.PostgresPassword, c.PostgresHost, c.PostgresPort, c.PostgresDB)

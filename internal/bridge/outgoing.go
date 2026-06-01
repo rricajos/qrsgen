@@ -114,6 +114,9 @@ type BanwatchRecorder interface {
 	Record(instance, jid string, success bool)
 }
 
+// Outgoing maneja el flujo downstream→WhatsApp: recibe webhooks de
+// Chatwoot (mensajes salientes del agente) y los traduce a llamadas
+// al cliente whatsmeow. Es la contraparte de Incoming.
 type Outgoing struct {
 	sender   Sender
 	marker   ReadMarker
@@ -139,6 +142,10 @@ type Outgoing struct {
 	incoming *Incoming
 }
 
+// NewOutgoing construye el handler con sus dependencias mínimas. Las
+// features avanzadas (reply-to, banwatch, retroactive ref) se enchufan
+// después con sus respectivos Enable/Set methods para mantener este
+// constructor manejable.
 func NewOutgoing(sender Sender, ds downstream.Router, dedup *Deduper, sg SpamguardProvider, tracker *SpamguardTracker, logger *slog.Logger) *Outgoing {
 	return &Outgoing{sender: sender, ds: ds, dedup: dedup, sg: sg, tracker: tracker, logger: logger}
 }

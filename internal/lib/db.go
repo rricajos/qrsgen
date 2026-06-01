@@ -7,6 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// NewPool abre un pool de conexiones a Postgres y comprueba conectividad
+// con un Ping. Falla rápido si el DSN es inválido o el server inalcanzable.
 func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

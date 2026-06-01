@@ -930,225 +930,9 @@ func main() {
 		return c.JSON(http.StatusOK, result)
 	})
 
-	// GET /api/instances/:name/groups/:jid
-	// v0.48.0: información del grupo (subject, topic, settings,
-	// participantes con sus roles). Round-trip al server WA.
-	api.GET("/instances/:name/groups/:jid", func(c echo.Context) error {
-		instance := c.Param("name")
-		conn, ok := mgr.Get(instance)
-		if !ok {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
-		}
-		jid, err := types.ParseJID(c.Param("jid"))
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid jid: " + err.Error()})
-		}
-		if jid.Server != types.GroupServer {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "jid must be a group (@g.us)"})
-		}
-		info, err := conn.GroupInfo(c.Request().Context(), jid)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusOK, info)
-	})
-
-	// POST /api/instances/:name/groups/:jid/name
-	// v0.48.0: cambia el nombre (subject) del grupo. Body: {"name":"X"}.
-	// Requiere que el bot sea admin del grupo.
-	api.POST("/instances/:name/groups/:jid/name", func(c echo.Context) error {
-		instance := c.Param("name")
-		conn, ok := mgr.Get(instance)
-		if !ok {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
-		}
-		jid, err := types.ParseJID(c.Param("jid"))
-		if err != nil || jid.Server != types.GroupServer {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid group jid"})
-		}
-		var body struct {
-			Name string `json:"name"`
-		}
-		if err := c.Bind(&body); err != nil || body.Name == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "name required"})
-		}
-		if err := conn.SetGroupName(c.Request().Context(), jid, body.Name); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]any{"jid": jid.String(), "name": body.Name})
-	})
-
-	// POST /api/instances/:name/groups/:jid/participants
-	// v0.48.0: añadir/expulsar/promover/degradar miembros del grupo.
-	// Body: {"action":"add|remove|promote|demote", "jids":["34...@s.whatsapp.net", ...]}.
-	// Requiere que el bot sea admin.
-	api.POST("/instances/:name/groups/:jid/participants", func(c echo.Context) error {
-		instance := c.Param("name")
-		conn, ok := mgr.Get(instance)
-		if !ok {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
-		}
-		jid, err := types.ParseJID(c.Param("jid"))
-		if err != nil || jid.Server != types.GroupServer {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid group jid"})
-		}
-		var body struct {
-			Action string   `json:"action"`
-			JIDs   []string `json:"jids"`
-		}
-		if err := c.Bind(&body); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
-		}
-		if len(body.JIDs) == 0 {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "jids required"})
-		}
-		parsed := make([]types.JID, 0, len(body.JIDs))
-		for _, s := range body.JIDs {
-			p, err := types.ParseJID(s)
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid participant jid: " + s})
-			}
-			parsed = append(parsed, p)
-		}
-		if err := conn.UpdateGroupParticipants(c.Request().Context(), jid, body.Action, parsed); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]any{
-			"jid":    jid.String(),
-			"action": body.Action,
-			"count":  len(parsed),
-		})
-	})
-
-	// POST /api/instances/:name/groups/:jid/topic
-	// v0.50.0: cambia el topic (descripción) del grupo. Body: {"topic":"X"}.
-	// topic vacío = quitar descripción. Requiere bot admin.
-	api.POST("/instances/:name/groups/:jid/topic", func(c echo.Context) error {
-		instance := c.Param("name")
-		conn, ok := mgr.Get(instance)
-		if !ok {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
-		}
-		jid, err := types.ParseJID(c.Param("jid"))
-		if err != nil || jid.Server != types.GroupServer {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid group jid"})
-		}
-		var body struct {
-			Topic string `json:"topic"`
-		}
-		if err := c.Bind(&body); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
-		}
-		if err := conn.SetGroupTopic(c.Request().Context(), jid, body.Topic); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]any{"jid": jid.String(), "topic": body.Topic})
-	})
-
-	// POST /api/instances/:name/groups/:jid/locked
-	// v0.50.0: toggle "solo admins editan info del grupo".
-	// Body: {"locked": true|false}. Requiere bot admin.
-	api.POST("/instances/:name/groups/:jid/locked", func(c echo.Context) error {
-		instance := c.Param("name")
-		conn, ok := mgr.Get(instance)
-		if !ok {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
-		}
-		jid, err := types.ParseJID(c.Param("jid"))
-		if err != nil || jid.Server != types.GroupServer {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid group jid"})
-		}
-		var body struct {
-			Locked bool `json:"locked"`
-		}
-		if err := c.Bind(&body); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
-		}
-		if err := conn.SetGroupLocked(c.Request().Context(), jid, body.Locked); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]any{"jid": jid.String(), "locked": body.Locked})
-	})
-
-	// POST /api/instances/:name/groups/:jid/announce
-	// v0.50.0: toggle "modo anuncio" (solo admins envían msgs).
-	// Body: {"announce": true|false}. Requiere bot admin.
-	api.POST("/instances/:name/groups/:jid/announce", func(c echo.Context) error {
-		instance := c.Param("name")
-		conn, ok := mgr.Get(instance)
-		if !ok {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
-		}
-		jid, err := types.ParseJID(c.Param("jid"))
-		if err != nil || jid.Server != types.GroupServer {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid group jid"})
-		}
-		var body struct {
-			Announce bool `json:"announce"`
-		}
-		if err := c.Bind(&body); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
-		}
-		if err := conn.SetGroupAnnounce(c.Request().Context(), jid, body.Announce); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]any{"jid": jid.String(), "announce": body.Announce})
-	})
-
-	// POST /api/instances/:name/groups
-	// v0.50.0: crear grupo nuevo. Body: {"name": "X", "participants":
-	// ["34...@s.whatsapp.net", ...]}. Max 25 chars en name.
-	api.POST("/instances/:name/groups", func(c echo.Context) error {
-		instance := c.Param("name")
-		conn, ok := mgr.Get(instance)
-		if !ok {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
-		}
-		var body struct {
-			Name         string   `json:"name"`
-			Participants []string `json:"participants"`
-		}
-		if err := c.Bind(&body); err != nil || body.Name == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "name required"})
-		}
-		if len(body.Participants) == 0 {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "participants required"})
-		}
-		parsed := make([]types.JID, 0, len(body.Participants))
-		for _, s := range body.Participants {
-			p, err := types.ParseJID(s)
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid participant: " + s})
-			}
-			parsed = append(parsed, p)
-		}
-		groupJID, err := conn.CreateGroup(c.Request().Context(), body.Name, parsed)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusCreated, map[string]any{
-			"jid":  groupJID,
-			"name": body.Name,
-		})
-	})
-
-	// DELETE /api/instances/:name/groups/:jid
-	// v0.50.0: el bot abandona el grupo.
-	api.DELETE("/instances/:name/groups/:jid", func(c echo.Context) error {
-		instance := c.Param("name")
-		conn, ok := mgr.Get(instance)
-		if !ok {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
-		}
-		jid, err := types.ParseJID(c.Param("jid"))
-		if err != nil || jid.Server != types.GroupServer {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid group jid"})
-		}
-		if err := conn.LeaveGroup(c.Request().Context(), jid); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]any{"jid": jid.String(), "left": true})
-	})
+	// v0.54.2: endpoints de admin de grupos extraídos a routes_groups.go.
+	// Lógica idéntica, solo cambia el lugar. Reduce main.go ~220 líneas.
+	registerGroupRoutes(api, mgr)
 
 	// POST /api/instances/:name/retroactive/reconcile
 	// Bulk reconcile (v0.43.0): itera el contact store local de whatsmeow
@@ -1592,6 +1376,8 @@ func main() {
 // senderAdapter implementa bridge.Sender resolviendo la instancia desde el manager.
 type senderAdapter struct{ mgr *manager.Manager }
 
+// SendText resuelve la instancia por nombre y delega en su Conn. Si la
+// instancia no existe devuelve error (no se crea automáticamente).
 func (s senderAdapter) SendText(ctx context.Context, instance, remoteJid, content string) (string, error) {
 	conn, ok := s.mgr.Get(instance)
 	if !ok {
@@ -1600,6 +1386,9 @@ func (s senderAdapter) SendText(ctx context.Context, instance, remoteJid, conten
 	return conn.SendText(ctx, remoteJid, content)
 }
 
+// SendMedia envía un media (image/audio/document/video) con caption.
+// `kind` es el tipo MIME genérico que whatsmeow espera para elegir el
+// helper de upload correcto.
 func (s senderAdapter) SendMedia(ctx context.Context, instance, remoteJid, kind, mimetype, filename, caption string, data []byte) (string, error) {
 	conn, ok := s.mgr.Get(instance)
 	if !ok {
@@ -1608,6 +1397,10 @@ func (s senderAdapter) SendMedia(ctx context.Context, instance, remoteJid, kind,
 	return conn.SendMedia(ctx, remoteJid, kind, mimetype, filename, caption, data)
 }
 
+// SendTextReply es como SendText pero adjunta ContextInfo apuntando al
+// `quotedWAID`/`quotedSenderJID` — en WhatsApp se renderiza como
+// quote-reply visual del msg original. Usado por el outgoing flow
+// cuando Chatwoot manda content_attributes.in_reply_to.
 func (s senderAdapter) SendTextReply(ctx context.Context, instance, remoteJid, content, quotedWAID, quotedSenderJID, quotedText string) (string, error) {
 	conn, ok := s.mgr.Get(instance)
 	if !ok {
@@ -1616,6 +1409,8 @@ func (s senderAdapter) SendTextReply(ctx context.Context, instance, remoteJid, c
 	return conn.SendTextReply(ctx, remoteJid, content, quotedWAID, quotedSenderJID, quotedText)
 }
 
+// SendMediaReply combina SendMedia + quote — adjunta el ContextInfo del
+// msg citado y envía el media como respuesta a él.
 func (s senderAdapter) SendMediaReply(ctx context.Context, instance, remoteJid, kind, mimetype, filename, caption string, data []byte, quotedWAID, quotedSenderJID, quotedText string) (string, error) {
 	conn, ok := s.mgr.Get(instance)
 	if !ok {
@@ -1637,10 +1432,15 @@ func (s senderAdapter) MarkRead(ctx context.Context, instance, chat, sender stri
 // spamguardAdapter expone al bridge la config + emisión de eventos del Manager.
 type spamguardAdapter struct{ mgr *manager.Manager }
 
+// IsSpamguardEnabled delega en el Manager; permite al bridge consultar
+// el toggle per-instance sin acoplarse al Manager directamente.
 func (s spamguardAdapter) IsSpamguardEnabled(ctx context.Context, instance string) bool {
 	return s.mgr.IsSpamguardEnabled(ctx, instance)
 }
 
+// EmitLifecycle propaga un evento custom desde el bridge al pipeline
+// de notificaciones (Chatwoot pills, webhooks, etc.) sin que el bridge
+// necesite conocer cómo se entregan.
 func (s spamguardAdapter) EmitLifecycle(name, event string, extras map[string]any) {
 	s.mgr.EmitCustomLifecycle(name, event, extras)
 }

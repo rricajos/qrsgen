@@ -126,6 +126,8 @@ type SpamguardTracker struct {
 	logger *slog.Logger
 }
 
+// NewSpamguardTracker construye un tracker vacío. Si quieres
+// persistencia entre restarts llama a SetPool() después.
 func NewSpamguardTracker() *SpamguardTracker {
 	return &SpamguardTracker{
 		history: map[string][2]string{},

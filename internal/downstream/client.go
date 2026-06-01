@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// Client encapsula las llamadas HTTP al downstream (Chatwoot). Mantiene
+// la base URL, el `api_access_token` de cuenta y un http.Client con
+// timeout de 15s. Stateless aparte de la conexión TCP que reusa el
+// http.Client.
 type Client struct {
 	baseURL   string
 	token     string
@@ -20,6 +24,9 @@ type Client struct {
 	http      *http.Client
 }
 
+// New construye un Client con timeout HTTP por defecto. `baseURL` debe
+// incluir scheme + host (ej "https://omnia.example.com") y `token` es
+// el api_access_token de una cuenta admin del downstream.
 func New(baseURL, token string, accountID int) *Client {
 	return &Client{
 		baseURL:   baseURL,
@@ -29,6 +36,8 @@ func New(baseURL, token string, accountID int) *Client {
 	}
 }
 
+// Contact es la proyección mínima de un contacto Chatwoot que qrsgen
+// necesita. Otros campos del payload se ignoran al deserializar.
 type Contact struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
@@ -73,6 +82,10 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 	return data, nil
 }
 
+// FindContactByPhone busca el primer contacto cuyo phone_number matchea
+// el string indicado (E.164 con `+`). Devuelve nil sin error si no
+// existe — el caller decide si crearlo. Usa el endpoint /contacts/search
+// que tolera matches parciales: si necesitas exactitud filtra después.
 func (c *Client) FindContactByPhone(ctx context.Context, phone string) (*Contact, error) {
 	data, err := c.request(ctx, http.MethodGet, "/contacts/search?q="+phone, nil)
 	if err != nil {
@@ -88,6 +101,10 @@ func (c *Client) FindContactByPhone(ctx context.Context, phone string) (*Contact
 	return &r.Payload[0], nil
 }
 
+// CreateContactReq es el body para POST /contacts. `Identifier` es
+// el JID en formato `<num>@s.whatsapp.net` o `<lid>@lid` — sirve
+// como clave estable para de-duplicación al re-postear msgs del
+// mismo sender.
 type CreateContactReq struct {
 	InboxID     int    `json:"inbox_id"`
 	Name        string `json:"name"`
@@ -95,6 +112,9 @@ type CreateContactReq struct {
 	Identifier  string `json:"identifier,omitempty"`
 }
 
+// CreateContact crea un contacto en Chatwoot y devuelve la versión
+// persistida (con ID asignado). El downstream wrap-ea el payload
+// dentro de {"payload":{"contact":{...}}} — esta función lo aplana.
 func (c *Client) CreateContact(ctx context.Context, req CreateContactReq) (*Contact, error) {
 	data, err := c.request(ctx, http.MethodPost, "/contacts", req)
 	if err != nil {
@@ -111,6 +131,10 @@ func (c *Client) CreateContact(ctx context.Context, req CreateContactReq) (*Cont
 	return &wrap.Payload.Contact, nil
 }
 
+// PostMessageReq es el body para POST a /conversations/:id/messages.
+// `ConversationID` viaja en la URL (de ahí el `json:"-"`); el resto
+// va serializado. Cuando `CreatedAt` o `InReplyTo` están set, el
+// marshal cambia a un map ad-hoc para añadir los campos extra.
 type PostMessageReq struct {
 	ConversationID int    `json:"-"`
 	Content        string `json:"content"`
@@ -128,10 +152,20 @@ type PostMessageReq struct {
 	InReplyTo int `json:"-"`
 }
 
+// PostMessageResp captura el `id` del msg recién creado en Chatwoot.
+// Otros campos del payload (inbox_id, conversation_id, etc.) se
+// ignoran porque el caller ya los conoce.
 type PostMessageResp struct {
 	ID int `json:"id"`
 }
 
+// PostMessage envía un mensaje a una conversación existente. Si
+// CreatedAt o InReplyTo están set, se incluyen en el body — Chatwoot
+// los guarda en `content_attributes.external_created_at` y
+// `content_attributes.in_reply_to` respectivamente. Nota: el
+// `created_at` que viaja en el body suele ser ignorado por Chatwoot
+// salvo que el token sea super-admin; el backdate worker (v0.54.0)
+// arregla esto post-hoc.
 func (c *Client) PostMessage(ctx context.Context, req PostMessageReq) (*PostMessageResp, error) {
 	path := fmt.Sprintf("/conversations/%d/messages", req.ConversationID)
 	// v0.46.0: si CreatedAt está set, postamos un map ad-hoc que añade
@@ -246,6 +280,9 @@ func (c *Client) PostMessageWithAttachment(ctx context.Context, req PostMessageA
 	return &resp, nil
 }
 
+// Conversation es la proyección mínima de una conv Chatwoot que
+// qrsgen necesita (ID, inbox al que pertenece, status). Otros campos
+// del payload se ignoran al deserializar.
 type Conversation struct {
 	ID      int    `json:"id"`
 	InboxID int    `json:"inbox_id"`
@@ -281,6 +318,9 @@ func (c *Client) FindOpenConversation(ctx context.Context, contactID, inboxID in
 	return nil, nil
 }
 
+// CreateConversationReq es el body para POST /conversations.
+// `SourceID` debe ser estable y único per inbox (sirve como clave
+// idempotente — Chatwoot rechaza con 422 si ya existe).
 type CreateConversationReq struct {
 	SourceID  string `json:"source_id"`
 	InboxID   int    `json:"inbox_id"`
@@ -288,6 +328,10 @@ type CreateConversationReq struct {
 	Status    string `json:"status,omitempty"` // default "open"
 }
 
+// CreateConversation crea una conv y devuelve la versión persistida.
+// Idempotente vía SourceID — si ya existe, Chatwoot devuelve 422
+// y este método propaga el error (el caller decide si recuperar la
+// existente con FindOpenConversation).
 func (c *Client) CreateConversation(ctx context.Context, req CreateConversationReq) (*Conversation, error) {
 	data, err := c.request(ctx, http.MethodPost, "/conversations", req)
 	if err != nil {

@@ -6,6 +6,9 @@ import (
 	"os"
 )
 
+// NewLogger devuelve un *slog.Logger en formato JSON sobre stdout con el
+// nivel mínimo indicado. Acepta "debug", "info", "warn", "error";
+// cualquier otro valor se trata como "info".
 func NewLogger(level string) *slog.Logger {
 	var lvl slog.Level
 	switch level {

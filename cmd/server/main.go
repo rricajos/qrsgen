@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,14 @@ import (
 // version es el tag de release, inyectado por GoReleaser via
 // `-X main.version={{.Version}}`. En builds locales queda "dev".
 var version = "dev"
+
+// commit es el git SHA corto del HEAD en el momento del build. Inyectado
+// por GoReleaser via `-X main.commit={{.ShortCommit}}`. v0.56.0.
+var commit = "unknown"
+
+// buildDate es la fecha UTC en formato RFC3339 del build. Inyectada
+// por GoReleaser via `-X main.buildDate={{.Date}}`. v0.56.0.
+var buildDate = "unknown"
 
 func main() {
 	// -healthcheck: hace un GET corto contra /api/health del propio binario
@@ -434,6 +443,19 @@ func main() {
 	} else {
 		logger.Warn("api auth DISABLED (QRSGEN_API_TOKEN empty) — set this env var in production")
 	}
+
+	// GET /api/version (v0.56.0)
+	// Devuelve build info — pensado para diagnóstico operacional
+	// (qué SHA está corriendo) y health-check de despliegues. Sin
+	// estado, sin DB hit, cero coste.
+	api.GET("/version", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]string{
+			"version":    version,
+			"commit":     commit,
+			"build_date": buildDate,
+			"go_version": runtime.Version(),
+		})
+	})
 
 	api.GET("/health", func(c echo.Context) error {
 		ctx := c.Request().Context()

@@ -46,6 +46,29 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.55.0] - 2026-06-01
+
+Observabilidad operacional. Sin features nuevas para el flujo de
+mensajes; sólo nuevas formas de saber qué qrsgen estás ejecutando.
+
+### Added
+
+- **`GET /api/version`**: devuelve `{version, commit, build_date, go_version}`.
+  Pensado para diagnóstico (qué SHA está corriendo en producción) y
+  health-check de despliegues post-deploy. Sin DB hit, sin auth-cost
+  significativo. Endpoint detrás de la auth global como el resto.
+- **Build metadata** vía ldflags: `main.commit` y `main.buildDate` se
+  inyectan desde GoReleaser (`-X main.commit={{.ShortCommit}}`,
+  `-X main.buildDate={{.Date}}`). En builds locales con `go build`
+  ambos quedan "unknown" — lo que es esperado.
+
+### Notes
+
+`/api/health` ya estaba rico desde antes (DB ping, instance counts,
+outbox pending). No tocado en este release. Si quieres añadir el
+estado del backdate worker requeriría exponer estado interno del
+goroutine — postpuesto a v0.57+ si emerge necesidad operativa.
+
 ## [0.54.4] - 2026-06-01
 
 Issue #9 parte 2: parámetro `days` per-request en el endpoint

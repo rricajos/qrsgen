@@ -111,6 +111,11 @@ type Incoming struct {
 	// nil = feature desactivado (EnableHistoryImport no llamada).
 	historyCfg *historyImportConfig
 
+	// mentionTemplate controla el render de @-menciones inline. Vacío
+	// desactiva la resolución (text con `@<jid_user>` raw). Default
+	// `@$name`. Desde v0.53.0.
+	mentionTemplate string
+
 	// chatAnchor trackea el último incoming conocido por chat (no
 	// por sender). Distinto del msg_history tracker — indexa por
 	// (instance, chatJID). Usado por history import on-demand como
@@ -158,7 +163,15 @@ func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logge
 		reactionSep:       GroupHeaderSepSoftNL, // `\n` por defecto (v0.45.1)
 		onDemandLatch:     newOnDemandLatchSet(),
 		chatAnchor:        newChatAnchorTracker(),
+		mentionTemplate:   MentionTemplateDefault,
 	}
+}
+
+// SetMentionTemplate cambia el template usado para resolver
+// @-menciones inline. Vacío desactiva la feature (texto raw).
+// Tokens: $name, $phone. v0.53.0.
+func (i *Incoming) SetMentionTemplate(template string) {
+	i.mentionTemplate = template
 }
 
 // SetChatAnchorPool habilita persistencia DB del chat_anchor tracker
@@ -900,6 +913,20 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 	content := text
 	if content == "" && media != nil {
 		content = media.caption
+	}
+
+	// v0.53.0: resolver menciones @<jid_user> a @<nombre> usando el
+	// ContextInfo.MentionedJID array. Sin esto, el agente ve
+	// `@148855681191942` en lugar de `@~Ivan Madrid`. La feature está
+	// activa por default (template `@$name`); desactivable poniendo
+	// QRSGEN_MENTION_TEMPLATE="".
+	if content != "" && i.mentionTemplate != "" {
+		if ci := extractContextInfo(msg.Message); ci != nil {
+			mentioned := ci.GetMentionedJID()
+			if len(mentioned) > 0 {
+				content = resolveMentions(content, mentioned, r, i.mentionTemplate)
+			}
+		}
 	}
 
 	// v0.42.0: si el mensaje es un reply (ContextInfo con QuotedMessage),

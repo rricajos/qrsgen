@@ -82,6 +82,15 @@ type Config struct {
 	// (opt-in). Desde v0.47.0.
 	GroupEventsEnabled bool `env:"QRSGEN_GROUP_EVENTS_ENABLED" envDefault:"false"`
 
+	// MentionTemplate controla el render de @-menciones inline en
+	// mensajes de WhatsApp. WA envía las menciones como `@<jid_user>`
+	// en el body + array separado de JIDs en ContextInfo.MentionedJID.
+	// Sin resolución, el agente ve `@148855681191942` (LID raw) en
+	// lugar de `@~Ivan Madrid`. Default `@$name` (con `~` automático
+	// si no saved). Vacío desactiva la feature. Tokens: $name, $phone.
+	// Desde v0.53.0.
+	MentionTemplate string `env:"QRSGEN_MENTION_TEMPLATE" envDefault:"@$name"`
+
 	// HistoryImportEnabled activa el feature de importar mensajes
 	// históricos al downstream (v0.46.0). Opt-in: implica POST
 	// rate-limited a Chatwoot al recibir un HistorySync de whatsmeow

@@ -145,6 +145,7 @@ func main() {
 	incoming.SetHeaderSep(bridge.ResolveHeaderSep(cfg.GroupHeaderSep))
 	incoming.SetReactionSep(bridge.ResolveHeaderSep(cfg.ReactionHeaderSep))
 	incoming.SetHeaderTemplate(cfg.HeaderTemplate)
+	incoming.SetMentionTemplate(cfg.MentionTemplate)
 	if cfg.HistoryImportEnabled {
 		incoming.EnableHistoryImport(cfg.HistoryImportDays, cfg.HistoryImportRatePerSec)
 	}

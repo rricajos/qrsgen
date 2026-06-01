@@ -46,6 +46,75 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.53.0] - 2026-06-01
+
+Feature: **resolución de @-menciones inline**. Hasta ahora, cuando
+un usuario en WhatsApp mencionaba a otro participante (`@Ivan`
+seleccionado del picker), el body llegaba al downstream como
+`@148855681191942` (el JID raw — típicamente un LID
+incomprensible). El cliente WA receptor une el body con
+`ContextInfo.MentionedJID` para mostrar el nombre real; qrsgen
+hace lo mismo ahora.
+
+### Antes
+```
+@148855681191942 buenos días
+```
+
+### Ahora (default `@$name`)
+```
+@~Ivan Madrid buenos días
+```
+
+Aplica al cuerpo del msg Y a captions de media. Hereda toda la
+cadena de resolución de qrsgen:
+- `resolveJIDNameSaved` (fix v0.39.9): si LID con PN saved, usa
+  nombre canónico del PN.
+- Tilde `~` automática si el contacto NO está saved (consistente
+  con group prefix v0.39.5).
+- Fallback a phone E.164 si no hay nombre resoluble.
+
+### Added
+
+- **`resolveMentions(text, mentionedJIDs, r, template) string`**:
+  helper que sustituye los `@<jid_user>` inline por
+  `@<nombre resuelto>` usando `ContextInfo.MentionedJID`.
+- **`renderMention(jid, r, template) string`**: builder del
+  reemplazo individual respetando el template configurable.
+- **`Incoming.SetMentionTemplate(template)`** + field
+  `mentionTemplate`. Default `@$name`.
+- **`MentionTemplateDefault`** = `@$name` const exportada.
+
+### Config
+
+- **`QRSGEN_MENTION_TEMPLATE`** (default `@$name`). Vacío
+  desactiva la feature (text raw). Tokens:
+  - `$name` — nombre canónico con `~` automático si no saved.
+  - `$phone` — E.164 con `+` (si resoluble).
+  Ejemplos:
+  - `@$name` (default) → `@~Ivan` o `@Ivan Saved`
+  - `@$name ($phone)` → `@~Ivan (+34611...)`
+  - `**$name**` → `**~Ivan**` (bold sin `@`)
+
+### Tests
+
+- 8 unit tests en `mentions_test.go`:
+  - `PNSaved`, `PNUnsavedTilde`, `LIDWithSavedPN`
+  - `NoResolverFallsBackToPhone`, `EmptyTemplateDisables`
+  - `MultipleMentionsAllResolved`, `TokenNotInTextIsNoOp`
+  - `CustomTemplate`
+
+### Migration notes
+
+- Sin breaking changes. Feature ON por default. Si tu downstream
+  tiene scripts que dependían del `@<jid_user>` raw, setear
+  `QRSGEN_MENTION_TEMPLATE=""` recupera el comportamiento
+  pre-v0.53.0.
+- Las menciones desde `ContextInfo.MentionedJID` solo llegan
+  cuando el sender usa el @-picker de WhatsApp. Texto literal
+  como `@usuario_random` no es una mención formal y se queda
+  como está.
+
 ## [0.52.1] - 2026-06-01
 
 Bug fix de UX: el reply-to outgoing fallaba silenciosamente cuando

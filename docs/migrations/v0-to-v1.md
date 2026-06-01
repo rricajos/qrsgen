@@ -1,7 +1,7 @@
 # Migration guide: v0.28.x → v1.0
 
 Guía consolidada para adoptar v1.0 desde una versión estable
-antigua de la línea v0.28.x. La línea v0.40 → v0.52 introdujo
+antigua de la línea v0.28.x. La línea v0.40 → v0.53 introdujo
 features importantes — esta guía agrupa lo que cambia, lo que
 hay que activar, y lo que rompe (poco).
 
@@ -77,6 +77,8 @@ QRSGEN_GROUP_EVENTS_ENABLED=false    # set true para activity msgs de cambios de
 QRSGEN_HEADER_TEMPLATE="`$phone · $name`"  # group prefix + reactions
 QRSGEN_GROUP_HEADER_SEP=paragraph          # \n\n
 QRSGEN_REACTION_HEADER_SEP=nl              # \n
+QRSGEN_MENTION_TEMPLATE="@$name"           # v0.53.0 — @LID resolution
+QRSGEN_REACTION_AS_REPLY=true              # v0.53.2 — reaction como quote-reply
 ```
 
 ## Cambios visuales en mensajes posteados
@@ -162,6 +164,66 @@ Todos bajo `/api/instances/:name/...` y protegidos por
 
 - `GET /jobs/:id` — estado + resultado de un async job
 - `GET /jobs` — lista todos los jobs vivos
+
+## v0.53.x — mejoras de UX en mensajes posteados
+
+A partir de v0.53.0 se incorporaron tres mejoras que cambian cómo se
+ven mensajes con menciones y reacciones en Chatwoot. Si vienes de
+v0.52.x el upgrade es transparente (no requiere env nuevas), pero
+los formatos pueden parsearse distinto en integraciones downstream.
+
+### LID mentions resueltas con phone fallback (v0.53.0 + v0.53.1)
+
+**Problema previo**: `@140832...` (LID anónimo de WhatsApp) aparecía
+crudo en Chatwoot — no sabes a qué número o nombre corresponde.
+
+**Ahora**: qrsgen resuelve el LID en este orden:
+
+1. **Pushname** del contacto si está en el store local.
+2. **Saved name** (agenda) si el dueño del bot lo añadió.
+3. **Phone** (E.164 con `+`) si la mapping LID→PN existe en el store.
+4. **RedactedPhone** (último dígito enmascarado) si el usuario tiene
+   privacy LID activada.
+5. **LID crudo** como fallback final.
+
+Configurable vía `QRSGEN_MENTION_TEMPLATE` (default `@$name`).
+
+Cuando un grupo se "abre" por primera vez tras el restart, qrsgen
+hace `GetGroupInfo` on-demand para poblar el LID store (cache de 1h
+por grupo). Implementado en [`internal/bridge/mentions.go`](https://github.com/rricajos/qrsgen).
+
+### Reacciones como quote-reply (v0.53.2)
+
+**Antes**: la reacción aparecía como msg separado, sin contexto
+visual del msg target. El agente no sabía a qué se reaccionó.
+
+**Ahora**: qrsgen postea la reacción con
+`content_attributes.in_reply_to` apuntando al msg original →
+Chatwoot renderiza la reacción como blockquote nativo dentro del
+bubble. Default ON. Toggle vía `QRSGEN_REACTION_AS_REPLY=false`
+si tu downstream no es Chatwoot.
+
+### Quote-reply outgoing (v0.52.1)
+
+El tracker `bridge_msg_history` ahora también registra mensajes
+salientes (`fromMe=true`), no solo incoming. Esto permite que
+cuando alguien hace quote-reply en WhatsApp a un mensaje que TÚ
+escribiste desde Chatwoot, qrsgen pueda resolver el `in_reply_to`
+en el siguiente incoming.
+
+## v0.53.3 — hardening pre-v1.0
+
+Cero cambios de API, tres fixes operativos earned del soak real:
+
+- **Goroutines de history sync ahora se cancelan** al borrar la
+  instancia. Antes seguían POSTeando minutos tras `DELETE`, generando
+  404s sin valor en logs.
+- **`msgHistoryTracker.DropInstance`** llamada automáticamente desde
+  `Manager.Delete` vía nuevo callback `SetInstanceDeleteHandler`.
+  Libera memoria + filas DB de instancias borradas.
+- **Filtro de logs upstream**: el WARN benigno
+  `Failed to delete history sync media from server` queda suprimido
+  (cientos de líneas por sync, sin valor accionable).
 
 ## Orden recomendado de adopción
 

@@ -32,10 +32,10 @@ Antes de tagear v1.0.0, queremos asegurar:
    - [ ] Edge cases descubiertos en producción
 
 4. **Documentación**:
-   - [ ] `docs/integrations/history-import.md`
-   - [ ] `docs/integrations/group-admin.md`
-   - [ ] `docs/api/groups.md` (endpoint reference completo)
-   - [ ] Migration guide v0.x → v1.0 consolidado
+   - [x] `docs/integrations/history-import.md` (escrita; ON_DEMAND, bulk, retry, métricas)
+   - [x] `docs/integrations/group-admin.md` (endpoints + permisos + recetas)
+   - [x] `docs/api/groups.md` (endpoint reference completo)
+   - [x] Migration guide `docs/migrations/v0-to-v1.md` consolidado (incluye v0.53.x)
 
 5. **Soak time**:
    - [ ] N días en producción (dertochip + keysoluciones) sin

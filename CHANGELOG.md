@@ -46,6 +46,61 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.53.2] - 2026-06-01
+
+Feature: **reacciones como quote-reply visual del msg target**.
+Chatwoot mostraba la reacción como un msg suelto sin contexto del
+msg al que se reaccionó. Ahora qrsgen postea la reacción con
+`content_attributes.in_reply_to` apuntando al msg target → Chatwoot
+renderiza visualmente la reacción dentro del bubble del msg original.
+
+### Antes
+```
++34611887663 · ~Agustina
+reaccionó con 👍
+```
+(suelto en la conv — el agente no sabe a qué se reaccionó)
+
+### Ahora (default)
+La reacción aparece como **quote-reply** del msg target. Chatwoot
+muestra el msg original arriba y la reacción debajo, visualmente
+enlazados.
+
+### Added
+
+- **`PostMessageReq.InReplyTo int`**: cuando > 0, qrsgen POSTea
+  `content_attributes: {in_reply_to: <id>}` para que Chatwoot
+  renderice quote nativo.
+- **`msgHistoryTracker.FindByWAID(ctx, instance, waid)`**: lookup
+  del trackedMsg por su WAID. Memory first (linear scan), DB
+  fallback. Devuelve el `Chatwoot msg_id` para el `in_reply_to`.
+- **`Incoming.SetReactionAsReply(bool)`** + field `reactionAsReply`
+  default `true`.
+- En `handleReaction`: si `reactionAsReply=true` y el WAID target
+  está tracked, incluye `InReplyTo`. Si no se encuentra el WAID
+  target (msg pre-v0.44.0 o no recibido por qrsgen), degrada al
+  formato standalone (current).
+
+### Config
+
+- **`QRSGEN_REACTION_AS_REPLY`** (default `true`): activa la feature.
+  Desactivar si tu downstream no renderiza `content_attributes.
+  in_reply_to` bien o si prefieres el formato suelto.
+
+### Tests
+
+- `TestMsgHistoryTracker_FindByWAID` cubriendo found / miss /
+  empty waid / per-instance isolation.
+
+### Migration notes
+
+- Sin breaking changes. Feature on por default — solo cambia el
+  POST body cuando el WAID está tracked. Reacciones a msgs no
+  tracked (pre-v0.44.0) mantienen comportamiento previo.
+- Si tu downstream NO renderiza `in_reply_to` (otros, no Chatwoot),
+  el campo se ignora y la reacción aparece como msg suelto igual
+  que antes.
+
 ## [0.53.1] - 2026-06-01
 
 UX tweak post v0.53.0: cuando una @-mención apunta a un **LID sin

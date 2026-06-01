@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -82,5 +83,31 @@ func TestMsgHistoryTracker_EmptyListReturnsNil(t *testing.T) {
 	got := tr.ListBySender("inst1", "nobody@s.whatsapp.net")
 	if got != nil {
 		t.Errorf("empty: got %v, want nil", got)
+	}
+}
+
+func TestMsgHistoryTracker_FindByWAID(t *testing.T) {
+	tr := newMsgHistoryTracker(10)
+	tr.Record("inst1", "u@s.whatsapp.net", trackedMsg{
+		convID: 100, msgID: 42, waid: "WAID:ABC123",
+		body: "hola", postedAt: time.Now(),
+	})
+
+	got, ok := tr.FindByWAID(context.Background(), "inst1", "WAID:ABC123")
+	if !ok || got.msgID != 42 || got.body != "hola" {
+		t.Errorf("got %+v ok=%v", got, ok)
+	}
+
+	if _, ok := tr.FindByWAID(context.Background(), "inst1", "WAID:NOPE"); ok {
+		t.Error("expected miss for unknown WAID")
+	}
+
+	if _, ok := tr.FindByWAID(context.Background(), "inst1", ""); ok {
+		t.Error("expected miss for empty WAID")
+	}
+
+	// Aislamiento per-instance
+	if _, ok := tr.FindByWAID(context.Background(), "inst-other", "WAID:ABC123"); ok {
+		t.Error("expected miss across instances")
 	}
 }

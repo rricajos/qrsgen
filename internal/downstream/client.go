@@ -121,6 +121,11 @@ type PostMessageReq struct {
 	// `created_at` para máxima compatibilidad entre versiones de
 	// Chatwoot. Cero (zero value) lo omite y el downstream usa now().
 	CreatedAt time.Time `json:"-"`
+	// InReplyTo permite que el msg aparezca como quote-reply visual
+	// del msg con ese ID en Chatwoot. Usado por reactions (v0.53.2)
+	// para que el agente vea a qué msg se reaccionó. 0 = omitir.
+	// Se POSTea como `content_attributes.in_reply_to`.
+	InReplyTo int `json:"-"`
 }
 
 type PostMessageResp struct {
@@ -134,15 +139,29 @@ func (c *Client) PostMessage(ctx context.Context, req PostMessageReq) (*PostMess
 	// Chatwoot). Para el flujo normal (CreatedAt zero) marshal directo
 	// del struct via la ruta de siempre.
 	var body any = req
-	if !req.CreatedAt.IsZero() {
-		ts := req.CreatedAt.Unix()
-		body = map[string]any{
-			"content":              req.Content,
-			"message_type":         req.MessageType,
-			"source_id":            req.SourceID,
-			"created_at":           ts,
-			"external_created_at":  ts,
+	// v0.46.0: created_at backdated, v0.53.2: in_reply_to.
+	// Si cualquiera de los 2 está set, construir el body como map
+	// ad-hoc (struct tag JSON tendría omitempty issues con time
+	// zero + int 0).
+	if !req.CreatedAt.IsZero() || req.InReplyTo > 0 {
+		m := map[string]any{
+			"content":      req.Content,
+			"message_type": req.MessageType,
 		}
+		if req.SourceID != "" {
+			m["source_id"] = req.SourceID
+		}
+		if !req.CreatedAt.IsZero() {
+			ts := req.CreatedAt.Unix()
+			m["created_at"] = ts
+			m["external_created_at"] = ts
+		}
+		if req.InReplyTo > 0 {
+			m["content_attributes"] = map[string]any{
+				"in_reply_to": req.InReplyTo,
+			}
+		}
+		body = m
 	}
 	data, err := c.request(ctx, http.MethodPost, path, body)
 	if err != nil {

@@ -82,6 +82,16 @@ type Config struct {
 	// (opt-in). Desde v0.47.0.
 	GroupEventsEnabled bool `env:"QRSGEN_GROUP_EVENTS_ENABLED" envDefault:"false"`
 
+	// ReactionAsReply: si true, las reacciones WhatsApp se postean al
+	// downstream con `content_attributes.in_reply_to` apuntando al
+	// msg target — visualmente queda como quote-reply en Chatwoot
+	// (el agente ve a qué msg se reaccionó). Si el msg target no
+	// está tracked en msg_history (típicamente porque pre-v0.44.0),
+	// degrada al formato standalone (current pre-v0.53.2). Default
+	// true. Desactivar si tu downstream no renderiza in_reply_to
+	// bien o si prefieres el formato suelto. Desde v0.53.2.
+	ReactionAsReply bool `env:"QRSGEN_REACTION_AS_REPLY" envDefault:"true"`
+
 	// MentionTemplate controla el render de @-menciones inline en
 	// mensajes de WhatsApp. WA envía las menciones como `@<jid_user>`
 	// en el body + array separado de JIDs en ContextInfo.MentionedJID.

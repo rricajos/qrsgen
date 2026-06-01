@@ -121,6 +121,14 @@ type Incoming struct {
 	// menciones LID sin resolver. Desde v0.53.1.
 	lidRefresher *lidRefreshTracker
 
+	// reactionAsReply controla si las reacciones se postean al
+	// downstream con `content_attributes.in_reply_to` apuntando al
+	// msg target (visualmente queda como quote-reply en Chatwoot).
+	// Permite saber a qué msg se reaccionó sin context extra.
+	// Default true (chatwoot lo aprovecha). Desactivable si tu
+	// downstream no soporta in_reply_to bien. Desde v0.53.2.
+	reactionAsReply bool
+
 	// chatAnchor trackea el último incoming conocido por chat (no
 	// por sender). Distinto del msg_history tracker — indexa por
 	// (instance, chatJID). Usado por history import on-demand como
@@ -170,8 +178,14 @@ func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logge
 		chatAnchor:        newChatAnchorTracker(),
 		mentionTemplate:   MentionTemplateDefault,
 		lidRefresher:      newLIDRefreshTracker(),
+		reactionAsReply:   true,
 	}
 }
+
+// SetReactionAsReply controla si las reacciones se postean con
+// `content_attributes.in_reply_to` apuntando al msg target.
+// v0.53.2.
+func (i *Incoming) SetReactionAsReply(v bool) { i.reactionAsReply = v }
 
 // SetMentionTemplate cambia el template usado para resolver
 // @-menciones inline. Vacío desactiva la feature (texto raw).
@@ -568,11 +582,24 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 		content = verb
 	}
 
+	// v0.53.2: si está activado reactionAsReply, intentamos resolver
+	// el WAID del msg target a su Chatwoot msg_id para postear la
+	// reacción como quote-reply visual (`content_attributes.in_reply_to`).
+	// El agente ve a qué msg se reaccionó. Si el lookup falla
+	// (msg target no trackeado), degrada al formato standalone.
+	inReplyTo := 0
+	if i.reactionAsReply && i.msgHistory != nil && targetMsgID != "" {
+		if tm, ok := i.msgHistory.FindByWAID(ctx, instance, targetMsgID); ok {
+			inReplyTo = tm.msgID
+		}
+	}
+
 	_, err = ds.PostMessage(ctx, downstream.PostMessageReq{
 		ConversationID: conv.ID,
 		Content:        content,
 		MessageType:    "incoming",
 		SourceID:       "WAID:reaction:" + msg.Info.ID,
+		InReplyTo:      inReplyTo,
 	})
 	if err != nil {
 		i.logger.Warn("reaction sync: post failed",

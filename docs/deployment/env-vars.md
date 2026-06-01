@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.53.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.53.1 (LID refresh on-demand para popular el LID store + fallback a RedactedPhone para menciones LID sin PN). |
+| `QRSGEN_VERSION` | `0.53.2` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.53.2 (reactions como quote-reply visual del msg target en Chatwoot via `content_attributes.in_reply_to`). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |
@@ -31,6 +31,7 @@
 | `QRSGEN_HEADER_TEMPLATE` | `` `$phone · $name` `` | Template del header de sender en group prefix y reactions. Tokens: `$phone` (E.164 con `+`), `$name` (nombre canónico con `~` automático si no saved). Ejemplos: `` `$phone` · **$name** `` (phone en code + bold name), `$phone \| $name` (plano), `[$phone] $name` (con corchetes). El `~` para no-saved está integrado vía `IsContactSaved` — el operador solo elige el wrapper visual. Solo aplica cuando hay AMBOS phone y name; sin uno de ellos cae a formato fijo `` `phone:` `` o `` `~name:` ``. Desde v0.45.0. |
 | `QRSGEN_REACTION_HEADER_SEP` | `nl` | Separador entre el header y el verb (`reaccionó con 👍`) en reacciones. Distinto del `QRSGEN_GROUP_HEADER_SEP` porque la reacción es más compacta visualmente. Default `nl` (`\n`) — single line break. Mismos alias que `QRSGEN_GROUP_HEADER_SEP`. Desde v0.45.1. |
 | `QRSGEN_MENTION_TEMPLATE` | `@$name` | Template para sustituir `@<jid_user>` inline por `@<nombre>`. WhatsApp envía las menciones como `@148855681191942` (LID raw) + array `ContextInfo.MentionedJID`. qrsgen las une y muestra el nombre legible. Tokens: `$name` (con `~` automático si no saved), `$phone` (E.164). Vacío desactiva la feature. Ejemplos: `@$name` (default), `@$name ($phone)`, `**$name**`. Desde v0.53.0. |
+| `QRSGEN_REACTION_AS_REPLY` | `true` | Si `true`, las reacciones WhatsApp se postean al downstream con `content_attributes.in_reply_to` apuntando al msg target → Chatwoot renderiza la reacción como quote-reply visual del msg original (el agente ve a qué se reaccionó). Si el msg target no está tracked (pre-v0.44.0), degrada al formato standalone. Desactivar si tu downstream no renderiza `in_reply_to` o prefieres msg suelto. Desde v0.53.2. |
 | `QRSGEN_HISTORY_IMPORT_ENABLED` | `false` | Si `true`, qrsgen procesa los blobs de `*events.HistorySync` que recibe (al parear instancias o como respuesta on-demand) y postea los msgs históricos al downstream con `created_at` backdated + `source_id=WAID:<id>` para idempotencia. Opt-in por implicaciones de volumen (puede ser cientos de POSTs en una pasada). Desde v0.46.0. |
 | `QRSGEN_HISTORY_IMPORT_DAYS` | `7` | Cuántos días hacia atrás importar. Clamped a `[1, 30]`. WhatsApp limita el histórico que devuelve según ajustes del phone — pedir 30 cuando el phone solo guarda 7 da los 7. Desde v0.46.0. |
 | `QRSGEN_HISTORY_IMPORT_RATE_PER_SEC` | `5` | Límite de POST/s al downstream durante el import — evita bursts que estresen Chatwoot. Aumentar con cuidado (>20 puede generar rate limits en el backend). Desde v0.46.0. |

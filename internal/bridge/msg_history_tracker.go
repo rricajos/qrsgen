@@ -302,6 +302,44 @@ func (t *msgHistoryTracker) FindByChatwootMsgID(ctx context.Context, instance st
 	return m, sender, true
 }
 
+// FindByWAID busca un trackedMsg por su WAID (whatsapp message id).
+// Memory first (linear scan), DB fallback. Usado por v0.53.2 para
+// resolver el `Chatwoot msg_id` del msg al que apunta una reacción.
+func (t *msgHistoryTracker) FindByWAID(ctx context.Context, instance, waid string) (trackedMsg, bool) {
+	if waid == "" {
+		return trackedMsg{}, false
+	}
+	t.mu.Lock()
+	prefix := instance + "|"
+	for key, entries := range t.data {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		for _, e := range entries {
+			if e.waid == waid {
+				t.mu.Unlock()
+				return e, true
+			}
+		}
+	}
+	pool := t.pool
+	t.mu.Unlock()
+	if pool == nil {
+		return trackedMsg{}, false
+	}
+	var m trackedMsg
+	err := pool.QueryRow(ctx, `
+		SELECT conv_id, msg_id, phone, name_used, was_saved, body, posted_at, waid, has_prefix
+		FROM bridge_msg_history
+		WHERE instance = $1 AND waid = $2
+		LIMIT 1
+	`, instance, waid).Scan(&m.convID, &m.msgID, &m.phone, &m.nameUsed, &m.wasSaved, &m.body, &m.postedAt, &m.waid, &m.hasPrefix)
+	if err != nil {
+		return trackedMsg{}, false
+	}
+	return m, true
+}
+
 // FindLastForChat busca el msg más reciente tracked para un chat
 // concreto (instance + chatJID). Para 1:1, el chat coincide con el
 // senderJID. Para grupos, buscamos cualquier msg del grupo (los

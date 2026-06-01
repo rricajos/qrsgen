@@ -45,6 +45,60 @@ v1.0.0-rc.1 candidato cuando el soak de v0.64.0 supere 7 días
 limpios. v1.0.0 final tras 14 días adicionales como RC.
 -->
 
+## [0.64.6] - 2026-06-01
+
+Runbook operacional: backup y restore completo de qrsgen.
+
+### Added
+
+- **`docs/operations/runbook-backup-restore.md`** (~250 líneas):
+  procedimiento step-by-step para 3 escenarios:
+  - **A) Restore en mismo Postgres** tras corrupción de la DB qrsgen
+    (incluye drop+recreate del schema y re-arranque del service).
+  - **B) DR completo a VPS nuevo** (cargar dump, ajustar `.env`,
+    actualizar webhook URLs en Chatwoot).
+  - **C) Restore selectivo solo `bridge_*`** que fuerza re-pareo
+    de instancias (para casos donde las sesiones whatsmeow están
+    quemadas).
+  - Documenta qué tablas respaldar (bridge_* + whatsmeow_*) y el
+    coste de perder cada una.
+  - Schedule recomendado (diario + weekly off-site + pre-deploy).
+  - Comandos `pg_dump` + `pg_restore` listos para copiar.
+  - Checklist de verificación post-restore (health, instances
+    connected, audit triggers activos).
+  - Notas de capacidad (crecimiento esperado por tabla).
+
+### Notes
+
+Cierra uno de los items pendientes del roadmap a v1.0.0. Junto al
+runbook de stuck-instance (v0.63.0), forman la base operacional
+mínima para que un nuevo operador pueda mantener qrsgen en producción
+sin acceso al equipo original.
+
+## [0.64.5] - 2026-06-01
+
+CI security: `govulncheck` ahora corre en cada push, PR y weekly cron.
+
+### Added
+
+- **`.github/workflows/security.yml`**: nuevo workflow que ejecuta
+  `govulncheck ./...` en:
+  - Push a `main`
+  - PRs contra `main`
+  - Schedule weekly (lunes 8:00 UTC)
+
+### Notes
+
+El workflow falla el run si encuentra cualquier CVE accionable.
+Esto fuerza a que un PR bump el toolchain o la dep afectada antes
+de poder mergear. Complementa el `toolchain go1.25.10` directive
+añadido en v0.64.3: este mantiene el floor, aquel detecta cualquier
+regresión que un dev pueda introducir al bumpear deps casualmente.
+
+El schedule weekly atrapa CVE anunciadas después del último push
+(escenario típico: dep tuya sin actualizar durante meses con CVE
+nueva publicada por su mantainer).
+
 ## [0.64.4] - 2026-06-01
 
 Doc-only patch: refresh del README con el estado actual del

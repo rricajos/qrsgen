@@ -120,6 +120,7 @@ nav:
       - Alerting Prometheus: operations/alerting.md
       - Logs útiles: operations/logs.md
       - "Runbook: instancia atascada": operations/runbook-stuck-instance.md
+      - "Runbook: backup y restore": operations/runbook-backup-restore.md
   - Integrations:
       - integrations/index.md
       - n8n: integrations/n8n.md

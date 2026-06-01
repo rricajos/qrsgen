@@ -45,6 +45,45 @@ v1.0.0-rc.1 candidato cuando el soak de v0.64.0 supere 7 días
 limpios. v1.0.0 final tras 14 días adicionales como RC.
 -->
 
+## [0.64.3] - 2026-06-01
+
+Patch security: bump del toolchain Go a 1.25.10 para cerrar 13
+vulnerabilidades de stdlib reportadas por `govulncheck`.
+
+### Fixed
+
+- **`go.mod` toolchain directive** añadida: `toolchain go1.25.10`.
+  El módulo declara `go 1.25.0` como versión mínima, pero ahora
+  exige al builder usar al menos 1.25.10. GoReleaser CI ya usaba
+  1.25.10 (verificado vía `/api/version` → `go_version`); este
+  cambio formaliza para devs locales y previene downgrades.
+
+### Vulnerabilidades cerradas (todas stdlib)
+
+- **GO-2026-4971**: panic en `net.Dial`/`LookupPort` con NUL byte en Windows.
+- **GO-2026-4947, 4946**: x509 chain building issues (DoS).
+- **GO-2026-4918**: HTTP/2 infinite loop con SETTINGS_MAX_FRAME_SIZE inválido.
+- **GO-2026-4340**: TLS handshake processing en encryption level incorrecto.
+- **GO-2026-4337**: TLS session resumption inesperada.
+- **GO-2025-4175**: x509 DNS name constraints (wildcard validation).
+- **GO-2025-4155**: x509 consumo excesivo en cert validation error string.
+- (6 más en stdlib que ya estaban cubiertas en 1.25.4-9, marcadas
+  redundantemente).
+
+### Verificación
+
+```bash
+$ govulncheck ./...
+No vulnerabilities found.
+```
+
+### Notes
+
+Cambia el binary solo en el sentido de que el toolchain mínimo
+cambia. La imagen ya desplegada en dertochip (`v0.64.0` built con
+1.25.10) no tiene estas vulns en runtime — el bump es preventivo
+para futuros builders.
+
 ## [0.64.2] - 2026-06-01
 
 Patch: tests HTTP para handlers nuevos sin cobertura (edit msg en

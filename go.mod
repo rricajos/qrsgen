@@ -2,6 +2,15 @@ module github.com/rricajos/qrsgen
 
 go 1.25.0
 
+// v0.64.3: requerimos toolchain >= 1.25.10 para cerrar las
+// vulnerabilidades de stdlib que govulncheck reporta contra versiones
+// anteriores: GO-2026-4971 (net Dial), GO-2026-4947/4946 (x509),
+// GO-2026-4918 (HTTP/2), GO-2026-4340 (TLS), GO-2026-4337 (TLS
+// session), GO-2025-4175/4155 (x509). El binary deployed ya usa
+// 1.25.10 por GoReleaser CI; este toolchain directive lo formaliza
+// para futuros builds y devs locales.
+toolchain go1.25.10
+
 require (
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/google/uuid v1.6.0

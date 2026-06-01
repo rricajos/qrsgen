@@ -5,46 +5,94 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 ## [Unreleased]
 
 <!--
-Roadmap hacia v1.0.0 (no apurar):
+Roadmap hacia v1.0.0 — status tras v0.64.0:
 
-Antes de tagear v1.0.0, queremos asegurar:
+Feature surface lo damos por completo. Lo que queda es soak puro
+en producción + tag final del major.
 
-1. **Tests E2E reales en dertochip** de:
-   - [ ] Group rename → events.GroupInfo → activity msg en Chatwoot
+1. **Tests E2E reales en dertochip** (todavía manual cuando aparecen):
+   - [ ] Group rename → activity msg en Chatwoot
    - [ ] Add/remove participants → activity msg
-   - [ ] History import single + bulk con cobertura amplia
-   - [ ] Identity change real (esperar a que un contacto cambie de
-     device — opt para mock si no llega naturalmente)
-   - [ ] Quote/reply bidireccional con varios tipos de media
+   - [x] History import single + bulk con cobertura amplia
+         (validado E2E con ricardtest test)
+   - [ ] Identity change real (esperar a que aparezca naturalmente)
+   - [x] Quote/reply bidireccional (validado en v0.52.x)
 
 2. **Integration tests adicionales**:
-   - [ ] Endpoints group admin (httptest stub para validar
-     payload + autorización)
-   - [ ] History import edge cases (timeout del peer, conv
-     no existe, msg malformado)
+   - [ ] Endpoints group admin via httptest
+   - [x] msg_history persistence + DropInstance (v0.58.0)
    - [ ] Group events con nil sender / fromFullSync
 
 3. **Robustez**:
-   - [ ] Revisión de concurrencia en el goroutines de retroactive
-     update + history import (sin races)
-   - [ ] Error handling consistente: ¿qué pasa si Chatwoot devuelve
-     5xx en medio de un bulk import?
-   - [ ] Edge cases descubiertos en producción
+   - [x] Cancel zombie history goroutine on Delete (v0.53.3)
+   - [x] Retry-After respect en downstream client (v0.59.0)
+   - [ ] Circuit breaker (deferido; no urgente sin escenario real)
 
 4. **Documentación**:
-   - [x] `docs/integrations/history-import.md` (escrita; ON_DEMAND, bulk, retry, métricas)
-   - [x] `docs/integrations/group-admin.md` (endpoints + permisos + recetas)
-   - [x] `docs/api/groups.md` (endpoint reference completo)
-   - [x] Migration guide `docs/migrations/v0-to-v1.md` consolidado (incluye v0.53.x)
+   - [x] `docs/integrations/history-import.md`
+   - [x] `docs/integrations/group-admin.md`
+   - [x] `docs/api/groups.md`
+   - [x] `docs/api/openapi.yaml` (v0.61.0)
+   - [x] `docs/migrations/v0-to-v1.md` consolidado
+   - [x] `docs/operations/runbook-stuck-instance.md` (v0.63.0)
 
 5. **Soak time**:
-   - [ ] N días en producción (dertochip + keysoluciones) sin
-     incidencias post v0.48.x
-   - [ ] Métricas Prometheus revisadas — sin spikes anómalos
-   - [ ] Logs sin warnings/errors recurrentes
+   - [ ] 7+ días en dertochip post-v0.64.0 sin regresiones
+   - [ ] Métricas Prometheus sin spikes anómalos
+   - [ ] Logs sin warnings recurrentes
 
-v1.0.0 cuando los items críticos estén marcados. No hay prisa.
+v1.0.0-rc.1 candidato cuando el soak de v0.64.0 supere 7 días
+limpios. v1.0.0 final tras 14 días adicionales como RC.
 -->
+
+## [0.64.0] - 2026-06-01
+
+Release que marca **feature complete** de cara a v1.0.0. Sin código
+funcional nuevo respecto a v0.63.0 — sólo cierre formal del ciclo de
+minors v0.55 → v0.64 y actualización del roadmap a estado "soak".
+
+### Status del roadmap v1.0.0
+
+Items completados durante v0.55-v0.64:
+
+- [x] **v0.55.0** — `/api/version` + build metadata via ldflags
+- [x] **v0.56.0** — split `incoming.go` (reactions + retroactive)
+- [x] **v0.57.0** — HMAC webhook tests + per-tenant lookup coverage
+- [x] **v0.58.0** — integration test del `DropInstance`
+- [x] **v0.59.0** — Retry-After respect (RateLimitError tipado)
+- [x] **v0.60.0** — edit message support (whatsmeow BuildEdit wiring)
+- [x] **v0.61.0** — OpenAPI 3.0 spec inicial
+- [x] **v0.62.0** — benchmarks de hot paths del bridge
+- [x] **v0.63.0** — runbook operacional para instancias atascadas
+- [x] **v0.64.0** — feature freeze + roadmap update (este release)
+
+### Items diferidos a post-v1.0
+
+Decisiones explícitas de scope durante el ciclo:
+
+- **Testcontainers infrastructure**: necesita `usermod -aG docker
+  dertochip` que es decisión de sysadmin, no incluida en código.
+- **Audit log retention cron**: requiere particionado de
+  `bridge_audit_log` por mes (la tabla tiene triggers anti-UPDATE/
+  DELETE por diseño tamper-evident). Diseño no trivial.
+- **Circuit breaker en downstream client**: especulativo sin un
+  escenario de outage real; el Retry-After respect cubre la mayoría
+  de casos.
+- **pprof live activation**: requiere `QRSGEN_PROFILE_ENABLED=true`
+  para no exponer `/debug/pprof` por default.
+- **OMNIA_QR_GC activación**: workflow listo en n8n, inactivo,
+  decisión del operador cuando confirme la lógica.
+
+### Próximos pasos hacia v1.0.0
+
+1. **Deploy v0.64.0** a dertochip (este commit).
+2. **Soak ≥ 7 días** sin incidencias.
+3. **Auditoría logs/métricas** post-soak para descartar regresiones.
+4. **Tag `v1.0.0-rc.1`** si el soak es limpio.
+5. **Soak adicional ≥ 14 días** como RC.
+6. **Tag `v1.0.0`** final.
+
+No hay prisa. Estable > rápido.
 
 ## [0.63.0] - 2026-06-01
 

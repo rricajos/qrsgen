@@ -84,6 +84,8 @@ nav:
       - Observabilidad: api/observability.md
       - Lifecycle webhooks: api/lifecycle-webhooks.md
       - Flujos comunes: api/flows.md
+      - Groups admin: api/groups.md
+      - OpenAPI 3.0 spec: api/openapi.yaml
   - Deployment:
       - deployment/index.md
       - Imágenes: deployment/images.md
@@ -117,6 +119,7 @@ nav:
       - Troubleshooting: operations/troubleshooting.md
       - Alerting Prometheus: operations/alerting.md
       - Logs útiles: operations/logs.md
+      - "Runbook: instancia atascada": operations/runbook-stuck-instance.md
   - Integrations:
       - integrations/index.md
       - n8n: integrations/n8n.md
@@ -126,6 +129,8 @@ nav:
       - Reacciones sync: integrations/reactions-sync.md
       - Typing y read receipts: integrations/presence-and-receipts.md
       - Contenido de mensajes: integrations/message-content.md
+      - Group admin: integrations/group-admin.md
+      - History import: integrations/history-import.md
   - Migrations:
       - migrations/index.md
       - Desde Evolution API: migrations/from-evolution-api.md
@@ -134,6 +139,7 @@ nav:
       - Desde un SaaS — overview: migrations/from-saas.md
       - Desde Whapi.cloud: migrations/from-whapi.md
       - Desde MaytAPI: migrations/from-maytapi.md
+      - "v0.x → v1.0": migrations/v0-to-v1.md
       - Salir de qrsgen: migrations/leaving.md
   - Legal:
       - Disclaimer: legal/disclaimer.md

@@ -139,7 +139,7 @@ Todos bajo `/api/instances/:name/...` y protegidos por
 ### Retroactive name update (v0.40.0+)
 
 - `POST /retroactive/reconcile` — bulk reconcile de la agenda
-  ([docs](../integrations/retroactive-name-update.md))
+  (ver `bridge_msg_history` + `Incoming.HandleContactUpdate` en el código fuente)
 
 ### History import (v0.46.0+)
 

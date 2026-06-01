@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.48.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.48.0 (group admin endpoints — qrsgen puede rename + add/remove/promote/demote miembros de grupos vía API HTTP). |
+| `QRSGEN_VERSION` | `0.48.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.48.1 (hardening — retry-on-5xx en history import + 3 docs nuevas: history-import.md, group-admin.md, groups.md). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

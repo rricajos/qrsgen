@@ -310,21 +310,45 @@ func (i *Incoming) postHistoryMsg(ctx context.Context, instance string, conv *wa
 		msgType = "outgoing"
 	}
 	sourceID := "WAID:" + msgID
-	_, err = ds.PostMessage(ctx, downstream.PostMessageReq{
+	req := downstream.PostMessageReq{
 		ConversationID: conver.ID,
 		Content:        content,
 		MessageType:    msgType,
 		SourceID:       sourceID,
 		CreatedAt:      ts,
-	})
-	if err != nil {
+	}
+	// v0.48.1: retry-on-5xx con backoff exponencial corto. Chatwoot
+	// puede dar 502/503 transitorios bajo load — el bulk import no
+	// debería abortar el chat entero por 1-2 hiccups.
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		_, lastErr = ds.PostMessage(ctx, req)
+		if lastErr == nil {
+			break
+		}
 		// 422 = source_id duplicate → ya importado, no es error real.
-		if strings.Contains(err.Error(), "422") {
+		if strings.Contains(lastErr.Error(), "422") {
 			metrics.RealtimeEventsTotal.WithLabelValues("history_import", "duplicate", instance).Inc()
 			return historyResultSkipped
 		}
-		i.logger.Warn("history import: post failed",
-			"err", err, "instance", instance, "msg_id", msgID)
+		// 4xx (no-422) = error permanente — no retry.
+		if isPermanentClientError(lastErr) {
+			break
+		}
+		if attempt < 3 {
+			backoff := time.Duration(attempt) * 500 * time.Millisecond
+			i.logger.Debug("history import: retry after error",
+				"err", lastErr, "attempt", attempt, "backoff", backoff)
+			select {
+			case <-ctx.Done():
+				return historyResultErrored
+			case <-time.After(backoff):
+			}
+		}
+	}
+	if lastErr != nil {
+		i.logger.Warn("history import: post failed after retries",
+			"err", lastErr, "instance", instance, "msg_id", msgID)
 		metrics.RealtimeEventsTotal.WithLabelValues("history_import", "ds_error", instance).Inc()
 		return historyResultErrored
 	}
@@ -613,6 +637,23 @@ type BulkImportResult struct {
 	TotalPosted  int    `json:"total_posted"`  // sum de msgs posteados en todos los chats
 	TotalSkipped int    `json:"total_skipped"` // sum de msgs skipped (sin texto)
 	TotalErrors  int    `json:"total_errors"`  // sum de errores POST
+}
+
+// isPermanentClientError indica si un error del downstream es 4xx
+// (no-retry) vs 5xx/timeout (retry-able). v0.48.1.
+func isPermanentClientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	// Buscar patrones tipo "status 4XX" (excluyendo 422 que se
+	// maneja antes como duplicate).
+	for _, code := range []string{"400", "401", "403", "404", "405", "409", "410", "415", "429"} {
+		if strings.Contains(s, code) {
+			return true
+		}
+	}
+	return false
 }
 
 // onDemandLatchSet sincroniza requests on-demand con el callback

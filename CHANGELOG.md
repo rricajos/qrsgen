@@ -4,6 +4,76 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+<!--
+Roadmap hacia v1.0.0 (no apurar):
+
+Antes de tagear v1.0.0, queremos asegurar:
+
+1. **Tests E2E reales en dertochip** de:
+   - [ ] Group rename → events.GroupInfo → activity msg en Chatwoot
+   - [ ] Add/remove participants → activity msg
+   - [ ] History import single + bulk con cobertura amplia
+   - [ ] Identity change real (esperar a que un contacto cambie de
+     device — opt para mock si no llega naturalmente)
+   - [ ] Quote/reply bidireccional con varios tipos de media
+
+2. **Integration tests adicionales**:
+   - [ ] Endpoints group admin (httptest stub para validar
+     payload + autorización)
+   - [ ] History import edge cases (timeout del peer, conv
+     no existe, msg malformado)
+   - [ ] Group events con nil sender / fromFullSync
+
+3. **Robustez**:
+   - [ ] Revisión de concurrencia en el goroutines de retroactive
+     update + history import (sin races)
+   - [ ] Error handling consistente: ¿qué pasa si Chatwoot devuelve
+     5xx en medio de un bulk import?
+   - [ ] Edge cases descubiertos en producción
+
+4. **Documentación**:
+   - [ ] `docs/integrations/history-import.md`
+   - [ ] `docs/integrations/group-admin.md`
+   - [ ] `docs/api/groups.md` (endpoint reference completo)
+   - [ ] Migration guide v0.x → v1.0 consolidado
+
+5. **Soak time**:
+   - [ ] N días en producción (dertochip + keysoluciones) sin
+     incidencias post v0.48.x
+   - [ ] Métricas Prometheus revisadas — sin spikes anómalos
+   - [ ] Logs sin warnings/errors recurrentes
+
+v1.0.0 cuando los items críticos estén marcados. No hay prisa.
+-->
+
+## [0.48.1] - 2026-06-01
+
+Hardening + docs sin nuevas features. Primer paso del roadmap
+hacia v1.0.0 (conservador).
+
+### Fixed
+
+- **History import: retry-on-5xx**: `postHistoryMsg` ahora reintenta
+  hasta 3 veces con backoff 500ms/1s ante errores 5xx o de red.
+  Errores 4xx (excepto 422 dup) son permanentes — no retry.
+  Antes: 1 hiccup transitorio de Chatwoot durante un bulk de 1000
+  msgs abortaba ese msg sin retry → `errors=1` en el JSON.
+
+### Added (docs)
+
+- **`docs/integrations/history-import.md`**: guía completa de uso,
+  endpoints, limitaciones, métricas, receta n8n, glosario.
+- **`docs/integrations/group-admin.md`**: cuándo usarlo, requisitos
+  (bot debe ser admin), receta n8n, testing local.
+- **`docs/api/groups.md`**: reference completa de los 3 endpoints
+  (path/body/responses/errors).
+
+### Tests
+
+- `TestIsPermanentClientError_4xxNoRetry` — 11 cases cubriendo 400,
+  401, 403, 404, 409, 429 (permanentes) y 500, 502, 503, 504,
+  timeout, nil (retry-able).
+
 ## [0.48.0] - 2026-06-01
 
 Feature: **group admin endpoints** — qrsgen ahora puede gestionar

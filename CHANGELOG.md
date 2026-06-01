@@ -46,6 +46,43 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.62.0] - 2026-06-01
+
+Benchmarks de hot paths del bridge.
+
+### Added
+
+- **`internal/bridge/benchmarks_test.go`** con 4 benchmarks:
+  - `BenchmarkRenderSenderHeader_Default` — template default,
+    saved=true: ~915ns/op, 2 allocs/op.
+  - `BenchmarkRenderSenderHeader_CustomTemplate` — template custom
+    con tokens variados: ~945ns/op, 2 allocs/op.
+  - `BenchmarkRenderSenderHeader_UnsavedTilde` — branch del `~`:
+    ~775ns/op, 2 allocs/op.
+  - `BenchmarkResolveMentions_NoMentions` — caso común sin @-mentions:
+    ~14ns/op, 0 allocs/op (early-return funciona).
+
+### Notes
+
+Run con:
+
+```bash
+go test -bench=. -benchmem -run=^$ ./internal/bridge/...
+```
+
+Los benchmarks no se ejecutan en `go test ./...` normal — sólo con
+`-bench`. Pensados para detectar regresiones al cambiar el parser de
+templates o el resolver de mentions en futuros refactors.
+
+Cifras actuales: ~1µs por mensaje incoming para el render del header.
+A 1000 msgs/s eso es 1ms total — negligible vs el ~10-50ms del POST
+a Chatwoot. No hay hot spot que justifique optimización ahora.
+
+**pprof live**: no expuesto en este release. Activarlo requiere una
+env como `QRSGEN_PROFILE_ENABLED=true` que monte `/debug/pprof/*` —
+pendiente del próximo minor por temas de security (no exponer pprof
+por default).
+
 ## [0.61.0] - 2026-06-01
 
 OpenAPI 3.0 spec inicial.

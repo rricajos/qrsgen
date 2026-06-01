@@ -35,6 +35,7 @@ type Manager struct {
 	onChatPresence  wameow.ChatPresenceHandler
 	onReceipt       wameow.ReceiptHandler
 	onContact       wameow.ContactHandler
+	onHistorySync   wameow.HistorySyncHandler
 
 	// waiters: suscripciones a "esta instancia está ready". Cada canal
 	// recibe una señal cuando la instancia transiciona a ready y se cierra.
@@ -133,6 +134,18 @@ func (m *Manager) SetContactHandler(h wameow.ContactHandler) {
 	m.onContact = h
 	for _, conn := range m.instances {
 		conn.SetContactHandler(h)
+	}
+}
+
+// SetHistorySyncHandler registra el callback para *events.HistorySync
+// (v0.46.0 history import). Lo propaga a las instancias actuales y
+// futuras (Bootstrap aplica el mismo handler al crear cada Conn).
+func (m *Manager) SetHistorySyncHandler(h wameow.HistorySyncHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onHistorySync = h
+	for _, conn := range m.instances {
+		conn.SetHistorySyncHandler(h)
 	}
 }
 
@@ -372,6 +385,9 @@ func (m *Manager) startLocked(ctx context.Context, name, jidStr string) (*wameow
 	}
 	if m.onContact != nil {
 		conn.SetContactHandler(m.onContact)
+	}
+	if m.onHistorySync != nil {
+		conn.SetHistorySyncHandler(m.onHistorySync)
 	}
 	if err := conn.Connect(ctx); err != nil {
 		return nil, err

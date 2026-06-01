@@ -38,6 +38,7 @@ import (
 	"github.com/rricajos/qrsgen/internal/tenant"
 	"github.com/rricajos/qrsgen/internal/usage"
 	"github.com/rricajos/qrsgen/internal/wameow"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -143,6 +144,9 @@ func main() {
 	incoming.SetHeaderSep(bridge.ResolveHeaderSep(cfg.GroupHeaderSep))
 	incoming.SetReactionSep(bridge.ResolveHeaderSep(cfg.ReactionHeaderSep))
 	incoming.SetHeaderTemplate(cfg.HeaderTemplate)
+	if cfg.HistoryImportEnabled {
+		incoming.EnableHistoryImport(cfg.HistoryImportDays, cfg.HistoryImportRatePerSec)
+	}
 	incoming.SetAvatarSync(cfg.AvatarSync)
 	incoming.SetAvatarRefreshTTL(cfg.AvatarRefreshTTL)
 	incoming.SetReactionsSync(cfg.ReactionsSync)
@@ -236,6 +240,16 @@ func main() {
 	mgr.SetReceiptHandler(func(ctx context.Context, instance string, chat types.JID, sender types.JID, kind string, messageIDs []string, ts time.Time, r wameow.WAResolver) {
 		incoming.HandleReceipt(ctx, instance, chat, sender, kind, messageIDs, ts, r)
 	})
+	// v0.46.0: history import. Cuando whatsmeow emite HistorySync
+	// (al parear o como respuesta on-demand), Incoming.HandleHistorySync
+	// procesa el blob y postea los msgs al downstream con created_at
+	// backdated. Opt-in vía QRSGEN_HISTORY_IMPORT_ENABLED.
+	if cfg.HistoryImportEnabled {
+		mgr.SetHistorySyncHandler(func(ctx context.Context, instance string, data *waHistorySync.HistorySync, r wameow.WAResolver) {
+			incoming.HandleHistorySync(ctx, instance, data, r)
+		})
+	}
+
 	// v0.40.0: retroactive name update. Cuando whatsmeow emite Contact
 	// (contacto añadido/editado en la agenda local del dueño), reescribir
 	// el content de los mensajes históricos posteados al downstream para
@@ -688,6 +702,56 @@ func main() {
 	// reduzca el ritmo antes de que WhatsApp tome acciones.
 	api.GET("/instances/:name/ban-risk", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, banWatcher.Snapshot(c.Param("name")))
+	})
+
+	// POST /api/instances/:name/history/import
+	// v0.46.0: trigger on-demand history sync para un chat específico.
+	// Query params:
+	//   - chat=<jid>           (requerido) chat JID a importar
+	//   - count=N              (opcional, default 50, max 200)
+	//   - timeout_sec=N        (opcional, default 30)
+	//
+	// Bloquea hasta recibir el HistorySync ON_DEMAND del phone (con
+	// timeout) o devuelve error. Devuelve HistoryImportResult JSON.
+	// Requiere QRSGEN_HISTORY_IMPORT_ENABLED=true.
+	api.POST("/instances/:name/history/import", func(c echo.Context) error {
+		instance := c.Param("name")
+		conn, ok := mgr.Get(instance)
+		if !ok {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
+		}
+		chatStr := c.QueryParam("chat")
+		if chatStr == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "chat query param required"})
+		}
+		chatJID, err := types.ParseJID(chatStr)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid chat jid: " + err.Error()})
+		}
+		count := 50
+		if v := c.QueryParam("count"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				count = n
+			}
+		}
+		timeoutSec := 30
+		if v := c.QueryParam("timeout_sec"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				timeoutSec = n
+			}
+		}
+		result, err := incoming.ImportHistoryOnDemand(
+			c.Request().Context(),
+			instance,
+			chatJID,
+			count,
+			time.Duration(timeoutSec)*time.Second,
+			conn,
+		)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
 	})
 
 	// POST /api/instances/:name/retroactive/reconcile

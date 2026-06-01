@@ -17,6 +17,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
@@ -60,6 +61,13 @@ type ReceiptHandler func(ctx context.Context, instance string, chat types.JID, s
 // canónica — los campos aquí son una hint del Action.
 type ContactHandler func(ctx context.Context, instance string, jid types.JID, fullName, firstName string, fromFullSync bool, r WAResolver)
 
+// HistorySyncHandler se dispara cuando whatsmeow emite
+// *events.HistorySync. Contiene blob de conversaciones+mensajes que
+// el phone empuja al cliente Web (al parear, recents periódicos, o
+// respuestas on-demand). qrsgen v0.46.0 lo usa para backfill de
+// mensajes históricos a Chatwoot.
+type HistorySyncHandler func(ctx context.Context, instance string, data *waHistorySync.HistorySync, r WAResolver)
+
 // WAResolver expone consultas al estado local del cliente whatsmeow.
 type WAResolver interface {
 	// ContactName devuelve el nombre cacheado para un JID, o "" si no hay info.
@@ -97,6 +105,11 @@ type WAResolver interface {
 	// Usado por el bulk reconcile del retroactive name update (v0.43.0)
 	// para iterar la agenda al boot o vía endpoint admin.
 	GetSavedContacts(ctx context.Context) (map[types.JID]string, error)
+	// RequestHistorySync envía a la primary device del usuario una
+	// petición de N msgs más de histórico para `chat`. La respuesta
+	// llega como *events.HistorySync con type ON_DEMAND. v0.46.0.
+	// `count` máximo recomendado por WA: 50.
+	RequestHistorySync(ctx context.Context, chat types.JID, lastMsgID string, lastMsgFromMe bool, lastMsgTimestamp time.Time, count int) error
 }
 
 // NameResolver alias para compatibilidad (un solo método); el bridge ya usa WAResolver.
@@ -134,6 +147,7 @@ type Conn struct {
 	onChatPresence ChatPresenceHandler
 	onReceipt      ReceiptHandler
 	onContact      ContactHandler
+	onHistorySync  HistorySyncHandler
 
 	mu        sync.RWMutex
 	lastQRPNG []byte
@@ -216,6 +230,10 @@ func (c *Conn) SetReceiptHandler(h ReceiptHandler) { c.onReceipt = h }
 // Multi-Device). Útil para retroactive update de mensajes ya posteados
 // al downstream cuando el dueño del bot añade un contacto a su agenda.
 func (c *Conn) SetContactHandler(h ContactHandler) { c.onContact = h }
+
+// SetHistorySyncHandler registra el callback para *events.HistorySync
+// (v0.46.0 history import). Llamar antes de Connect/Bootstrap.
+func (c *Conn) SetHistorySyncHandler(h HistorySyncHandler) { c.onHistorySync = h }
 
 // Connect arranca la conexión. Si el device aún no está pareado, abre canal QR.
 func (c *Conn) Connect(ctx context.Context) error {
@@ -541,6 +559,15 @@ func (c *Conn) handle(rawEvt any) {
 			}
 			c.onContact(context.Background(), c.name, evt.JID, full, first, evt.FromFullSync, c)
 		}
+	case *events.HistorySync:
+		if c.onHistorySync != nil && evt.Data != nil {
+			// v0.46.0: blob de mensajes históricos (al parear o
+			// respuesta de BuildHistorySyncRequest). El handler decide
+			// si procesar según config — puede ser muy grande, así
+			// que ejecutamos en goroutine para no bloquear el event
+			// loop de whatsmeow.
+			go c.onHistorySync(context.Background(), c.name, evt.Data, c)
+		}
 	case *events.Connected:
 		c.logger.Info("connected to whatsapp")
 		c.mu.Lock()
@@ -671,6 +698,34 @@ func (c *Conn) SendTextReply(ctx context.Context, remoteJid, content, quotedWAID
 		return "", fmt.Errorf("send reply: %w", err)
 	}
 	return resp.ID, nil
+}
+
+// RequestHistorySync pide a la primary device del usuario `count`
+// mensajes más de histórico para el chat dado, anteriores al
+// `lastMsgID` indicado. La respuesta llega vía el HistorySyncHandler
+// como *events.HistorySync con type ON_DEMAND. v0.46.0.
+//
+// `lastMsgID` debe ser un msgID conocido en el chat — qrsgen lo
+// resuelve normalmente desde el contact store o desde un msg
+// reciente del chat. `count` máx recomendado: 50.
+func (c *Conn) RequestHistorySync(ctx context.Context, chat types.JID, lastMsgID string, lastMsgFromMe bool, lastMsgTimestamp time.Time, count int) error {
+	if c.client == nil {
+		return fmt.Errorf("request history: client nil")
+	}
+	if count <= 0 || count > 200 {
+		count = 50
+	}
+	info := &types.MessageInfo{
+		MessageSource: types.MessageSource{
+			Chat:     chat,
+			IsFromMe: lastMsgFromMe,
+		},
+		ID:        types.MessageID(lastMsgID),
+		Timestamp: lastMsgTimestamp,
+	}
+	msg := c.client.BuildHistorySyncRequest(info, count)
+	_, err := c.client.SendPeerMessage(ctx, msg)
+	return err
 }
 
 // MarkRead manda un read receipt a WhatsApp por los message IDs

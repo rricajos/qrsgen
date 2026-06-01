@@ -107,6 +107,16 @@ type Incoming struct {
 	// vía QRSGEN_REACTION_HEADER_SEP (mismos alias que GROUP_HEADER_SEP).
 	reactionSep string
 
+	// historyCfg configura el feature de history import (v0.46.0).
+	// nil = feature desactivado (EnableHistoryImport no llamada).
+	historyCfg *historyImportConfig
+
+	// onDemandLatch sincroniza requests on-demand de history sync con
+	// el HandleHistorySync callback. Cada request adquiere un latch
+	// (chan) indexado por (instance, chat) y libera al recibir el
+	// payload ON_DEMAND correspondiente.
+	onDemandLatch *onDemandLatchSet
+
 	// headerSep es el separador entre el header (`+phone · name`) y el
 	// body en mensajes posteados al downstream. Configurable porque
 	// ningún renderer markdown se comporta igual:
@@ -133,6 +143,7 @@ func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logge
 		headerSep:         GroupHeaderSepParagraph,
 		headerTemplate:    GroupHeaderTemplateDefault,
 		reactionSep:       GroupHeaderSepSoftNL, // `\n` por defecto (v0.45.1)
+		onDemandLatch:     newOnDemandLatchSet(),
 	}
 }
 

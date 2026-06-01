@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -106,6 +107,11 @@ func (f *fakeResolver) LIDForPN(pn types.JID) (types.JID, bool) {
 // que dependan de descarga real necesitan inyectar un downloader específico.
 func (f *fakeResolver) DownloadAny(_ context.Context, _ *waE2E.Message) ([]byte, error) {
 	return nil, errors.New("fakeResolver: download no implementado en tests")
+}
+
+// RequestHistorySync test stub — no-op.
+func (f *fakeResolver) RequestHistorySync(_ context.Context, _ types.JID, _ string, _ bool, _ time.Time, _ int) error {
+	return nil
 }
 
 // GetSavedContacts test stub — devuelve un map plano de los names

@@ -75,6 +75,25 @@ type Config struct {
 	// Default "10m". Desde v0.30.0.
 	GroupHeaderTTL time.Duration `env:"QRSGEN_GROUP_HEADER_TTL" envDefault:"10m"`
 
+	// HistoryImportEnabled activa el feature de importar mensajes
+	// históricos al downstream (v0.46.0). Opt-in: implica POST
+	// rate-limited a Chatwoot al recibir un HistorySync de whatsmeow
+	// (pareo nuevo o respuesta a un endpoint admin on-demand).
+	// Default false. Desde v0.46.0.
+	HistoryImportEnabled bool `env:"QRSGEN_HISTORY_IMPORT_ENABLED" envDefault:"false"`
+
+	// HistoryImportDays cuántos días hacia atrás importa. Clamped a
+	// [1, 30]. Default 7. WhatsApp limita el histórico que devuelve
+	// según ajustes del phone (típicamente 30/90/180 días) — si
+	// pides 30 pero el phone solo guarda menos, da lo que tiene.
+	// Desde v0.46.0.
+	HistoryImportDays int `env:"QRSGEN_HISTORY_IMPORT_DAYS" envDefault:"7"`
+
+	// HistoryImportRatePerSec límite de POST/s al downstream durante
+	// el import. Default 5 — conservador para no estresar Chatwoot
+	// con bursts del historical sync. Aumentar con cuidado. v0.46.0.
+	HistoryImportRatePerSec int `env:"QRSGEN_HISTORY_IMPORT_RATE_PER_SEC" envDefault:"5"`
+
 	// ReactionHeaderSep controla el separador entre el header y el
 	// verb en reacciones (v0.45.1). Distinto del GroupHeaderSep porque
 	// la reacción es visualmente más atómica que un msg con cuerpo

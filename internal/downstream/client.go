@@ -116,6 +116,11 @@ type PostMessageReq struct {
 	Content        string `json:"content"`
 	MessageType    string `json:"message_type"` // "incoming" | "outgoing"
 	SourceID       string `json:"source_id,omitempty"`
+	// CreatedAt permite backdated messages (v0.46.0 history import).
+	// Cuando se setea, qrsgen lo POSTea como `external_created_at` y
+	// `created_at` para máxima compatibilidad entre versiones de
+	// Chatwoot. Cero (zero value) lo omite y el downstream usa now().
+	CreatedAt time.Time `json:"-"`
 }
 
 type PostMessageResp struct {
@@ -124,7 +129,22 @@ type PostMessageResp struct {
 
 func (c *Client) PostMessage(ctx context.Context, req PostMessageReq) (*PostMessageResp, error) {
 	path := fmt.Sprintf("/conversations/%d/messages", req.ConversationID)
-	data, err := c.request(ctx, http.MethodPost, path, req)
+	// v0.46.0: si CreatedAt está set, postamos un map ad-hoc que añade
+	// `created_at` y `external_created_at` (compat entre versiones
+	// Chatwoot). Para el flujo normal (CreatedAt zero) marshal directo
+	// del struct via la ruta de siempre.
+	var body any = req
+	if !req.CreatedAt.IsZero() {
+		ts := req.CreatedAt.Unix()
+		body = map[string]any{
+			"content":              req.Content,
+			"message_type":         req.MessageType,
+			"source_id":            req.SourceID,
+			"created_at":           ts,
+			"external_created_at":  ts,
+		}
+	}
+	data, err := c.request(ctx, http.MethodPost, path, body)
 	if err != nil {
 		return nil, err
 	}

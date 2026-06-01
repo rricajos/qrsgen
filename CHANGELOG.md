@@ -4,6 +4,88 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-06-01
+
+Feature: **history import** — backfill de mensajes históricos de
+WhatsApp a Chatwoot. Configurable 1-30 días, vía evento pasivo
+(pareo) o endpoint admin on-demand.
+
+### Added
+
+- **`*events.HistorySync` subscription** en `wameow.Conn`. Nuevo
+  type `wameow.HistorySyncHandler` y `Conn.SetHistorySyncHandler` +
+  `Manager.SetHistorySyncHandler` (propagación a instancias).
+- **`Incoming.HandleHistorySync(ctx, instance, data, r)`**: procesa
+  el blob recibido. Itera conversations + messages, filtra por
+  edad (`days` config), ordena cronológicamente, postea cada msg
+  al downstream con `created_at` backdated y `source_id=WAID:<id>`
+  para idempotencia.
+- **`Incoming.ImportHistoryOnDemand(ctx, instance, chat, count, timeout, r)`**:
+  orquesta on-demand history sync para un chat. Llama
+  `WAResolver.RequestHistorySync` (que internamente usa
+  `Client.BuildHistorySyncRequest` + `SendPeerMessage`), espera el
+  `*events.HistorySync` con type `ON_DEMAND` vía latch sincronizado,
+  y procesa el payload. Devuelve `HistoryImportResult` con stats.
+- **`WAResolver.RequestHistorySync`** + impl en `Conn`. Toma el
+  last-known msg info + count y envía petición a la primary device
+  del usuario.
+- **Endpoint admin `POST /api/instances/:name/history/import`**:
+  - Query: `chat=<jid>` (requerido), `count=N` (default 50, max
+    200), `timeout_sec=N` (default 30).
+  - Devuelve `HistoryImportResult` JSON
+    (`{instance, conversations, messages_seen, messages_kept,
+    posted, skipped, errors, oldest_ts, newest_ts}`).
+- **`PostMessageReq.CreatedAt`** (opcional): cuando set, qrsgen
+  postea `created_at` + `external_created_at` como Unix epoch para
+  compat entre versiones Chatwoot. Para flujo normal (zero value),
+  comportamiento sin cambios.
+- **Métricas Prometheus** vía `qrsgen_realtime_events_total`:
+  - `feature="history_import"` con results: `ok`, `ds_error`,
+    `skip_disabled`, `duplicate` (source_id ya importado).
+
+### Config
+
+- **`QRSGEN_HISTORY_IMPORT_ENABLED`** (default `false`): opt-in.
+- **`QRSGEN_HISTORY_IMPORT_DAYS`** (default `7`): rango 1-30.
+- **`QRSGEN_HISTORY_IMPORT_RATE_PER_SEC`** (default `5`):
+  throttle de POST/s al downstream para no estresar Chatwoot.
+
+### Notes
+
+- **Media files NO se importan** en esta fase. Para
+  imagen/video/audio/document/sticker sin caption, qrsgen postea
+  un placeholder (`🖼️ [imagen — no importada]`, etc.). Con
+  caption, postea el caption con el emoji prefix. La descarga +
+  re-upload de media files se considera para una fase futura por
+  el coste de bandwidth + complejidad.
+- **WhatsApp limita la profundidad del histórico** según ajustes
+  del phone (típicamente 30/90/180 días). Si pides 30 pero el
+  phone solo guarda menos, qrsgen recibe lo que haya.
+- **Idempotencia**: re-correr el import sobre los mismos msgs no
+  duplica — Chatwoot rechaza POSTs con `source_id` ya existente
+  (422), qrsgen lo cuenta como `duplicate` y sigue.
+- **Pareo**: si la feature está activa al parear una instancia
+  nueva, el HistorySync que WhatsApp empuja automáticamente se
+  procesa y los msgs aparecen en Chatwoot. Para instancias ya
+  pareadas, usar el endpoint on-demand.
+
+### Tests
+
+- 9 unit tests en `history_import_test.go`:
+  - `ExtractHistoryText_*` (7 cases: text, ext text, image with/
+    without caption, audio PTT, document title, nil).
+  - `EnableHistoryImport_DaysClamped` (clamp a [1, 30]).
+  - `EnableHistoryImport_RateDefaultWhenInvalid` (default 5).
+
+### Migration notes
+
+- Sin breaking changes. Feature opt-in. Sin `ENABLED=true` el
+  comportamiento es idéntico a v0.45.x.
+- `PostMessageReq` gana un campo nuevo `CreatedAt` pero los
+  callers existentes pasan zero value → flujo sin cambios.
+- Endpoint nuevo bajo `/api/instances/:name/history/import` —
+  protegido por el middleware de auth si `QRSGEN_API_TOKEN` está set.
+
 ## [0.45.1] - 2026-06-01
 
 UX tweak post-v0.45.0: reactions tienen ahora un separador propio

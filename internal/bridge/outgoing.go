@@ -32,6 +32,10 @@ type Sender interface {
 	// ContextInfo para que el cliente receptor muestre el preview).
 	// v0.44.0.
 	SendTextReply(ctx context.Context, instance, remoteJid, content, quotedWAID, quotedSenderJID, quotedText string) (string, error)
+	// SendMediaReply envía un media como reply a un msg existente.
+	// Idéntico a SendMedia + populates ContextInfo con quotedWAID/
+	// quotedSenderJID/quotedText. v0.51.0.
+	SendMediaReply(ctx context.Context, instance, remoteJid, kind, mimetype, filename, caption string, data []byte, quotedWAID, quotedSenderJID, quotedText string) (string, error)
 }
 
 // ReadMarker es la interfaz para marcar mensajes WhatsApp como leídos.
@@ -400,6 +404,12 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 		ds := o.ds.For(ctx, instance)
 		caption := p.Content
 		var firstWAID string
+		// v0.51.0: resolver reply context para que el PRIMER adjunto
+		// vaya como reply nativo si el webhook trae in_reply_to.
+		// Los adjuntos subsecuentes (cuando hay >1) van sin quote para
+		// no duplicar el preview en cada uno.
+		quotedWAID, quotedSenderJID, quotedText := o.resolveReplyContext(ctx, instance, p)
+
 		for i, att := range p.Attachments {
 			if att.DataURL == "" {
 				o.logger.Warn("attachment without data_url, skipping", "att_id", att.ID)
@@ -422,7 +432,12 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 			if i == 0 {
 				capForThis = caption
 			}
-			waID, err := o.sender.SendMedia(ctx, instance, remoteJid, att.FileType, mimetype, filename, capForThis, data)
+			var waID string
+			if i == 0 && quotedWAID != "" {
+				waID, err = o.sender.SendMediaReply(ctx, instance, remoteJid, att.FileType, mimetype, filename, capForThis, data, quotedWAID, quotedSenderJID, quotedText)
+			} else {
+				waID, err = o.sender.SendMedia(ctx, instance, remoteJid, att.FileType, mimetype, filename, capForThis, data)
+			}
 			tag := o.ds.OwnerTagFor(ctx, instance)
 			if err != nil {
 				metrics.MessageDispatchErrors.WithLabelValues("out", instance, "send_media", tag).Inc()

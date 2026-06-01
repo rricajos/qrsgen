@@ -50,6 +50,41 @@ func replyTextMessage(text, quotedWAID, quotedSenderJID, quotedText string) *waE
 	}
 }
 
+// buildMediaMessageWithReply es buildMediaMessage + populates el
+// ContextInfo del media correspondiente con quote info. Si los
+// args de reply son vacíos, devuelve idéntico a buildMediaMessage.
+// v0.51.0.
+func buildMediaMessageWithReply(ctx context.Context, client *whatsmeow.Client, kind, mimetype, filename, caption string, data []byte, quotedWAID, quotedSenderJID, quotedText string) (*waE2E.Message, error) {
+	msg, err := buildMediaMessage(ctx, client, kind, mimetype, filename, caption, data)
+	if err != nil {
+		return nil, err
+	}
+	if quotedWAID == "" {
+		return msg, nil
+	}
+	ci := &waE2E.ContextInfo{
+		StanzaID: proto.String(quotedWAID),
+		QuotedMessage: &waE2E.Message{
+			Conversation: proto.String(quotedText),
+		},
+	}
+	if quotedSenderJID != "" {
+		ci.Participant = proto.String(quotedSenderJID)
+	}
+	// Cada tipo de media tiene su propio ContextInfo field.
+	switch {
+	case msg.ImageMessage != nil:
+		msg.ImageMessage.ContextInfo = ci
+	case msg.AudioMessage != nil:
+		msg.AudioMessage.ContextInfo = ci
+	case msg.VideoMessage != nil:
+		msg.VideoMessage.ContextInfo = ci
+	case msg.DocumentMessage != nil:
+		msg.DocumentMessage.ContextInfo = ci
+	}
+	return msg, nil
+}
+
 // buildMediaMessage sube `data` al servidor de WhatsApp y construye el
 // *waE2E.Message apropiado (Image/Audio/Video/Document) según `kind`.
 func buildMediaMessage(ctx context.Context, client *whatsmeow.Client, kind, mimetype, filename, caption string, data []byte) (*waE2E.Message, error) {

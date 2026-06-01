@@ -964,6 +964,26 @@ func (c *Conn) MarkRead(ctx context.Context, chat, sender string, messageIDs []s
 	return c.client.MarkRead(ctx, ids, ts, chatJID, senderJID)
 }
 
+// SendMediaReply envía un media como reply nativo a un msg existente.
+// Idéntico a SendMedia + populates ContextInfo. v0.51.0.
+//
+// Si quotedWAID == "", se comporta como SendMedia pelado.
+func (c *Conn) SendMediaReply(ctx context.Context, remoteJid, kind, mimetype, filename, caption string, data []byte, quotedWAID, quotedSenderJID, quotedText string) (string, error) {
+	jid, err := parseJID(remoteJid)
+	if err != nil {
+		return "", err
+	}
+	msg, err := buildMediaMessageWithReply(ctx, c.client, kind, mimetype, filename, caption, data, quotedWAID, quotedSenderJID, quotedText)
+	if err != nil {
+		return "", fmt.Errorf("build media reply: %w", err)
+	}
+	resp, err := c.client.SendMessage(ctx, jid, msg)
+	if err != nil {
+		return "", fmt.Errorf("send media reply: %w", err)
+	}
+	return resp.ID, nil
+}
+
 // SendMedia sube un blob al servidor de WhatsApp y lo envía como
 // ImageMessage / AudioMessage / VideoMessage / DocumentMessage según `kind`.
 //

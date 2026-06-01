@@ -1523,6 +1523,14 @@ func (s senderAdapter) SendTextReply(ctx context.Context, instance, remoteJid, c
 	return conn.SendTextReply(ctx, remoteJid, content, quotedWAID, quotedSenderJID, quotedText)
 }
 
+func (s senderAdapter) SendMediaReply(ctx context.Context, instance, remoteJid, kind, mimetype, filename, caption string, data []byte, quotedWAID, quotedSenderJID, quotedText string) (string, error) {
+	conn, ok := s.mgr.Get(instance)
+	if !ok {
+		return "", fmt.Errorf("instance %q not found", instance)
+	}
+	return conn.SendMediaReply(ctx, remoteJid, kind, mimetype, filename, caption, data, quotedWAID, quotedSenderJID, quotedText)
+}
+
 // MarkRead implementa bridge.ReadMarker para que el outgoing pueda
 // disparar el read receipt de WhatsApp tras recibir conversation_updated.
 func (s senderAdapter) MarkRead(ctx context.Context, instance, chat, sender string, messageIDs []string, ts time.Time) error {

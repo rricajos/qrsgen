@@ -46,6 +46,46 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.51.0] - 2026-06-01
+
+Feature: **reply outgoing de media** — cuando el agente quote-replea
+desde Chatwoot con un adjunto (imagen/video/audio/documento), el
+reply se propaga a WhatsApp como reply nativo con ContextInfo
+poblado. Cierra el gap documentado en v0.44.0.
+
+### Added
+
+- **`Sender.SendMediaReply`** interface método. Idéntico a SendMedia
+  + `quotedWAID, quotedSenderJID, quotedText`.
+- **`wameow.Conn.SendMediaReply`** implementation que usa
+  `buildMediaMessageWithReply`.
+- **`buildMediaMessageWithReply`** helper en wameow/helpers.go que
+  construye el media message + popula `ContextInfo` en el field
+  apropiado del tipo concreto (`ImageMessage.ContextInfo`,
+  `AudioMessage.ContextInfo`, etc.).
+- **`senderAdapter.SendMediaReply`** wire en `cmd/server/main.go`.
+
+### Changed
+
+- **`outgoing.HandleFor` con attachments + in_reply_to**: el PRIMER
+  adjunto va como `SendMediaReply` (con quote nativo). Los
+  subsiguientes (cuando hay >1 adjunto en un mismo msg) van como
+  SendMedia plano — evita duplicar el preview del quote en cada
+  adjunto.
+
+### Tests
+
+- `fakeSender.SendMediaReply` + `recordingSender.SendMediaReply`
+  stubs en los tests existentes. Comportamiento delegado a
+  SendMedia (los tests específicos de reply-to media son una
+  iteración futura cuando haya patrones reales).
+
+### Migration notes
+
+- Sin breaking changes. Si tu Chatwoot no usa `in_reply_to` en los
+  webhooks (configuración default no lo manda), el flujo es
+  idéntico a v0.50.x.
+
 ## [0.50.0] - 2026-06-01
 
 Feature: **group admin completeness** — 5 endpoints adicionales que

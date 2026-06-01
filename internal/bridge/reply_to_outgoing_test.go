@@ -48,6 +48,19 @@ func (s *recordingSender) SendTextReply(_ context.Context, _, remoteJid, content
 	return "WAID:fresh-reply", nil
 }
 
+// SendMediaReply para tests reusa la misma lógica de captura — los
+// reply-to media tests no son granulares en v0.51.0.
+func (s *recordingSender) SendMediaReply(_ context.Context, _, remoteJid, _, _, _, _ string, _ []byte, quotedWAID, quotedJID, quotedText string) (string, error) {
+	s.replyCalls.Add(1)
+	s.mu.Lock()
+	s.lastQuotedWAID = quotedWAID
+	s.lastQuotedJID = quotedJID
+	s.lastQuotedText = quotedText
+	s.lastReplyTarget = remoteJid
+	s.mu.Unlock()
+	return "WAID:fresh-media-reply", nil
+}
+
 // newReplyTestOutgoing arma un Outgoing con un Incoming que tiene el
 // tracker de msg_history habilitado, conecta replyToOutgoing y devuelve
 // también el sender que captura las calls.

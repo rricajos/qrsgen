@@ -39,6 +39,11 @@ func (f *fakeSender) SendTextReply(ctx context.Context, instance, remoteJid, con
 	return f.SendText(ctx, instance, remoteJid, content)
 }
 
+// SendMediaReply test default delega en SendMedia.
+func (f *fakeSender) SendMediaReply(ctx context.Context, instance, remoteJid, kind, mimetype, filename, caption string, data []byte, _, _, _ string) (string, error) {
+	return f.SendMedia(ctx, instance, remoteJid, kind, mimetype, filename, caption, data)
+}
+
 type mockError struct{ msg string }
 
 func (e *mockError) Error() string { return e.msg }

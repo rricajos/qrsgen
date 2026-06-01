@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.50.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.50.0 (group admin completeness — 5 endpoints adicionales: topic, locked, announce, create, leave). |
+| `QRSGEN_VERSION` | `0.51.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.51.0 (reply outgoing de media — quote-reply con adjuntos del agente se propaga como reply nativo de WhatsApp con ContextInfo). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

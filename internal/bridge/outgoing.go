@@ -262,13 +262,19 @@ func (o *Outgoing) resolveReplyContext(ctx context.Context, instance string, p W
 	}
 	tm, senderJID, ok := o.msgHistory.FindByChatwootMsgID(ctx, instance, p.ContentAttributes.InReplyTo)
 	if !ok {
-		o.logger.Debug("reply-to: trackedMsg not found",
-			"instance", instance, "in_reply_to", p.ContentAttributes.InReplyTo)
+		// v0.52.1: subido de Debug a Info — sin este log, el operador
+		// no se entera de por qué la quote no llegó.
+		o.logger.Info("reply-to: trackedMsg not found, sending plain (no quote in WA)",
+			"instance", instance, "in_reply_to", p.ContentAttributes.InReplyTo,
+			"hint", "the quoted msg may pre-date v0.44.0 (no waid tracked) or be from an instance never reset")
 		return "", "", ""
 	}
 	if tm.waid == "" {
 		// Row vieja (pre-v0.44.0) sin WAID guardado. No podemos
 		// construir el ContextInfo de WhatsApp — degradamos a SendText.
+		o.logger.Info("reply-to: trackedMsg found but no WAID (pre-v0.44.0 row), sending plain",
+			"instance", instance, "in_reply_to", p.ContentAttributes.InReplyTo,
+			"chatwoot_msg_id", tm.msgID)
 		return "", "", ""
 	}
 	return tm.waid, senderJID, tm.body
@@ -461,6 +467,8 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 				o.logger.Warn("patch source_id failed (media)", "err", err, "msg_id", p.ID)
 			}
 		}
+		// v0.52.1: trackear outgoing media también.
+		o.trackOutgoing(instance, p, remoteJid, firstWAID, p.Content)
 		return nil
 	}
 
@@ -501,7 +509,41 @@ func (o *Outgoing) HandleFor(ctx context.Context, instance string, p WebhookPayl
 				"err", err, "msg_id", p.ID, "conv_id", p.Conversation.ID)
 		}
 	}
+	// v0.52.1: trackear outgoing en msg_history para que reply-to a
+	// msgs del agente funcione. Sin esto, msg_history solo tenía
+	// incoming → quote-reply a un msg outgoing del propio agente
+	// no encuentra anchor y degrada a SendText sin quote.
+	o.trackOutgoing(instance, p, remoteJid, waID, p.Content)
 	return nil
+}
+
+// trackOutgoing registra el outgoing recién enviado en msg_history
+// (si está habilitado). Permite que reply-to outgoing funcione
+// también cuando el agente quote-replea a un msg del propio agente.
+// v0.52.1.
+//
+// Key del tracker: chatJID (igual que sender en 1:1, sintético en
+// grupos — FindByChatwootMsgID hace lookup por msgID linealmente,
+// la key solo afecta organización).
+func (o *Outgoing) trackOutgoing(instance string, p WebhookPayload, remoteJid, waID, body string) {
+	if o.msgHistory == nil {
+		return
+	}
+	if p.ID == 0 || p.Conversation == nil || p.Conversation.ID == 0 {
+		return
+	}
+	if waID == "" {
+		return
+	}
+	o.msgHistory.Record(instance, remoteJid, trackedMsg{
+		convID:   p.Conversation.ID,
+		msgID:    p.ID,
+		body:     body,
+		postedAt: time.Now(),
+		waid:     waID,
+		// hasPrefix=false (outgoing del agente no lleva group prefix);
+		// queda fuera del retroactive name update — correcto.
+	})
 }
 
 // mimeFromExt infiere un mimetype razonable cuando downstream no devuelve Content-Type.

@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.52.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.52.0 (async job pattern para bulk operations + migration guide v0.28→v1.0 consolidado). Última minor antes de soak period y v1.0.0. |
+| `QRSGEN_VERSION` | `0.52.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.52.1 (fix: trackear outgoing en msg_history para que quote-reply a msgs del propio agente funcione + log visible cuando reply-to no encuentra anchor). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

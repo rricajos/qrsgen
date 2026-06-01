@@ -46,6 +46,57 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.52.1] - 2026-06-01
+
+Bug fix de UX: el reply-to outgoing fallaba silenciosamente cuando
+el agente quote-replea a un msg outgoing del propio agente.
+
+### Problema observado en producción
+
+Agente en Chatwoot hace quote-reply a un msg outgoing previo (suyo
+mismo). El mensaje llega a WhatsApp como SendText plano sin la
+cita visible. Sin logs visibles del fallback.
+
+Causa: `msg_history` solo trackea incoming (`!fromMe` en
+handleMessage). Los msgs outgoing nunca se registraban → el
+lookup `FindByChatwootMsgID` no encontraba anchor para reply.
+
+### Fixed
+
+- **`Outgoing.trackOutgoing`**: tras un SendText/SendMedia
+  exitoso, registra el msg en `msg_history` con su WAID + body.
+  Key del tracker: chatJID (`remoteJid`) — mismo schema que
+  incoming en 1:1 y sintético en grupos. FindByChatwootMsgID
+  hace lookup linear por msgID, así que la key es organizativa.
+- **Log subido de Debug a Info** en `resolveReplyContext` cuando
+  el lookup falla:
+  ```
+  "reply-to: trackedMsg not found, sending plain (no quote in WA)"
+  ```
+  Con hint sobre la causa probable (msg pre-v0.44.0 o instance
+  recién reseteada).
+
+### Después del fix
+
+- Quote-reply a outgoing → ahora encuentra anchor → reply nativo
+  con ContextInfo poblado.
+- Quote-reply a incoming pre-v0.44.0 → sigue fallando (no hay
+  WAID en la row) pero ahora log claro en producción.
+- Quote-reply a incoming post-v0.44.0 → funciona como antes.
+
+### Limitación residual
+
+Msgs outgoing posteados antes de v0.52.1 quedan sin trackear (no
+hay backfill retroactivo). Solo los nuevos outgoing aplican.
+
+### Migration notes
+
+Sin breaking changes. El tracker capacity per-sender (`200` default,
+`QRSGEN_RETROACTIVE_CAP_PER_SENDER`) ahora cuenta también outgoing
+para esa key — en chats activos puede llenarse antes de los 200
+incoming previos esperados. Subir el cap si afecta tu uso:
+`QRSGEN_RETROACTIVE_CAP_PER_SENDER=500`.
+
 ## [0.52.0] - 2026-06-01
 
 Feature: **async job pattern** para bulk operations + **migration

@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.47.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.47.0 (group events — cambios de nombre/topic/miembros/lock/announce/ephemeral + JoinedGroup + IdentityChange se propagan como activity msgs en la conv de Chatwoot). |
+| `QRSGEN_VERSION` | `0.48.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.48.0 (group admin endpoints — qrsgen puede rename + add/remove/promote/demote miembros de grupos vía API HTTP). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

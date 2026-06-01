@@ -4,6 +4,65 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-06-01
+
+Feature: **group admin endpoints** — qrsgen ahora puede gestionar
+grupos de WhatsApp (rename, add/remove/promote/demote miembros)
+vía HTTP. Cierra el ciclo con v0.47.0: la operación dispara un
+`*events.GroupInfo` que se renderiza como activity msg en Chatwoot.
+Permite testear v0.47.0 self-contained y abre la puerta a paneles
+de admin sin tocar el phone.
+
+Scope deliberadamente acotado (3 endpoints) para estabilidad
+pre-release v1.0.0. Topic, locked, announce, ephemeral, create,
+leave quedan para iteraciones posteriores cuando haya demanda real.
+
+### Added
+
+- **`wameow.Conn.GroupInfo(ctx, jid)`**: round-trip al server WA.
+  Devuelve `GroupInfo` JSON-friendly con subject, topic, settings y
+  participants (cada uno con `phone_number` resuelto si es LID).
+- **`wameow.Conn.SetGroupName(ctx, jid, name)`**: rename del grupo.
+  Requiere que el bot sea admin.
+- **`wameow.Conn.UpdateGroupParticipants(ctx, jid, action, jids)`**:
+  add/remove/promote/demote. Validación del action en el wrapper.
+
+- **Endpoints admin** en `cmd/server/main.go`:
+  - `GET    /api/instances/:n/groups/:jid` → info JSON
+  - `POST   /api/instances/:n/groups/:jid/name` → `{name}`
+  - `POST   /api/instances/:n/groups/:jid/participants` →
+    `{action, jids[]}`
+
+Auth heredada de `QRSGEN_API_TOKEN`. Errors mapeados:
+- 400 jid inválido / body malformado / action no soportado
+- 404 instance not found
+- 500 error del peer WA (ej. bot no es admin)
+
+### Tests
+
+- Build + suite full pasan. Test E2E manual:
+  ```bash
+  curl -X POST -H "Authorization: Bearer $TOKEN" \
+    -d '{"name":"Grupo Renombrado"}' \
+    "$BASE/api/instances/ATC/groups/120363111@g.us/name"
+  ```
+  → genera evento, qrsgen postea
+  `📝 **~Bot** cambió el nombre del grupo a _Grupo Renombrado_`
+  como activity msg en la conv del grupo en Chatwoot.
+
+### Limitaciones
+
+- **Bot debe ser admin** del grupo para cualquier operación de
+  escritura (rename, participants). WhatsApp rechaza si no — el
+  endpoint devuelve 500 con el mensaje del peer.
+- **Topic, locked, announce, ephemeral, create, leave** NO están
+  expuestos en esta release. Si los necesitas, abre issue.
+
+### Migration notes
+
+- Sin breaking changes. Endpoints nuevos protegidos por el mismo
+  middleware de auth que el resto de `/api/instances/*`.
+
 ## [0.47.0] - 2026-06-01
 
 Feature: **group events como activity msgs en Chatwoot**. Cuando

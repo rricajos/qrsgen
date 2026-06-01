@@ -741,6 +741,106 @@ func (c *Conn) SendTextReply(ctx context.Context, remoteJid, content, quotedWAID
 	return resp.ID, nil
 }
 
+// GroupInfo encapsula la info de un grupo en formato JSON-friendly.
+// Subset de `types.GroupInfo` con solo lo que un cliente HTTP necesita.
+type GroupInfo struct {
+	JID          string             `json:"jid"`
+	Subject      string             `json:"subject"`
+	Topic        string             `json:"topic"`
+	IsLocked     bool               `json:"is_locked"`
+	IsAnnounce   bool               `json:"is_announce"`
+	IsEphemeral  bool               `json:"is_ephemeral"`
+	Participants []GroupParticipant `json:"participants"`
+}
+
+// GroupParticipant es un miembro de un grupo + su rol.
+type GroupParticipant struct {
+	JID         string `json:"jid"`
+	PhoneNumber string `json:"phone_number,omitempty"` // si JID es LID, lo resolvemos
+	IsAdmin     bool   `json:"is_admin"`
+	IsSuperAdmin bool  `json:"is_super_admin"`
+}
+
+// GroupInfo obtiene la info de un grupo desde WhatsApp. Round-trip
+// al server. v0.48.0.
+func (c *Conn) GroupInfo(ctx context.Context, jid types.JID) (*GroupInfo, error) {
+	if c.client == nil {
+		return nil, fmt.Errorf("group info: client nil")
+	}
+	info, err := c.client.GetGroupInfo(ctx, jid)
+	if err != nil {
+		return nil, fmt.Errorf("get group info: %w", err)
+	}
+	out := &GroupInfo{
+		JID:         info.JID.String(),
+		Subject:     info.Name,
+		Topic:       info.Topic,
+		IsLocked:    info.IsLocked,
+		IsAnnounce:  info.IsAnnounce,
+		IsEphemeral: info.IsEphemeral,
+	}
+	for _, p := range info.Participants {
+		gp := GroupParticipant{
+			JID:          p.JID.String(),
+			IsAdmin:      p.IsAdmin,
+			IsSuperAdmin: p.IsSuperAdmin,
+		}
+		if p.JID.Server == types.HiddenUserServer {
+			if pn, ok := c.PNForLID(p.JID); ok {
+				gp.PhoneNumber = "+" + pn.User
+			}
+		} else if p.JID.Server == types.DefaultUserServer {
+			gp.PhoneNumber = "+" + p.JID.User
+		}
+		out.Participants = append(out.Participants, gp)
+	}
+	return out, nil
+}
+
+// SetGroupName cambia el nombre (subject) de un grupo. Requiere que
+// el bot sea admin del grupo. v0.48.0.
+func (c *Conn) SetGroupName(ctx context.Context, jid types.JID, name string) error {
+	if c.client == nil {
+		return fmt.Errorf("set name: client nil")
+	}
+	return c.client.SetGroupName(ctx, jid, name)
+}
+
+// UpdateGroupParticipants añade, expulsa, promueve o degrada miembros
+// de un grupo. action ∈ {"add","remove","promote","demote"}.
+// Requiere que el bot sea admin. v0.48.0.
+func (c *Conn) UpdateGroupParticipants(ctx context.Context, jid types.JID, action string, participants []types.JID) error {
+	if c.client == nil {
+		return fmt.Errorf("update participants: client nil")
+	}
+	var change whatsmeowParticipantChange
+	switch action {
+	case "add":
+		change = "add"
+	case "remove":
+		change = "remove"
+	case "promote":
+		change = "promote"
+	case "demote":
+		change = "demote"
+	default:
+		return fmt.Errorf("invalid action %q (must be add/remove/promote/demote)", action)
+	}
+	_, err := c.client.UpdateGroupParticipants(ctx, jid, participants, whatsmeowParticipantChangeProxy(change))
+	return err
+}
+
+// whatsmeowParticipantChange es alias del tipo de whatsmeow para
+// pasarlo correctamente al método público.
+type whatsmeowParticipantChange string
+
+// whatsmeowParticipantChangeProxy hace el cast al tipo público de
+// whatsmeow. Aislado para evitar import circular del package en
+// tests.
+func whatsmeowParticipantChangeProxy(c whatsmeowParticipantChange) whatsmeow.ParticipantChange {
+	return whatsmeow.ParticipantChange(c)
+}
+
 // RequestHistorySync pide a la primary device del usuario `count`
 // mensajes más de histórico para el chat dado, anteriores al
 // `lastMsgID` indicado. La respuesta llega vía el HistorySyncHandler

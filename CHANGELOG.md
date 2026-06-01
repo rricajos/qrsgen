@@ -46,6 +46,56 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.52.0] - 2026-06-01
+
+Feature: **async job pattern** para bulk operations + **migration
+guide consolidado** v0.28.x → v1.0. Última minor antes del soak
+period.
+
+### Added
+
+- **`bridge.JobStore`**: in-memory job tracker con TTL 24h.
+  - `Create(type, instance) → Job` con UUID
+  - `Start/Complete/Fail` para transiciones de status
+  - `Get(id)` / `List()` snapshots
+  - `RunAsync(job, fn)` ejecuta `fn` en goroutine y maneja status
+  - Cleanup loop cada 1h purga jobs `completed|failed` > TTL
+
+- **`POST /api/instances/:n/history/import-all-async`**: variante
+  async del bulk history import. Devuelve `202 Accepted` con
+  `{job_id, status}`. Cliente sondea `GET /jobs/:id` para
+  progreso. Pensado para inboxes grandes (>100 contactos).
+
+- **`GET /api/jobs/:id`** + **`GET /api/jobs`**: query de un job
+  individual y listado completo respectivamente.
+
+### Documentation
+
+- **`docs/migrations/v0-to-v1.md`**: guía consolidada de
+  migración v0.28.x → v1.0:
+  - Schema migrations automáticas (sin ALTER manual)
+  - Env vars nuevas (defaults conservadores)
+  - Cambios visuales en mensajes (group prefix, reactions, quotes)
+  - Endpoints nuevos por categoría
+  - Orden recomendado de adopción (5 pasos)
+  - Rollback path safe
+  - Métricas Prometheus + PromQL útil
+
+### Tests
+
+- 6 unit tests en `jobs_test.go`:
+  - `CreateAndGet`, `StartCompleteFail`, `FailWithError`
+  - `RunAsyncCompletes`, `RunAsyncFailsOnError`
+  - `ListReturnsAll`
+
+### Migration notes
+
+- Sin breaking changes. `import-all` (síncrono) sigue funcionando.
+  `import-all-async` es opt-in por preferencia del cliente.
+- Jobs se mantienen 24h tras completion/fail, luego se purgan.
+- Sin persistencia de jobs — si qrsgen reinicia durante un job,
+  el cliente recibe 404 al sondear y debe reintentar.
+
 ## [0.51.0] - 2026-06-01
 
 Feature: **reply outgoing de media** — cuando el agente quote-replea

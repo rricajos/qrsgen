@@ -139,6 +139,7 @@ func main() {
 		return cfg.DownstreamInboxID
 	}
 	incoming := bridge.NewIncomingDynamic(dsRegistry, dedup, logger, resolveInbox)
+	jobs := bridge.NewJobStore()
 	incoming.SetGroupPrefixSender(cfg.GroupPrefixSender)
 	incoming.SetGroupHeaderTTL(cfg.GroupHeaderTTL)
 	incoming.SetHeaderSep(bridge.ResolveHeaderSep(cfg.GroupHeaderSep))
@@ -752,6 +753,67 @@ func main() {
 	// reduzca el ritmo antes de que WhatsApp tome acciones.
 	api.GET("/instances/:name/ban-risk", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, banWatcher.Snapshot(c.Param("name")))
+	})
+
+	// POST /api/instances/:name/history/import-all-async
+	// v0.52.0: variante async del bulk history import. Devuelve
+	// inmediatamente con `job_id`; cliente sondea GET /jobs/:id para
+	// progreso/resultado. Pensado para inboxes grandes (>100 contactos)
+	// que pueden tardar varios minutos.
+	api.POST("/instances/:name/history/import-all-async", func(c echo.Context) error {
+		instance := c.Param("name")
+		conn, ok := mgr.Get(instance)
+		if !ok {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "instance not found"})
+		}
+		inboxID := resolveInbox(instance)
+		if inboxID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "no inbox_id for instance"})
+		}
+		count := 50
+		if v := c.QueryParam("count_per_chat"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				count = n
+			}
+		}
+		timeoutSec := 30
+		if v := c.QueryParam("timeout_per_chat"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				timeoutSec = n
+			}
+		}
+		job := jobs.Create("bulk_history_import", instance)
+		jobs.RunAsync(job, func(ctx context.Context) (any, error) {
+			return incoming.BulkImportHistory(
+				ctx,
+				instance,
+				inboxID,
+				count,
+				time.Duration(timeoutSec)*time.Second,
+				conn,
+			)
+		})
+		return c.JSON(http.StatusAccepted, map[string]any{
+			"job_id": job.ID,
+			"status": job.Status,
+		})
+	})
+
+	// GET /api/jobs/:id
+	// v0.52.0: estado + resultado de un job async.
+	api.GET("/jobs/:id", func(c echo.Context) error {
+		id := c.Param("id")
+		job, ok := jobs.Get(id)
+		if !ok {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "job not found"})
+		}
+		return c.JSON(http.StatusOK, job)
+	})
+
+	// GET /api/jobs
+	// v0.52.0: lista de jobs vivos (no purgados). Útil para debug.
+	api.GET("/jobs", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, jobs.List())
 	})
 
 	// POST /api/instances/:name/history/import-all

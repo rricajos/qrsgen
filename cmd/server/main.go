@@ -141,6 +141,7 @@ func main() {
 	incoming.SetGroupPrefixSender(cfg.GroupPrefixSender)
 	incoming.SetGroupHeaderTTL(cfg.GroupHeaderTTL)
 	incoming.SetHeaderSep(bridge.ResolveHeaderSep(cfg.GroupHeaderSep))
+	incoming.SetHeaderTemplate(cfg.HeaderTemplate)
 	incoming.SetAvatarSync(cfg.AvatarSync)
 	incoming.SetAvatarRefreshTTL(cfg.AvatarRefreshTTL)
 	incoming.SetReactionsSync(cfg.ReactionsSync)

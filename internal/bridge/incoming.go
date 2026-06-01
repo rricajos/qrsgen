@@ -95,6 +95,11 @@ type Incoming struct {
 	// loop de wameow para no bloquearlo durante PATCHes secuenciales.
 	retroactiveWG sync.WaitGroup
 
+	// headerTemplate controla el render del header de sender (group
+	// prefix + reactions). Tokens: $phone, $name. v0.45.0. Vacío = usa
+	// el default `$phone · $name` (en backticks).
+	headerTemplate string
+
 	// headerSep es el separador entre el header (`+phone · name`) y el
 	// body en mensajes posteados al downstream. Configurable porque
 	// ningún renderer markdown se comporta igual:
@@ -119,7 +124,19 @@ func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logge
 		typingTracker:     newTypingTracker(4 * time.Second),
 		readReceiptsSync:  true,
 		headerSep:         GroupHeaderSepParagraph,
+		headerTemplate:    GroupHeaderTemplateDefault,
 	}
+}
+
+// SetHeaderTemplate cambia el template del header de sender (group
+// prefix + reactions). v0.45.0. Pasar "" mantiene el default.
+// Tokens: $phone, $name. El `~` para no-saved es automático.
+func (i *Incoming) SetHeaderTemplate(template string) {
+	if template == "" {
+		i.headerTemplate = GroupHeaderTemplateDefault
+		return
+	}
+	i.headerTemplate = template
 }
 
 // Variantes del separador header/body para SetHeaderSep. Cada una se
@@ -437,26 +454,29 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 	}
 
 	// v0.40.1: delegamos a resolveSenderInfo (helper centralizado que
-	// hereda el fix v0.39.9 para LID con PN saved). Antes duplicábamos
-	// la lógica y arrastrábamos el mismo bug del prefix.
+	// hereda el fix v0.39.9 para LID con PN saved).
+	// v0.45.0: el header de reacciones usa el mismo template configurable
+	// que el group prefix (QRSGEN_HEADER_TEMPLATE). El verb sale en línea
+	// aparte, separado por i.headerSep — mismo layout que group msgs:
+	//
+	//   `+34611887663 · ~Agustina Sant Martí Real Estate`
+	//   reaccionó con 👍
 	si := resolveSenderInfo(msg, r)
-	name := si.name
-	if name == "" {
-		name = "alguien"
+	if si.name == "" {
+		si.name = "alguien"
 	}
-	nameMark := name
-	if !si.saved {
-		nameMark = "~" + name
-	}
-	phoneStr := ""
-	if si.phoneFmt != "" {
-		phoneStr = si.phoneFmt + " · "
-	}
+	header, ok := renderSenderHeader(si, i.headerTemplate)
 	verb := "reaccionó con " + emoji
 	if emoji == "" {
 		verb = "quitó su reacción"
 	}
-	content := "`" + phoneStr + nameMark + " " + verb + "`"
+	var content string
+	if ok {
+		content = header + i.headerSep + verb
+	} else {
+		// Fallback: sin phone ni name → solo el verb plano.
+		content = verb
+	}
 
 	_, err = ds.PostMessage(ctx, downstream.PostMessageReq{
 		ConversationID: conv.ID,
@@ -473,7 +493,7 @@ func (i *Incoming) handleReaction(ctx context.Context, instance string, msg *eve
 	metrics.RealtimeEventsTotal.WithLabelValues("reaction", "ok", instance).Inc()
 	i.logger.Info("reaction synced",
 		"conv_id", conv.ID, "emoji", emoji, "target_msg_id", targetMsgID,
-		"sender", name, "instance", instance)
+		"sender", si.name, "instance", instance)
 }
 
 // HandleReceipt reacciona a *events.Receipt. Solo procesamos kind="read"
@@ -888,7 +908,7 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 		}
 		if !fromMe && shouldEmit {
 			si := resolveSenderInfo(msg, r)
-			if prefix, ok := renderGroupSenderPrefix(si); ok {
+			if prefix, ok := renderSenderHeader(si, i.headerTemplate); ok {
 				if content == "" {
 					content = prefix
 				} else {
@@ -1031,7 +1051,7 @@ func (i *Incoming) HandleContactUpdate(ctx context.Context, instance string, jid
 		phone:    jid.User,
 		phoneFmt: formatE164(jid.User),
 	}
-	newPrefix, ok := renderGroupSenderPrefix(si)
+	newPrefix, ok := renderSenderHeader(si, i.headerTemplate)
 	if !ok {
 		return
 	}
@@ -1576,17 +1596,45 @@ func applyGroupSenderPrefix(body string, msg *events.Message, r wameow.WAResolve
 // un senderInfo ya resuelto. Devuelve (prefix, true) si pudo
 // identificar al sender; (—, false) si no hay ni phone ni nombre.
 //
+// Usa el default template GroupHeaderTemplateDefault cuando hay phone
+// y name. Para custom template usar renderSenderHeader directamente.
+//
 // Reutilizable por retroactive name update (v0.40.0): el orchestrator
 // resuelve el senderInfo actual y reusa este helper para producir el
 // header nuevo.
 func renderGroupSenderPrefix(si senderInfo) (string, bool) {
-	nameMark := "~" + si.name
-	if si.saved {
-		nameMark = si.name
+	return renderSenderHeader(si, GroupHeaderTemplateDefault)
+}
+
+// GroupHeaderTemplateDefault es el template usado cuando
+// QRSGEN_HEADER_TEMPLATE no se setea. Tokens disponibles:
+//   - $phone → E.164 con `+` (ej. `+34604021705`)
+//   - $name  → nombre canónico, con `~` delante si NO está saved
+//
+// El `~` es automático según IsContactSaved — el usuario solo elige
+// el wrapper (code block, bold, etc).
+const GroupHeaderTemplateDefault = "`$phone · $name`"
+
+// renderSenderHeader sustituye $phone y $name en el template para
+// generar el header del sender. Solo aplica el template cuando hay
+// tanto phone como name; los casos degradados usan fallback fijo
+// (compatibilidad con código anterior).
+//
+// Desde v0.45.0. El `~` para no-saved está integrado automáticamente
+// en $name — el template solo controla el envoltorio visual.
+func renderSenderHeader(si senderInfo, template string) (string, bool) {
+	nameMark := si.name
+	if si.name != "" && !si.saved {
+		nameMark = "~" + si.name
+	}
+	if template == "" {
+		template = GroupHeaderTemplateDefault
 	}
 	switch {
 	case si.phoneFmt != "" && si.name != "":
-		return "`" + si.phoneFmt + " · " + nameMark + "`", true
+		out := strings.ReplaceAll(template, "$phone", si.phoneFmt)
+		out = strings.ReplaceAll(out, "$name", nameMark)
+		return out, true
 	case si.name != "":
 		return "`" + nameMark + ":`", true
 	case si.phoneFmt != "":

@@ -75,6 +75,19 @@ type Config struct {
 	// Default "10m". Desde v0.30.0.
 	GroupHeaderTTL time.Duration `env:"QRSGEN_GROUP_HEADER_TTL" envDefault:"10m"`
 
+	// HeaderTemplate controla el render del header de sender (group
+	// prefix + reactions). Tokens: `$phone` (E.164 con `+`), `$name`
+	// (nombre canónico con `~` delante si no saved — automático).
+	// Default `` `$phone · $name` `` — code block con middle dot.
+	// Ejemplos alternativos:
+	//   - "`$phone` · **$name**"  → phone en code, nombre en bold separado
+	//   - "$phone | $name"        → plano sin markdown
+	//   - "[$phone] $name"        → con corchetes
+	// El `~` para no-saved está integrado en $name automáticamente
+	// (IsContactSaved del WAResolver) — el operador solo elige el wrapper.
+	// Desde v0.45.0.
+	HeaderTemplate string `env:"QRSGEN_HEADER_TEMPLATE"`
+
 	// GroupHeaderSep controla el separador entre el header de remitente
 	// y el body. Default "paragraph" (\n\n) porque es lo único que
 	// renderiza fiable en Chatwoot. Alternativas (alias env-friendly):

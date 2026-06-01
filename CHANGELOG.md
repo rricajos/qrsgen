@@ -4,6 +4,92 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-05-29
+
+Feature: **template configurable del header de sender + reactions
+estandarizadas**. Tres cambios relacionados:
+
+1. **Nuevo env var `QRSGEN_HEADER_TEMPLATE`** con tokens `$phone` y
+   `$name`. Default `` `$phone · $name` `` (igual que antes). Permite
+   al operador elegir el wrapper (code block, bold, plano, etc.) sin
+   rebuild. El `~` para no-saved sigue siendo automático — solo el
+   wrapper visual es configurable.
+2. **Reactions reusan el mismo header template** y se separan en
+   header + body en líneas distintas (mismo layout que group msgs),
+   en lugar de pegarlo todo en un solo code block.
+3. **Refactor**: `renderGroupSenderPrefix` ahora delega en
+   `renderSenderHeader(si, template)` — helper reutilizable.
+
+### Format change
+
+**Reactions antes:**
+```
+`+34611887663 · ~Agustina Sant Martí reaccionó con 👍`
+```
+
+**Reactions ahora (default template):**
+```
+`+34611887663 · ~Agustina Sant Martí Real Estate`
+reaccionó con 👍
+```
+
+### Examples (env)
+
+- `QRSGEN_HEADER_TEMPLATE='` `$phone · $name` `'` → default (en YAML
+  el backtick va literal con comillas simples).
+- `QRSGEN_HEADER_TEMPLATE='` `$phone` · **$name** `'` → phone en
+  code, nombre en bold.
+- `QRSGEN_HEADER_TEMPLATE='$phone | $name'` → plano sin markdown.
+- `QRSGEN_HEADER_TEMPLATE='[$phone] $name'` → con corchetes.
+
+El `$name` ya viene con `~` si el contacto NO está saved, así que el
+template solo decide el envoltorio.
+
+### Added
+
+- **`QRSGEN_HEADER_TEMPLATE` env var** + `Config.HeaderTemplate`.
+- **`Incoming.SetHeaderTemplate(template)`** (vacío = default).
+- **`Incoming.headerTemplate` field** — usado por handleMessage,
+  handleReaction y applyRetroactiveUpdates.
+- **`renderSenderHeader(si, template)`** helper exportable
+  (package-internal).
+- **`GroupHeaderTemplateDefault`** constante con el formato actual
+  (`` `$phone · $name` ``).
+
+### Changed
+
+- **`renderGroupSenderPrefix(si)`** ahora es un wrapper que delega
+  en `renderSenderHeader(si, GroupHeaderTemplateDefault)`. Sin
+  cambio de comportamiento para callers existentes.
+- **`handleReaction` reusa el header template + split layout**:
+  - Antes: `` `+phone · ~name reaccionó con emoji` `` (una sola línea
+    en code block).
+  - Ahora: `<header>\n\n<verb>` donde header usa template y separador
+    es el configurable `QRSGEN_GROUP_HEADER_SEP`.
+
+### Tests
+
+- 8 unit tests nuevos en `header_template_test.go`:
+  - DefaultTemplate, DefaultUnsavedTilde
+  - CustomBoldNameTemplate, CustomPlainTemplate
+  - OnlyNameFallback, OnlyPhoneFallback
+  - NoIdentificationReturnsFalse
+  - TildeAppliedToNameToken
+
+### Migration notes
+
+- **Sin breaking changes** en API ni schema. Default template
+  preserva el formato v0.44.x del group prefix.
+- **Reactions cambian visualmente**: ahora el verb sale en línea
+  aparte. Parsers regex que matcheen el formato single-line viejo
+  `` ^`\+\d+ · ~?.* reaccionó con .*`$ `` necesitan migrar al
+  patrón header + separador + verb.
+- Si tu downstream NO tolera el separador entre header y body
+  (improbable), setear `QRSGEN_HEADER_TEMPLATE='\`$phone · $name reaccionó con \`'`
+  recupera el formato single-line (solo grupos lo necesitarían, ya
+  que reactions ya no se pueden meter inline porque el verb se ha
+  externalizado del template).
+
 ## [0.44.4] - 2026-05-29
 
 Redesign del blockquote del quote/reply context (v0.42.0..v0.44.3)

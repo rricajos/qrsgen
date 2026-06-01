@@ -46,6 +46,57 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.54.0] - 2026-06-01
+
+Feature: **backdate worker** que corrige los `created_at` de los msgs
+importados en la DB de Chatwoot. Resuelve el dolor real visto en el
+soak de v0.53.3 — los msgs históricos aparecían todos con timestamp
+"now" porque Chatwoot ignora silenciosamente el `created_at` que
+qrsgen envía vía `api_access_token` (solo super-admin puede backdatear
+por API). qrsgen lleva mandando `external_created_at` en cada POST
+desde v0.46.0; este worker recoge ese dato y lo aplica vía UPDATE
+directo al campo `created_at`.
+
+### Cómo funciona
+
+- Opt-in vía `CHATWOOT_DB_URL=postgres://user:pass@host:port/chatwoot`.
+- Sin esa env la feature queda OFF y el comportamiento es idéntico a v0.53.x.
+- Con la env, qrsgen abre una segunda conexión pgxpool a la DB de
+  Chatwoot y arranca un goroutine que cada N segundos hace:
+  ```sql
+  UPDATE messages SET created_at = to_timestamp((content_attributes->>'external_created_at')::bigint)
+  WHERE id IN (SELECT id FROM messages
+               WHERE content_attributes ? 'external_created_at'
+                 AND created_at > to_timestamp(...) + interval 'N seconds'
+               ORDER BY id DESC LIMIT M)
+  ```
+- Idempotente: el WHERE filtra rows ya backdated, sucesivos ticks no rehacen trabajo.
+- Tolerance de 5s default — evita loops por jitter de reloj.
+
+### Added
+
+- `internal/bridge/backdate.go` — `Backdater` con `Run(ctx)` bloqueante.
+- `internal/config/config.go`:
+  - `ChatwootDBURL` (`CHATWOOT_DB_URL`) — DSN Postgres de Chatwoot. Empty = off.
+  - `BackdateInterval` (`QRSGEN_BACKDATE_INTERVAL`, default `30s`).
+  - `BackdateBatchSize` (`QRSGEN_BACKDATE_BATCH_SIZE`, default `500`).
+  - `BackdateToleranceSec` (`QRSGEN_BACKDATE_TOLERANCE_SEC`, default `5`).
+- Métrica `qrsgen_realtime_events_total{feature="backdate", result="ok|error", instance="all"}`.
+- Tests del constructor: defaults, valores custom, valores negativos.
+
+### Notes
+
+Acopla qrsgen al schema de la tabla `messages` en Chatwoot (concretamente
+a `content_attributes`, `created_at`). Si Chatwoot cambia su schema
+internamente, esta feature puede romperse en silencio (ticks devuelven
+0 rows o error). El tradeoff es aceptable porque la integración con
+Chatwoot ya existe vía API en otros lugares.
+
+Pendiente para v0.55+ (issue #9, parte 2): añadir parámetro `days=N`
+al endpoint `POST /api/instances/:name/history/import` para acotar
+la ventana sin tocar la config global. Hoy se controla vía
+`QRSGEN_HISTORY_IMPORT_DAYS` que aplica a todo el instance.
+
 ## [0.53.3] - 2026-06-01
 
 Hardening pre-v1.0.0 a partir de observaciones reales durante el soak:

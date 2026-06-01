@@ -231,6 +231,35 @@ type Config struct {
 	// dueño finalmente añade el contacto a la agenda, pero más espacio
 	// en DB. Default "720h" (30 días). Desde v0.41.0.
 	RetroactiveTTL time.Duration `env:"QRSGEN_RETROACTIVE_TTL" envDefault:"720h"`
+
+	// ChatwootDBURL conecta qrsgen directamente a la DB Postgres de
+	// Chatwoot. Activa el "backdate worker" (v0.54.0): periódicamente
+	// hace UPDATE messages SET created_at = to_timestamp(
+	// content_attributes->>'external_created_at') para los mensajes
+	// importados con timestamp histórico, porque Chatwoot ignora el
+	// created_at suministrado vía api_access_token (solo super-admin
+	// puede backdatear vía API). Sin esta env la feature queda OFF —
+	// qrsgen sigue mandando external_created_at en cada POST como
+	// hasta ahora, pero los mensajes importados aparecerán con
+	// timestamp "now" en lugar del histórico. Opt-in. v0.54.0.
+	//
+	// Formato DSN: postgres://user:pass@host:port/dbname?sslmode=disable
+	ChatwootDBURL string `env:"CHATWOOT_DB_URL"`
+
+	// BackdateInterval ticks entre runs del worker. Default 30s. Solo
+	// se usa si ChatwootDBURL está set. v0.54.0.
+	BackdateInterval time.Duration `env:"QRSGEN_BACKDATE_INTERVAL" envDefault:"30s"`
+
+	// BackdateBatchSize máximo de mensajes a actualizar por tick.
+	// Default 500. Aumentar con cuidado — un UPDATE batch demasiado
+	// grande puede causar contención de lock en messages. v0.54.0.
+	BackdateBatchSize int `env:"QRSGEN_BACKDATE_BATCH_SIZE" envDefault:"500"`
+
+	// BackdateToleranceSec divergencia mínima en segundos entre
+	// created_at y external_created_at para que el worker actúe.
+	// Sirve para evitar bucles infinitos por jitter de reloj y
+	// rondeo de segundos en pg. Default 5. v0.54.0.
+	BackdateToleranceSec int `env:"QRSGEN_BACKDATE_TOLERANCE_SEC" envDefault:"5"`
 }
 
 func Load() (Config, error) {

@@ -1546,6 +1546,24 @@ func main() {
 		mgr.BroadcastBackendStarted()
 	}()
 
+	// v0.54.0: backdate worker — corrige el `created_at` de los msgs
+	// importados desde WhatsApp en la DB de Chatwoot. Opt-in vía
+	// CHATWOOT_DB_URL; si no está set, la feature queda silenciosamente
+	// off y los imports siguen apareciendo con timestamp "now" en
+	// Chatwoot (qrsgen sigue mandando external_created_at correcto).
+	if cfg.ChatwootDBURL != "" {
+		cwPool, err := lib.NewPool(ctx, cfg.ChatwootDBURL)
+		if err != nil {
+			logger.Error("chatwoot db pool", "err", err)
+			os.Exit(1)
+		}
+		defer cwPool.Close()
+		backdater := bridge.NewBackdater(cwPool, logger, cfg.BackdateInterval, cfg.BackdateBatchSize, cfg.BackdateToleranceSec)
+		go backdater.Run(ctx)
+	} else {
+		logger.Info("backdate worker disabled (CHATWOOT_DB_URL not set)")
+	}
+
 	logger.Info("qrsgen ready", "port", cfg.Port)
 	<-ctx.Done()
 

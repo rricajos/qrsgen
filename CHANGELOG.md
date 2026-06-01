@@ -46,6 +46,38 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.54.3] - 2026-06-01
+
+Continuación del split de `cmd/server/main.go`. Sin cambios de
+comportamiento; sólo reorganización de archivos.
+
+### Changed
+
+- **Tenants, jobs, history, usage, bulk** extraídos cada uno a su
+  propio archivo `cmd/server/routes_*.go`. `main.go` pasa de 1592
+  (v0.54.2) a 1273 líneas (-20% acumulado desde v0.54.2 baseline,
+  -29% desde v0.54.1 original).
+- Cada `register*Routes(api, deps...)` recibe sólo las dependencias
+  que necesita — sin Server struct (overkill por ahora), sin globales.
+  El compilador valida en tiempo de build que ninguna ruta se "olvide".
+
+### Added
+
+- `cmd/server/routes_tenants.go` (5 endpoints, ~134 líneas)
+- `cmd/server/routes_jobs.go` (2 endpoints, ~30 líneas)
+- `cmd/server/routes_history.go` (3 endpoints, ~161 líneas)
+- `cmd/server/routes_usage_bulk.go` (4 endpoints, ~82 líneas)
+
+### Notes
+
+Lo que queda en main.go (1273 líneas) es mayoritariamente: setup
+inicial (config, pool, mgr, bridge), middleware, endpoints de
+health/instances/QR/webhook (que están más acoplados a estado
+local del proceso), defers de shutdown, y los adapters internos
+(senderAdapter, spamguardAdapter). Más extracciones serían ROI
+decreciente y posiblemente perjudicial (forzar un Server struct
+sólo por hacer split).
+
 ## [0.54.2] - 2026-06-01
 
 Polish técnico pre-v1.0.0. Sin features, sin cambios de comportamiento;

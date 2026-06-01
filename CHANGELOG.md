@@ -46,6 +46,32 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.63.0] - 2026-06-01
+
+Runbook operacional para incidents de instancias atascadas.
+
+### Added
+
+- **`docs/operations/runbook-stuck-instance.md`** (200+ líneas):
+  procedimiento concreto step-by-step para una instancia en estado
+  `disconnected` o `connecting` durante > 5 min. Cubre 3 escenarios:
+  - A) Logged-out (sesión cerrada en WA server) → re-pareo desde
+    Chatwoot.
+  - B) Reconnect loop sin progreso → diagnosis + fixes (logout,
+    force task restart, DNS).
+  - C) Temporary ban WhatsApp → no reintentar, esperar expires_in.
+
+  Incluye comandos exactos (curl, docker, jq) y sección de
+  prevención (health-check externo, lifecycle webhooks, spamguard).
+
+### Notes
+
+Runbooks adicionales que se irán añadiendo en próximos minors:
+- Backup/restore de tablas `bridge_*`.
+- DR cross-region (cuando aplique).
+- Procedimiento para rotar `QRSGEN_API_TOKEN`.
+- Forced logout masivo (cuando hay que limpiar muchas instancias).
+
 ## [0.62.0] - 2026-06-01
 
 Benchmarks de hot paths del bridge.

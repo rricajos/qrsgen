@@ -479,21 +479,21 @@ func (i *Incoming) ImportHistoryOnDemand(ctx context.Context, instance string, c
 	latch := i.onDemandLatch.acquire(instance, chat)
 	defer i.onDemandLatch.release(instance, chat)
 
-	// Para BuildHistorySyncRequest necesitamos el lastKnownMessageInfo.
-	// Para simplicidad de v0.46.0 lo extraemos del msg_history tracker
-	// si está activo; si no, usamos un placeholder dummy que WhatsApp
-	// suele aceptar (un msgID arbitrario + timestamp now).
-	lastID := "0"
-	lastFromMe := false
-	lastTS := time.Now()
-	if i.msgHistory != nil {
-		// El tracker indexa por sender, no por chat; en grupos
-		// múltiples senders pueden compartir chat. Buscamos cualquier
-		// trackedMsg cuyo body sea reciente para el chat — el WAID
-		// que enviamos al peer es solo un anchor temporal.
-		// (Best effort. Si nada, dummy.)
-		_ = lastID
+	// v0.46.2: lookup del anchor real. WhatsApp ON_DEMAND necesita un
+	// msgID existente en el chat para tirar histórico anterior a él.
+	// Sin anchor real, el phone primary ignora la request → timeout.
+	if i.msgHistory == nil {
+		return HistoryImportResult{}, fmt.Errorf("history import requires msg_history tracker (set QRSGEN_RETROACTIVE_NAME_UPDATE=true)")
 	}
+	chatKey := chat.ToNonAD().String()
+	lastID, lastTS, found := i.msgHistory.FindLastForChat(ctx, instance, chatKey)
+	if !found {
+		return HistoryImportResult{}, fmt.Errorf("no message anchor for chat %s — qrsgen needs at least one tracked incoming msg from this chat to request more history; wait for an incoming or send a test msg first", chat)
+	}
+	lastFromMe := false // anchor desde tracker es siempre incoming (qrsgen no rastrea outgoing en msg_history)
+	i.logger.Info("history import: anchor resolved",
+		"instance", instance, "chat", chat,
+		"anchor_waid", lastID, "anchor_ts", lastTS)
 
 	if err := r.RequestHistorySync(ctx, chat, lastID, lastFromMe, lastTS, count); err != nil {
 		return HistoryImportResult{}, fmt.Errorf("request peer: %w", err)

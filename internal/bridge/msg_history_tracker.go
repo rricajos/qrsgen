@@ -302,6 +302,68 @@ func (t *msgHistoryTracker) FindByChatwootMsgID(ctx context.Context, instance st
 	return m, sender, true
 }
 
+// FindLastForChat busca el msg más reciente tracked para un chat
+// concreto (instance + chatJID). Para 1:1, el chat coincide con el
+// senderJID. Para grupos, buscamos cualquier msg del grupo (los
+// senders son los participantes). Usado por history import on-demand
+// (v0.46.2) para tener un anchor real para BuildHistorySyncRequest.
+//
+// Devuelve (waid, timestamp, ok). ok=false si no hay msg tracked.
+func (t *msgHistoryTracker) FindLastForChat(ctx context.Context, instance, chatJID string) (string, time.Time, bool) {
+	t.mu.Lock()
+	prefix := instance + "|"
+	var best trackedMsg
+	found := false
+	for key, entries := range t.data {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		senderJID := strings.TrimPrefix(key, prefix)
+		// 1:1: senderJID == chatJID. Grupos: chatJID viene como
+		// `<groupid>@g.us` y los entries están por participante. Sin
+		// indexar por chat directamente, el msg_history tracker no
+		// distingue chats de grupos — caemos al fallback DB.
+		if senderJID != chatJID {
+			continue
+		}
+		for _, e := range entries {
+			if !found || e.postedAt.After(best.postedAt) {
+				best = e
+				found = true
+			}
+		}
+	}
+	pool := t.pool
+	t.mu.Unlock()
+	if found && best.waid != "" {
+		// Para timestamp usamos posted_at como aproximación al ts
+		// del msg en WA. En la práctica son casi iguales (postedAt =
+		// poco después de la llegada del msg WA).
+		return best.waid, best.postedAt, true
+	}
+	if pool == nil {
+		return "", time.Time{}, false
+	}
+	// Fallback DB: el cache in-memory puede no tenerlo (chat tracked
+	// pero ya evictado), o ser un grupo donde sender != chat. Buscar
+	// en la tabla por sender_jid = chatJID (1:1) Y limit 1 desc.
+	// Para grupos, en una fase futura podríamos añadir un índice
+	// alternativo. v0.46.2 solo cubre 1:1 fiable.
+	var waid string
+	var postedAt time.Time
+	err := pool.QueryRow(ctx, `
+		SELECT waid, posted_at
+		FROM bridge_msg_history
+		WHERE instance = $1 AND sender_jid = $2 AND waid <> ''
+		ORDER BY posted_at DESC
+		LIMIT 1
+	`, instance, chatJID).Scan(&waid, &postedAt)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	return waid, postedAt, true
+}
+
 // CleanupOld borra entries más viejas que `keep` de la tabla DB.
 // Las entries in-memory NO se tocan (caen via cap FIFO). Llamar
 // periódicamente (cron) para mantener la tabla acotada.

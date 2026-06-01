@@ -4,6 +4,47 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.46.2] - 2026-06-01
+
+Bug fix de v0.46.0/v0.46.1: el on-demand history sync request fallaba
+con timeout porque enviaba un `lastKnownMessageInfo` dummy (msgID="0",
+ts=now). El phone primary necesita un msgID **real existente** en el
+chat para tirar histórico anterior a él. Sin anchor real, ignoraba
+la request → timeout 30s.
+
+### Fixed
+
+- **`Incoming.ImportHistoryOnDemand` resuelve anchor desde
+  `msg_history` tracker**: nuevo método
+  `msgHistoryTracker.FindLastForChat(ctx, instance, chatJID)` busca el
+  msg tracked más reciente del chat (in-memory + fallback DB).
+- **Si no hay anchor**, devuelve error claro en lugar de timeout
+  silencioso:
+  ```
+  no message anchor for chat <jid> — qrsgen needs at least one tracked
+  incoming msg from this chat to request more history; wait for an
+  incoming or send a test msg first
+  ```
+
+### Limitación
+
+- **El feature requiere que qrsgen haya recibido AL MENOS UN msg
+  incoming del chat** para tener un anchor (vía msg_history tracker
+  v0.40+). Para chats sin actividad reciente desde el deploy de
+  v0.41.0+, no hay anchor → import on-demand no funciona en esos chats
+  hasta que llegue un msg incoming.
+- Esto es una limitación del protocolo WhatsApp ON_DEMAND, no de
+  qrsgen — el phone primary necesita un anchor temporal real.
+- **Workaround**: para chats sin actividad reciente, envíate un msg
+  desde el otro extremo (puede ser un emoji corto) y luego dispara
+  el import. El tracker captura el msg, el anchor queda registrado, y
+  la próxima import on-demand funciona.
+
+### Requirement
+
+- `QRSGEN_RETROACTIVE_NAME_UPDATE=true` (default) — sin el tracker
+  no hay anchor lookup posible. El endpoint devuelve error explícito.
+
 ## [0.46.1] - 2026-06-01
 
 UX add-on de v0.46.0: bulk history import sin necesidad de desconectar

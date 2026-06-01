@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"strconv"
 	"time"
 )
 
@@ -49,6 +50,42 @@ type contactSearchResponse struct {
 	Payload []Contact `json:"payload"`
 }
 
+// RateLimitError indica que el downstream devolvió 429. Lleva el
+// Retry-After parseado si el server lo envió. Los callers que quieran
+// implementar exponential backoff con respeto al server pueden
+// `errors.As` este error. v0.59.0.
+type RateLimitError struct {
+	RetryAfter time.Duration // 0 si el header no estaba o era inválido
+	Body       string
+}
+
+func (e *RateLimitError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("downstream rate-limited (HTTP 429), retry after %s: %s", e.RetryAfter, e.Body)
+	}
+	return fmt.Sprintf("downstream rate-limited (HTTP 429): %s", e.Body)
+}
+
+// parseRetryAfter interpreta el header Retry-After según RFC 7231.
+// Acepta tanto el formato `<delta-seconds>` (entero) como un
+// `<HTTP-date>`. Devuelve 0 si no se puede parsear.
+func parseRetryAfter(h string) time.Duration {
+	if h == "" {
+		return 0
+	}
+	// Intento 1: entero de segundos.
+	if secs, err := strconv.Atoi(h); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	// Intento 2: fecha HTTP.
+	if t, err := http.ParseTime(h); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
 func (c *Client) request(ctx context.Context, method, path string, body any) ([]byte, error) {
 	var reqBody io.Reader
 	if body != nil {
@@ -75,6 +112,15 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
+	}
+	// v0.59.0: 429 lleva error tipado RateLimitError con el Retry-After
+	// parseado. Los callers pueden hacer errors.As para implementar
+	// backoff que respete el server.
+	if res.StatusCode == http.StatusTooManyRequests {
+		return data, &RateLimitError{
+			RetryAfter: parseRetryAfter(res.Header.Get("Retry-After")),
+			Body:       string(data),
+		}
 	}
 	if res.StatusCode >= 400 {
 		return data, fmt.Errorf("downstream %s %s: HTTP %d body=%s", method, path, res.StatusCode, string(data))

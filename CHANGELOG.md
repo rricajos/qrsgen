@@ -46,6 +46,40 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.59.0] - 2026-06-01
+
+Downstream resilience: respeto al header `Retry-After` que envía
+Chatwoot en respuestas 429.
+
+### Added
+
+- **`downstream.RateLimitError`**: nuevo error tipado que llevan las
+  respuestas 429 del downstream. Campos `RetryAfter time.Duration` y
+  `Body string`. Los callers pueden hacer `errors.As(err, &rl)` para
+  detectarlo y respetar el server vía exponential backoff.
+- **`parseRetryAfter`**: helper interno que interpreta el header
+  según RFC 7231. Soporta ambos formatos:
+  - `<delta-seconds>` (entero) — caso típico de Chatwoot.
+  - `<HTTP-date>` (RFC 1123).
+- **5 tests** (`retry_after_test.go`):
+  - parseRetryAfter con segundos válidos, inválidos, negativos.
+  - parseRetryAfter con HTTP-date futuro y pasado.
+  - Client.request devuelve `*RateLimitError` en 429.
+  - 429 sin header → `RetryAfter = 0`.
+  - 500 NO es RateLimitError (sólo 429 específicamente).
+
+### Notes
+
+Cambio NO-breaking: callers existentes que solo hacen `err != nil`
+siguen funcionando. Los nuevos que quieran ser más inteligentes
+pueden hacer `errors.As`.
+
+**Circuit breaker deferido**: el patrón requiere estado compartido
+(contador de fallos consecutivos, ventana temporal, half-open
+transitions) que es no trivial para producción. Sin un escenario
+real de outage prolongado, añadirlo es especulativo. Se queda para
+un release futuro si emerge la necesidad operativa.
+
 ## [0.58.0] - 2026-06-01
 
 Cobertura extra del `msgHistoryTracker.DropInstance` (introducido en

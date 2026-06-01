@@ -212,3 +212,53 @@ func TestIntegration_MsgHistory_CleanupOldBorraEntries(t *testing.T) {
 		t.Errorf("remaining=%d, want 1", remaining)
 	}
 }
+
+// v0.58.0: cobertura del DropInstance (v0.53.3) — verifica que las
+// rows DB se borran para la instancia indicada, dejando intactas las
+// del resto.
+func TestIntegration_MsgHistory_DropInstancePersistedClean(t *testing.T) {
+	pool := newMsgHistoryPool(t)
+	ctx := context.Background()
+	if err := EnsureMsgHistorySchema(ctx, pool); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	cleanMsgHistory(t, pool)
+
+	tr := newMsgHistoryTracker(100)
+	tr.SetPool(pool, nil)
+
+	// 3 entries para instA + 2 para instB.
+	now := time.Now()
+	for i := 1; i <= 3; i++ {
+		tr.Record("instA", "u1@s.whatsapp.net", trackedMsg{
+			convID: 1, msgID: i, body: "A", postedAt: now,
+		})
+	}
+	for i := 1; i <= 2; i++ {
+		tr.Record("instB", "u1@s.whatsapp.net", trackedMsg{
+			convID: 1, msgID: 100 + i, body: "B", postedAt: now,
+		})
+	}
+
+	// Esperar que las inserciones async terminen.
+	time.Sleep(100 * time.Millisecond)
+
+	n, err := tr.DropInstance(ctx, "instA")
+	if err != nil {
+		t.Fatalf("DropInstance: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("DropInstance rows = %d, want 3", n)
+	}
+
+	// Verificar en DB: instA fuera, instB intacta.
+	var countA, countB int
+	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM bridge_msg_history WHERE instance='instA'`).Scan(&countA)
+	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM bridge_msg_history WHERE instance='instB'`).Scan(&countB)
+	if countA != 0 {
+		t.Errorf("instA rows after drop = %d, want 0", countA)
+	}
+	if countB != 2 {
+		t.Errorf("instB rows after drop = %d, want 2", countB)
+	}
+}

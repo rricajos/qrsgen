@@ -46,6 +46,27 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.58.0] - 2026-06-01
+
+Cobertura extra del `msgHistoryTracker.DropInstance` (introducido en
+v0.53.3) en el suite de tests integration.
+
+### Added
+
+- **`TestIntegration_MsgHistory_DropInstancePersistedClean`**: inserta
+  3 entries para `instA` + 2 para `instB`, llama `DropInstance(instA)`,
+  verifica que (1) `RowsAffected = 3`, (2) `instA` queda en 0 rows en
+  DB, (3) `instB` queda intacta con 2 rows. Sigue el mismo patrón del
+  suite existente (`INTEGRATION_PG_DSN` env-gated, sin build tag).
+
+### Notes
+
+Inicialmente planteé un helper `internal/testdb` con aislamiento de
+schemas y un build tag `integration` propio. Descartado porque el repo
+ya tiene infrastructure de integration tests con env-var-gate
+(`INTEGRATION_PG_DSN`) — añadir paralelo lo confundiría. Future tests
+deben seguir el patrón existente.
+
 ## [0.57.0] - 2026-06-01
 
 Security pass: tests adicionales del webhook HMAC middleware.

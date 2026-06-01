@@ -46,6 +46,39 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.57.0] - 2026-06-01
+
+Security pass: tests adicionales del webhook HMAC middleware.
+Sin cambios de comportamiento, sólo cobertura de paths que antes
+estaban sin probar.
+
+### Added
+
+- **4 tests nuevos en `cmd/server/hmac_test.go`**:
+  - `TestWebhookHMAC_PerTenantOverridesGlobal` — el lookup del
+    tenant tiene precedencia sobre el `WEBHOOK_HMAC_SECRET` global.
+    Cubre la rama de resolución v0.26.0 que estaba sin test.
+  - `TestWebhookHMAC_TenantEmpty_FallsBackToGlobal` — cuando el
+    tenant no tiene secret propio, se usa el global.
+  - `TestWebhookHMAC_BothEmpty_AllowsPassthrough` — backward-compat
+    sin auth cuando ningún secret está configurado.
+  - `TestWebhookHMAC_EmptyBodyValidSig` — edge case: POST con body
+    vacío con firma válida del string vacío. Pasa.
+- Nuevo helper `runWebhookMWWithLookup` que acepta el `tenantHMACSecretLookup`
+  funcional para tests del path per-tenant.
+
+### Notes
+
+Total HMAC tests: 6 → 10. Cubre los 3 niveles de la resolución de
+secret (tenant → global → no-auth) + edge cases (empty body, missing
+header, malformed signature, wrong prefix).
+
+**Audit retention diferido**: la tabla `bridge_audit_log` tiene
+triggers que rechazan UPDATE/DELETE por diseño (tamper-evidence).
+Implementar un cron de retención requeriría o (a) dropear los
+triggers (defeats the purpose) o (b) particionar la tabla por mes y
+DROP partitions antiguas — diseño más grande, postpuesto.
+
 ## [0.56.0] - 2026-06-01
 
 Continuación del split, ahora sobre `internal/bridge/incoming.go`.

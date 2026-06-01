@@ -45,6 +45,25 @@ v1.0.0-rc.1 candidato cuando el soak de v0.64.0 supere 7 días
 limpios. v1.0.0 final tras 14 días adicionales como RC.
 -->
 
+## [0.64.4] - 2026-06-01
+
+Doc-only patch: refresh del README con el estado actual del
+proyecto tras el ciclo v0.5x / v0.6x.
+
+### Changed
+
+- **`README.md` sección "Estado del proyecto"**: actualizada con
+  el tag v0.64.x, las features destacadas del ciclo (LID
+  resolution, reactions quote-reply, backdate worker, days param,
+  edit msg, /api/version, OpenAPI spec, RateLimitError), y el
+  roadmap hacia v1.0.0.
+
+### Notes
+
+Cero cambio binario. Sólo documentación. Pensado para que un nuevo
+visitante del repo entienda en 30s qué features tiene v0.64+ y
+dónde está en el roadmap.
+
 ## [0.64.3] - 2026-06-01
 
 Patch security: bump del toolchain Go a 1.25.10 para cerrar 13

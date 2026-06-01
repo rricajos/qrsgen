@@ -46,6 +46,67 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.49.0] - 2026-06-01
+
+Feature: **`bridge_chat_anchor` tracker** — sube cobertura del bulk
+history import del ~2% al ~100% de chats activos.
+
+### Problema
+
+El history import on-demand (v0.46.0+) necesita un msgID real
+existente en el chat como **anchor** para que WhatsApp tire
+histórico anterior a él. La fuente de anchor en v0.46.x era el
+`msg_history` tracker, que solo registra msgs con group prefix o
+mapeo Chatwoot↔WAID. Si un chat tiene actividad pero no caía en
+ese criterio, no había anchor → `no_anchor` en el bulk JSON.
+
+En producción dertochip: 171 contactos, solo 2-3 con anchor → bulk
+cobertura ~2%.
+
+### Solución
+
+Nuevo tracker indexado **por chat** (no por sender):
+`bridge_chat_anchor` con `(instance, chat_jid, waid, ts)`. Registra
+TODOS los incoming sin condición. Cubre 1:1 + grupos + cualquier
+tráfico.
+
+### Added
+
+- **Tabla `bridge_chat_anchor`** + `EnsureChatAnchorSchema` standalone.
+- **`chatAnchorTracker`** in-memory + write-through Postgres async
+  (mismo patrón que `msg_history` y `spamguard`):
+  - `Record(instance, chatJID, waid, ts)` — update conditional si
+    el ts nuevo es más reciente que el existente.
+  - `Find(ctx, instance, chatJID) (waid, ts, ok)` — memory first,
+    DB fallback con hidratación.
+  - `Warmup(ctx, keep)` — carga entries < 30 días al boot.
+  - `CleanupOld(ctx, keep)` — borra > 30 días.
+- **`Incoming.handleMessage` registra el anchor** de cada incoming
+  (no fromMe). Sin condición de prefix → cobertura 100% de chats
+  con actividad.
+- **`ImportHistoryOnDemand` usa chat_anchor como fuente preferida**,
+  cae a `msg_history.FindLastForChat` solo si chat_anchor no tiene
+  entry (compat con instalaciones que aún no hayan acumulado anchors).
+- **Cleanup cron** en `cmd/server/main.go` cada 12h.
+
+### Tests
+
+- 5 unit tests en `chat_anchor_test.go`:
+  - `RecordAndFind`, `FindMissReturnsFalse`
+  - `OnlyUpdatesIfNewer` (record más viejo no sobrescribe)
+  - `EmptyWAIDOrZeroTSIgnored` (input validation)
+  - `PerInstanceIsolation`
+
+### Migration notes
+
+- Schema migra automáticamente al boot vía `EnsureChatAnchorSchema`.
+- Sin breaking changes. Bulk import ya funcionaba — esta release
+  solo sube la cobertura.
+- **Adopt period**: el chat_anchor solo se popula al recibir msgs
+  incoming después de adoptar v0.49.0. Bulk import sobre instancias
+  recién actualizadas tendrá baja cobertura los primeros días
+  hasta que llegue tráfico de los chats activos. Es lo esperado.
+
 ## [0.48.1] - 2026-06-01
 
 Hardening + docs sin nuevas features. Primer paso del roadmap

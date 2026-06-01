@@ -271,6 +271,39 @@ func main() {
 	// (contacto añadido/editado en la agenda local del dueño), reescribir
 	// el content de los mensajes históricos posteados al downstream para
 	// que reflejen el nuevo nombre / sin tilde.
+	// v0.49.0: chat_anchor tracker — registra el último incoming por
+	// chat para que history import on-demand tenga anchor en todos los
+	// chats activos (no solo los con prefix de grupo).
+	if err := bridge.EnsureChatAnchorSchema(ctx, pool); err != nil {
+		logger.Error("ensure chat_anchor schema", "err", err)
+		os.Exit(1)
+	}
+	incoming.SetChatAnchorPool(pool, logger)
+	// keep últimos 30 días — más allá WhatsApp ya no devuelve histórico
+	// anyway, no merece tener anchors.
+	if err := incoming.WarmupChatAnchor(ctx, 30*24*time.Hour); err != nil {
+		logger.Warn("chat_anchor warmup", "err", err)
+	}
+	// Cleanup cron: cada 12h borra anchors > 30 días.
+	go func() {
+		ticker := time.NewTicker(12 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				if n, err := incoming.CleanupChatAnchorOld(cleanCtx, 30*24*time.Hour); err != nil {
+					logger.Warn("chat_anchor cleanup", "err", err)
+				} else if n > 0 {
+					logger.Info("chat_anchor cleanup", "deleted", n)
+				}
+				cancel()
+			}
+		}
+	}()
+
 	if cfg.RetroactiveNameUpdate {
 		incoming.EnableRetroactiveNameUpdate(cfg.RetroactiveCapPerSender)
 		// v0.41.0: persistencia opcional. Si está activada, el histórico

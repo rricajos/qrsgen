@@ -111,6 +111,14 @@ type Incoming struct {
 	// nil = feature desactivado (EnableHistoryImport no llamada).
 	historyCfg *historyImportConfig
 
+	// chatAnchor trackea el último incoming conocido por chat (no
+	// por sender). Distinto del msg_history tracker — indexa por
+	// (instance, chatJID). Usado por history import on-demand como
+	// fallback cuando el msg_history no tiene anchor para el chat.
+	// nil = no inicializado (no rompe, solo desactiva la mejora).
+	// Desde v0.49.0.
+	chatAnchor *chatAnchorTracker
+
 	// groupEventsEnabled activa el render de *events.GroupInfo,
 	// JoinedGroup e IdentityChange como activity msgs en Chatwoot.
 	// Default false (opt-in via env QRSGEN_GROUP_EVENTS_ENABLED). v0.47.0.
@@ -149,7 +157,33 @@ func NewIncomingDynamic(ds downstream.Router, dedup *Deduper, logger *slog.Logge
 		headerTemplate:    GroupHeaderTemplateDefault,
 		reactionSep:       GroupHeaderSepSoftNL, // `\n` por defecto (v0.45.1)
 		onDemandLatch:     newOnDemandLatchSet(),
+		chatAnchor:        newChatAnchorTracker(),
 	}
+}
+
+// SetChatAnchorPool habilita persistencia DB del chat_anchor tracker
+// (v0.49.0). Llamar tras EnsureChatAnchorSchema.
+func (i *Incoming) SetChatAnchorPool(pool *pgxpool.Pool, logger *slog.Logger) {
+	if i.chatAnchor == nil {
+		return
+	}
+	i.chatAnchor.SetPool(pool, logger)
+}
+
+// WarmupChatAnchor carga el cache desde DB. Llamar al boot.
+func (i *Incoming) WarmupChatAnchor(ctx context.Context, keep time.Duration) error {
+	if i.chatAnchor == nil {
+		return nil
+	}
+	return i.chatAnchor.Warmup(ctx, keep)
+}
+
+// CleanupChatAnchorOld borra entries DB más viejas que `keep`.
+func (i *Incoming) CleanupChatAnchorOld(ctx context.Context, keep time.Duration) (int64, error) {
+	if i.chatAnchor == nil {
+		return 0, nil
+	}
+	return i.chatAnchor.CleanupOld(ctx, keep)
 }
 
 // SetReactionSep cambia el separador entre header y verb en
@@ -1012,6 +1046,18 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 			tm.wasSaved = emittedSenderInfo.saved
 		}
 		i.msgHistory.Record(instance, trackerKey, tm)
+	}
+
+	// v0.49.0: chat_anchor tracker — registramos el último msg conocido
+	// por chat (no por sender). Cubre TODOS los incoming, también 1:1,
+	// y sirve como fuente de anchor para el history import on-demand.
+	if i.chatAnchor != nil && !fromMe {
+		chatKey := msg.Info.Chat.ToNonAD().String()
+		ts := msg.Info.Timestamp
+		if ts.IsZero() {
+			ts = time.Now()
+		}
+		i.chatAnchor.Record(instance, chatKey, msg.Info.ID, ts)
 	}
 }
 

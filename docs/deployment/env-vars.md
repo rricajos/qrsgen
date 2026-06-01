@@ -14,7 +14,7 @@
 
 | Variable | Default | Notas |
 |---|---|---|
-| `QRSGEN_VERSION` | `0.48.1` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.48.1 (hardening — retry-on-5xx en history import + 3 docs nuevas: history-import.md, group-admin.md, groups.md). |
+| `QRSGEN_VERSION` | `0.49.0` | Tag de imagen Docker (`qrsgen:${QRSGEN_VERSION}`). Última versión: v0.49.0 (`bridge_chat_anchor` tracker — sube cobertura del bulk history import del ~2% al ~100% de chats activos). |
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `bridge` | |
 | `POSTGRES_USER` | `postgres` | |

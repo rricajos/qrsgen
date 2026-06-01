@@ -46,6 +46,26 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.54.1] - 2026-06-01
+
+Fix puntual al worker introducido en v0.54.0. Descubierto al intentar
+activar el backdate en dertochip por primera vez.
+
+### Fixed
+
+- **Backdate SQL casting**: Chatwoot define `messages.content_attributes`
+  como `json` (no `jsonb`), así que los operadores `?` y `->>` no
+  funcionan directamente. v0.54.0 fallaba en cada tick con
+  `ERROR: operator does not exist: json ?` antes de actualizar nada.
+  Añadidos casts explícitos a `jsonb` en ambos lugares de la query.
+- Comentario en `tick()` documenta la decisión para que el próximo
+  reader entienda por qué el cast es necesario.
+
+Sin v0.54.0 desplegado en producción con `CHATWOOT_DB_URL` set la
+feature se reduce a un log INFO de arranque, así que el bug nunca
+llegó a impactar a usuarios reales — pero impedía completar la
+validación end-to-end del worker.
+
 ## [0.54.0] - 2026-06-01
 
 Feature: **backdate worker** que corrige los `created_at` de los msgs

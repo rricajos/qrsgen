@@ -103,19 +103,25 @@ func (b *Backdater) Run(ctx context.Context) {
 // dependa de orden volátil (id DESC es estable). Solo toca rows cuyo
 // `created_at` está al menos `toleranceSec` segundos por encima del
 // `external_created_at` — protege contra micro-jitter y evita loops.
+//
+// Nota: Chatwoot define `messages.content_attributes` como `json` (no
+// `jsonb`), así que el operador `?` y `->>` requieren cast explícito
+// a jsonb. v0.54.1 — corrección del bug descubierto en el primer
+// intento de activación; v0.54.0 fallaba en cada tick con "operator
+// does not exist: json ?".
 func (b *Backdater) tick(ctx context.Context) (int64, error) {
 	const q = `
 		WITH stale AS (
 			SELECT id
 			FROM messages
-			WHERE content_attributes ? 'external_created_at'
-			  AND created_at > to_timestamp((content_attributes->>'external_created_at')::bigint)
+			WHERE (content_attributes::jsonb) ? 'external_created_at'
+			  AND created_at > to_timestamp(((content_attributes::jsonb)->>'external_created_at')::bigint)
 			                    + make_interval(secs => $1::int)
 			ORDER BY id DESC
 			LIMIT $2
 		)
 		UPDATE messages m
-		SET created_at = to_timestamp((m.content_attributes->>'external_created_at')::bigint)
+		SET created_at = to_timestamp(((m.content_attributes::jsonb)->>'external_created_at')::bigint)
 		FROM stale
 		WHERE m.id = stale.id
 	`

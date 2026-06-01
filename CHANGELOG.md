@@ -46,6 +46,45 @@ Antes de tagear v1.0.0, queremos asegurar:
 v1.0.0 cuando los items críticos estén marcados. No hay prisa.
 -->
 
+## [0.53.3] - 2026-06-01
+
+Hardening pre-v1.0.0 a partir de observaciones reales durante el soak:
+tres fixes pequeños de calidad operativa, sin features nuevas.
+
+### Fixed
+
+- **Goroutine zombi de `HistorySync` tras `Delete`**: el handler de
+  `*events.HistorySync` se lanzaba con `context.Background()`, lo que
+  significa que al borrar o desconectar la instancia los goroutines en
+  vuelo seguían iterando msgs y POSTeando al downstream durante minutos,
+  generando 404s ("Resource could not be found") porque el inbox ya
+  no existía. Añadido un `lifecycleCtx` per-`Conn` que se cancela en
+  `Disconnect()`; el bucle de `runHistoryImport` ya respeta `ctx.Err()`
+  y ahora sale limpio.
+- **Leak de `msgHistoryTracker` per-instance**: el `data map[string][]trackedMsg`
+  nunca reclamaba las keys `"instance|sender"` tras un `Manager.Delete`,
+  y la tabla `bridge_msg_history` retenía rows huérfanas. Añadido
+  `msgHistoryTracker.DropInstance(ctx, name)` + un nuevo hook
+  `Manager.SetInstanceDeleteHandler` que se wirea en `main.go` y limpia
+  memoria + DB al borrar.
+- **Ruido en logs del cliente whatsmeow**: cada chat durante history sync
+  emite `WARN Failed to delete history sync media from server: 400` —
+  no es accionable y satura los logs (cientos de líneas por sesión).
+  Añadido `filteredWALog` que envuelve el `waLog.Logger` y suprime
+  exclusivamente este pattern; el resto pasa sin tocar.
+
+### Added
+
+- `internal/wameow/filtered_log.go` + tests.
+- `msgHistoryTracker.DropInstance` + tests.
+- `Manager.SetInstanceDeleteHandler` / `onInstanceDelete` callback.
+- `Incoming.DropInstanceTracking(ctx, name)` wrapper.
+
+### Notes
+
+Cero cambios de API pública para clientes API HTTP. La feature solo
+afecta el comportamiento interno tras `DELETE /api/instances/:name`.
+
 ## [0.53.2] - 2026-06-01
 
 Feature: **reacciones como quote-reply visual del msg target**.

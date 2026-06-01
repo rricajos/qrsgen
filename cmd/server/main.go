@@ -270,6 +270,17 @@ func main() {
 		})
 	}
 
+	// v0.53.3: tras borrar una instancia, limpiar el tracker
+	// in-memory + filas DB de msg_history para esa instancia. Evita
+	// leak si el cliente churn (crea/borra instancias repetidamente).
+	mgr.SetInstanceDeleteHandler(func(ctx context.Context, name string) {
+		if n, err := incoming.DropInstanceTracking(ctx, name); err != nil {
+			logger.Warn("drop instance tracking failed", "instance", name, "err", err)
+		} else if n > 0 {
+			logger.Info("dropped msg history for deleted instance", "instance", name, "rows", n)
+		}
+	})
+
 	// v0.40.0: retroactive name update. Cuando whatsmeow emite Contact
 	// (contacto añadido/editado en la agenda local del dueño), reescribir
 	// el content de los mensajes históricos posteados al downstream para

@@ -40,6 +40,11 @@ type Manager struct {
 	onJoinedGroup   wameow.JoinedGroupHandler
 	onIdentityChg   wameow.IdentityChangeHandler
 
+	// onInstanceDelete se invoca tras Delete() para que los componentes
+	// externos (Incoming.msgHistory, chat_anchor, etc) liberen memoria
+	// y limpien rows DB asociadas a la instancia. v0.53.3.
+	onInstanceDelete func(ctx context.Context, name string)
+
 	// waiters: suscripciones a "esta instancia está ready". Cada canal
 	// recibe una señal cuando la instancia transiciona a ready y se cierra.
 	waitersMu sync.Mutex
@@ -150,6 +155,17 @@ func (m *Manager) SetHistorySyncHandler(h wameow.HistorySyncHandler) {
 	for _, conn := range m.instances {
 		conn.SetHistorySyncHandler(h)
 	}
+}
+
+// SetInstanceDeleteHandler registra una callback que se ejecuta tras
+// borrar una instancia. Pensado para que main.go conecte la limpieza
+// de msg_history / chat_anchor / cualquier estado tracked al ciclo
+// de vida del Manager. Errores en el handler se loguean pero no
+// rompen el Delete. v0.53.3.
+func (m *Manager) SetInstanceDeleteHandler(h func(ctx context.Context, name string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onInstanceDelete = h
 }
 
 // SetGroupInfoHandler registra el callback para *events.GroupInfo
@@ -1346,16 +1362,24 @@ func (m *Manager) Logout(ctx context.Context, name string) error {
 }
 
 // Delete elimina la instancia: logout, cierra, borra row.
+// v0.53.3: invoca onInstanceDelete (si está registrado) tras borrar
+// la row de DB para que el caller pueda limpiar estado externo
+// (msg_history, chat_anchor, etc.) asociado al name.
 func (m *Manager) Delete(ctx context.Context, name string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if c, ok := m.instances[name]; ok {
 		_ = c.Logout(ctx)
 		c.Disconnect()
 		delete(m.instances, name)
 	}
 	if _, err := m.pool.Exec(ctx, `DELETE FROM bridge_instance WHERE name=$1`, name); err != nil {
+		m.mu.Unlock()
 		return fmt.Errorf("delete row: %w", err)
+	}
+	hook := m.onInstanceDelete
+	m.mu.Unlock()
+	if hook != nil {
+		hook(ctx, name)
 	}
 	return nil
 }

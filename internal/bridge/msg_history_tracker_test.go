@@ -86,6 +86,53 @@ func TestMsgHistoryTracker_EmptyListReturnsNil(t *testing.T) {
 	}
 }
 
+func TestMsgHistoryTracker_DropInstance(t *testing.T) {
+	tr := newMsgHistoryTracker(10)
+	now := time.Now()
+
+	tr.Record("inst1", "userA@s.whatsapp.net", trackedMsg{msgID: 1, body: "a1", postedAt: now})
+	tr.Record("inst1", "userB@s.whatsapp.net", trackedMsg{msgID: 2, body: "b1", postedAt: now})
+	tr.Record("inst2", "userA@s.whatsapp.net", trackedMsg{msgID: 3, body: "x1", postedAt: now})
+
+	// Pool nil → solo afecta memoria, devuelve 0 rows.
+	n, err := tr.DropInstance(context.Background(), "inst1")
+	if err != nil {
+		t.Fatalf("DropInstance: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("rows affected with nil pool: got %d, want 0", n)
+	}
+
+	// inst1 entries deben haberse limpiado in-memory.
+	if got := tr.ListBySender("inst1", "userA@s.whatsapp.net"); got != nil {
+		t.Errorf("inst1/userA should be gone, got %+v", got)
+	}
+	if got := tr.ListBySender("inst1", "userB@s.whatsapp.net"); got != nil {
+		t.Errorf("inst1/userB should be gone, got %+v", got)
+	}
+
+	// inst2 no debe haberse tocado.
+	got := tr.ListBySender("inst2", "userA@s.whatsapp.net")
+	if len(got) != 1 || got[0].msgID != 3 {
+		t.Errorf("inst2/userA: expected msgID=3 preserved, got %+v", got)
+	}
+}
+
+func TestMsgHistoryTracker_DropInstance_EmptyName(t *testing.T) {
+	tr := newMsgHistoryTracker(10)
+	tr.Record("inst1", "u@s.whatsapp.net", trackedMsg{msgID: 1})
+
+	n, err := tr.DropInstance(context.Background(), "")
+	if err != nil || n != 0 {
+		t.Errorf("empty name should be no-op, got n=%d err=%v", n, err)
+	}
+	// La entry no debería haberse tocado.
+	got := tr.ListBySender("inst1", "u@s.whatsapp.net")
+	if len(got) != 1 {
+		t.Errorf("empty-name drop affected data: got %+v", got)
+	}
+}
+
 func TestMsgHistoryTracker_FindByWAID(t *testing.T) {
 	tr := newMsgHistoryTracker(10)
 	tr.Record("inst1", "u@s.whatsapp.net", trackedMsg{

@@ -402,6 +402,34 @@ func (t *msgHistoryTracker) FindLastForChat(ctx context.Context, instance, chatJ
 	return waid, postedAt, true
 }
 
+// DropInstance borra TODAS las entries de la instancia indicada, tanto
+// en memoria como en DB (si SetPool fue invocado). Llamar al borrar
+// definitivamente una instancia para evitar leak: el data map nunca
+// reclamaba las keys "instance|sender" tras un Delete y la tabla
+// `bridge_msg_history` retenía rows huérfanas. v0.53.3.
+func (t *msgHistoryTracker) DropInstance(ctx context.Context, instance string) (int64, error) {
+	if instance == "" {
+		return 0, nil
+	}
+	t.mu.Lock()
+	prefix := instance + "|"
+	for k := range t.data {
+		if strings.HasPrefix(k, prefix) {
+			delete(t.data, k)
+		}
+	}
+	t.mu.Unlock()
+	if t.pool == nil {
+		return 0, nil
+	}
+	tag, err := t.pool.Exec(ctx,
+		`DELETE FROM bridge_msg_history WHERE instance = $1`, instance)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // CleanupOld borra entries más viejas que `keep` de la tabla DB.
 // Las entries in-memory NO se tocan (caen via cap FIFO). Llamar
 // periódicamente (cron) para mantener la tabla acotada.

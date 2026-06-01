@@ -181,6 +181,14 @@ type Conn struct {
 	lastQRAt  time.Time
 	qrCancel  context.CancelFunc
 
+	// lifecycleCtx se cancela en Disconnect(). Lo usan los handlers de
+	// eventos que disparan trabajo asíncrono (notablemente HistorySync,
+	// que itera miles de msgs en goroutine separada) para que al borrar
+	// o desconectar la instancia los goroutines vivos paren sin spammear
+	// el downstream con 404s. v0.53.3.
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+
 	groupSubjMu    sync.RWMutex
 	groupSubjCache map[string]groupSubjectEntry
 }
@@ -218,19 +226,24 @@ func NewContainer(ctx context.Context, dsn string) (*sqlstore.Container, error) 
 // NewConn construye una conexión a partir de un *store.Device ya existente
 // (nuevo o recuperado del container).
 func NewConn(name string, device *store.Device, logger *slog.Logger, onMsg MessageHandler, onLifecycle LifecycleCallback) *Conn {
-	client := whatsmeow.NewClient(device, waLog.Stdout("Client:"+name, "INFO", true))
+	// v0.53.3: envolvemos el waLog para filtrar el ruido upstream conocido
+	// (ver noisyWarnPatterns en filtered_log.go). Todo lo demás pasa intacto.
+	client := whatsmeow.NewClient(device, newFilteredWALog(waLog.Stdout("Client:"+name, "INFO", true)))
 	// Auto-reconnect agresivo: si el WebSocket se cae, whatsmeow lo reabre solo.
 	// Sin esto, una pérdida transitoria deja la instancia disconnected hasta
 	// que algo externo (watchdog, restart) la rearranque.
 	client.EnableAutoReconnect = true
 	client.InitialAutoReconnect = true
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	c := &Conn{
-		name:           name,
-		client:         client,
-		logger:         logger.With("instance", name),
-		onMessage:      onMsg,
-		onLifecycle:    onLifecycle,
-		groupSubjCache: make(map[string]groupSubjectEntry),
+		name:            name,
+		client:          client,
+		logger:          logger.With("instance", name),
+		onMessage:       onMsg,
+		onLifecycle:     onLifecycle,
+		lifecycleCtx:    lifecycleCtx,
+		lifecycleCancel: lifecycleCancel,
+		groupSubjCache:  make(map[string]groupSubjectEntry),
 	}
 	client.AddEventHandler(c.handle)
 	return c
@@ -634,7 +647,11 @@ func (c *Conn) handle(rawEvt any) {
 			// si procesar según config — puede ser muy grande, así
 			// que ejecutamos en goroutine para no bloquear el event
 			// loop de whatsmeow.
-			go c.onHistorySync(context.Background(), c.name, evt.Data, c)
+			// v0.53.3: usar lifecycleCtx en vez de context.Background()
+			// para que Disconnect() cancele este goroutine — antes
+			// seguía iterando msgs durante minutos tras Delete y
+			// generaba 404s en el downstream.
+			go c.onHistorySync(c.lifecycleCtx, c.name, evt.Data, c)
 		}
 	case *events.GroupInfo:
 		if c.onGroupInfo != nil {
@@ -1058,6 +1075,9 @@ func (c *Conn) Logout(ctx context.Context) error {
 }
 
 // Disconnect cierra la conexión limpiamente sin desvincular.
+// v0.53.3: cancela también lifecycleCtx tras la desconexión, lo que
+// para cualquier goroutine asíncrono lanzado por handlers (notablemente
+// HistorySync) que de otra forma seguiría posteando al downstream.
 func (c *Conn) Disconnect() {
 	c.mu.Lock()
 	if c.qrCancel != nil {
@@ -1066,4 +1086,7 @@ func (c *Conn) Disconnect() {
 	}
 	c.mu.Unlock()
 	c.client.Disconnect()
+	if c.lifecycleCancel != nil {
+		c.lifecycleCancel()
+	}
 }

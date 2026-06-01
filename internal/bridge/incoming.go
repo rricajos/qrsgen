@@ -384,6 +384,17 @@ func (i *Incoming) CleanupRetroactiveOld(ctx context.Context, keep time.Duration
 	return i.msgHistory.CleanupOld(ctx, keep)
 }
 
+// DropInstanceTracking borra todo el estado tracked en msg_history para
+// la instancia dada. Llamar desde Manager.Delete para evitar leak: las
+// entries in-memory + filas DB se acumulan si las instancias churn.
+// v0.53.3.
+func (i *Incoming) DropInstanceTracking(ctx context.Context, instance string) (int64, error) {
+	if i.msgHistory == nil {
+		return 0, nil
+	}
+	return i.msgHistory.DropInstance(ctx, instance)
+}
+
 // SetUsage attaches a usage recorder. Pass nil to disable.
 func (i *Incoming) SetUsage(u UsageRecorder) { i.usage = u }
 

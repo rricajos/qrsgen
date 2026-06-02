@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -31,6 +33,12 @@ type Client struct {
 	authScheme string
 	apiPrefix  string
 	http       *http.Client
+
+	// payloadTpl es el template (parsed) que sobreescribe el body
+	// JSON de POST messages. Si nil → comportamiento default
+	// Chatwoot-shape. Aplicar template falla → fallback default +
+	// warning log. v0.65.0.
+	payloadTpl *template.Template
 }
 
 // Defaults para los campos configurables. Reproducen exactamente el
@@ -74,6 +82,39 @@ func WithAPIPathPrefix(prefix string) Option {
 // que ajustan timeouts/transports.
 func WithHTTPClient(h *http.Client) Option {
 	return func(c *Client) { c.http = h }
+}
+
+// WithPayloadTemplate parsea el template Go text/template suministrado
+// y lo asocia al Client. Cuando PostMessage se llama, el template se
+// ejecuta con el PostMessageReq como contexto y se POSTea el resultado
+// como JSON (en lugar del shape Chatwoot por defecto).
+//
+// Si `tpl` es vacío, no se asocia template (comportamiento default
+// Chatwoot). Si el template no parsea, se loguea warning y se ignora
+// (el Client opera en modo default).
+//
+// Variables disponibles en el template:
+//   - {{.Content}}        string  — contenido del mensaje
+//   - {{.MessageType}}    string  — "incoming" | "outgoing" | "activity"
+//   - {{.SourceID}}       string  — clave de idempotencia
+//   - {{.ConversationID}} int     — id de la conv en el downstream
+//   - {{.CreatedAtUnix}}  int64   — timestamp Unix (0 si no set)
+//   - {{.InReplyTo}}      int     — id msg al que responde (0 si no set)
+//
+// El template debe producir JSON válido — qrsgen no valida la shape,
+// solo la sintaxis JSON antes del POST. Desde v0.65.0.
+func WithPayloadTemplate(tpl string) Option {
+	return func(c *Client) {
+		if tpl == "" {
+			return
+		}
+		parsed, err := template.New("payload").Parse(tpl)
+		if err != nil {
+			slog.Warn("downstream: payload_template parse failed — using default", "err", err)
+			return
+		}
+		c.payloadTpl = parsed
+	}
 }
 
 // New construye un Client con timeout HTTP por defecto. `baseURL` debe
@@ -300,6 +341,54 @@ type PostMessageResp struct {
 // arregla esto post-hoc.
 func (c *Client) PostMessage(ctx context.Context, req PostMessageReq) (*PostMessageResp, error) {
 	path := fmt.Sprintf("/conversations/%d/messages", req.ConversationID)
+
+	// v0.65.0: si hay payload template configurado, lo aplicamos antes
+	// del shape default. El template recibe un struct con los campos
+	// del req + CreatedAtUnix (Unix int64 para facilitar el uso desde
+	// template). Si execute o JSON parse del resultado fallan, fallback
+	// al payload default + warning log.
+	if c.payloadTpl != nil {
+		ctxVars := struct {
+			Content        string
+			MessageType    string
+			SourceID       string
+			ConversationID int
+			CreatedAtUnix  int64
+			InReplyTo      int
+		}{
+			Content:        req.Content,
+			MessageType:    req.MessageType,
+			SourceID:       req.SourceID,
+			ConversationID: req.ConversationID,
+			InReplyTo:      req.InReplyTo,
+		}
+		if !req.CreatedAt.IsZero() {
+			ctxVars.CreatedAtUnix = req.CreatedAt.Unix()
+		}
+		var buf bytes.Buffer
+		if err := c.payloadTpl.Execute(&buf, ctxVars); err == nil {
+			// Validar que el output es JSON sintácticamente válido antes
+			// de pasarlo a request(). Un JSON malformado da error 400 del
+			// downstream con mensaje confuso; mejor detectarlo aquí.
+			var probe any
+			if jerr := json.Unmarshal(buf.Bytes(), &probe); jerr == nil {
+				// Ruta template: bypassamos el Chatwoot-shape del default.
+				data, err := c.request(ctx, http.MethodPost, path, json.RawMessage(buf.Bytes()))
+				if err != nil {
+					return nil, err
+				}
+				var resp PostMessageResp
+				if err := json.Unmarshal(data, &resp); err != nil {
+					return nil, fmt.Errorf("unmarshal post msg (templated): %w", err)
+				}
+				return &resp, nil
+			}
+			slog.Warn("downstream: payload_template produced invalid JSON — using default shape")
+		} else {
+			slog.Warn("downstream: payload_template execute failed — using default shape", "err", err)
+		}
+	}
+
 	// v0.46.0: si CreatedAt está set, postamos un map ad-hoc que añade
 	// `created_at` y `external_created_at` (compat entre versiones
 	// Chatwoot). Para el flujo normal (CreatedAt zero) marshal directo

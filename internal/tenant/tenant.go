@@ -30,8 +30,16 @@ type Config struct {
 	DownstreamAccountID int       `json:"downstream_account_id"`
 	DownstreamInboxID   int       `json:"downstream_inbox_id,omitempty"`
 	WebhookHMACSecret   string    `json:"-"` // nunca se serializa
-	CreatedAt           time.Time `json:"created_at,omitempty"`
-	UpdatedAt           time.Time `json:"updated_at,omitempty"`
+	// PayloadTemplate es un Go text/template opcional que reescribe el
+	// body de POST /messages antes del envío al downstream. Si vacío
+	// (default), se usa el payload Chatwoot-shape. Variables disponibles:
+	// .Content, .MessageType, .SourceID, .ConversationID, .CreatedAtUnix
+	// (int64), .InReplyTo (int). El template debe producir JSON válido.
+	// Si el template falla en parse o execute, se loguea warning y se
+	// usa el payload default — no se bloquea el msg. Desde v0.65.0.
+	PayloadTemplate string    `json:"payload_template,omitempty"`
+	CreatedAt       time.Time `json:"created_at,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at,omitempty"`
 }
 
 // ErrNotFound se devuelve cuando un owner_tag no existe en bridge_tenant.
@@ -61,6 +69,11 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		// v0.26 — HMAC secret per-tenant para verificar webhooks entrantes.
 		// Si NULL/empty → fallback al WEBHOOK_HMAC_SECRET global del env.
 		`ALTER TABLE bridge_tenant ADD COLUMN IF NOT EXISTS webhook_hmac_secret TEXT`,
+		// v0.65.0 — payload_template (Go text/template) opcional que
+		// reescribe el body de POST messages antes del envío. Si NULL/empty,
+		// se usa el shape Chatwoot default. Habilita downstreams con
+		// payload distinto sin escribir un adapter completo.
+		`ALTER TABLE bridge_tenant ADD COLUMN IF NOT EXISTS payload_template TEXT`,
 	}
 	for _, s := range stmts {
 		if _, err := pool.Exec(ctx, s); err != nil {
@@ -84,6 +97,7 @@ func (r *Resolver) Warmup(ctx context.Context) error {
 		SELECT owner_tag, downstream_base_url, downstream_api_token,
 		       downstream_account_id, downstream_inbox_id,
 		       COALESCE(webhook_hmac_secret, ''),
+		       COALESCE(payload_template, ''),
 		       created_at, updated_at
 		FROM bridge_tenant
 	`)
@@ -96,7 +110,7 @@ func (r *Resolver) Warmup(ctx context.Context) error {
 		var c Config
 		if err := rows.Scan(&c.OwnerTag, &c.DownstreamBaseURL, &c.DownstreamAPIToken,
 			&c.DownstreamAccountID, &c.DownstreamInboxID,
-			&c.WebhookHMACSecret,
+			&c.WebhookHMACSecret, &c.PayloadTemplate,
 			&c.CreatedAt, &c.UpdatedAt); err != nil {
 			return fmt.Errorf("scan: %w", err)
 		}
@@ -126,11 +140,12 @@ func (r *Resolver) Get(ctx context.Context, ownerTag string) (*Config, error) {
 		SELECT owner_tag, downstream_base_url, downstream_api_token,
 		       downstream_account_id, downstream_inbox_id,
 		       COALESCE(webhook_hmac_secret, ''),
+		       COALESCE(payload_template, ''),
 		       created_at, updated_at
 		FROM bridge_tenant WHERE owner_tag=$1
 	`, ownerTag).Scan(&loaded.OwnerTag, &loaded.DownstreamBaseURL,
 		&loaded.DownstreamAPIToken, &loaded.DownstreamAccountID, &loaded.DownstreamInboxID,
-		&loaded.WebhookHMACSecret,
+		&loaded.WebhookHMACSecret, &loaded.PayloadTemplate,
 		&loaded.CreatedAt, &loaded.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -160,17 +175,18 @@ func (r *Resolver) Set(ctx context.Context, c Config) error {
 	// usar Patch.
 	var createdAt, updatedAt time.Time
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO bridge_tenant (owner_tag, downstream_base_url, downstream_api_token, downstream_account_id, downstream_inbox_id, webhook_hmac_secret)
-		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''))
+		INSERT INTO bridge_tenant (owner_tag, downstream_base_url, downstream_api_token, downstream_account_id, downstream_inbox_id, webhook_hmac_secret, payload_template)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''))
 		ON CONFLICT (owner_tag) DO UPDATE SET
 			downstream_base_url   = EXCLUDED.downstream_base_url,
 			downstream_api_token  = EXCLUDED.downstream_api_token,
 			downstream_account_id = EXCLUDED.downstream_account_id,
 			downstream_inbox_id   = EXCLUDED.downstream_inbox_id,
 			webhook_hmac_secret   = EXCLUDED.webhook_hmac_secret,
+			payload_template      = EXCLUDED.payload_template,
 			updated_at            = NOW()
 		RETURNING created_at, updated_at
-	`, c.OwnerTag, c.DownstreamBaseURL, c.DownstreamAPIToken, c.DownstreamAccountID, c.DownstreamInboxID, c.WebhookHMACSecret).Scan(&createdAt, &updatedAt)
+	`, c.OwnerTag, c.DownstreamBaseURL, c.DownstreamAPIToken, c.DownstreamAccountID, c.DownstreamInboxID, c.WebhookHMACSecret, c.PayloadTemplate).Scan(&createdAt, &updatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert tenant: %w", err)
 	}
@@ -191,6 +207,7 @@ func (r *Resolver) Set(ctx context.Context, c Config) error {
 //   - "downstream_account_id" (int)
 //   - "downstream_inbox_id" (int)
 //   - "webhook_hmac_secret" (string)
+//   - "payload_template" (string, v0.65.0)
 //
 // Devuelve ErrNotFound si el tenant no existe. Invalida el cache tras un
 // update exitoso.
@@ -208,6 +225,7 @@ func (r *Resolver) Patch(ctx context.Context, ownerTag string, fields map[string
 		"downstream_account_id": true,
 		"downstream_inbox_id":   true,
 		"webhook_hmac_secret":   true,
+		"payload_template":      true,
 	}
 	var sets []string
 	var args []any
@@ -229,13 +247,16 @@ func (r *Resolver) Patch(ctx context.Context, ownerTag string, fields map[string
 		WHERE owner_tag = $%d
 		RETURNING owner_tag, downstream_base_url, downstream_api_token,
 		          downstream_account_id, downstream_inbox_id,
-		          created_at, updated_at, COALESCE(webhook_hmac_secret, '')
+		          created_at, updated_at,
+		          COALESCE(webhook_hmac_secret, ''),
+		          COALESCE(payload_template, '')
 	`, strings.Join(sets, ", "), len(args))
 	var loaded Config
 	err := r.pool.QueryRow(ctx, query, args...).Scan(
 		&loaded.OwnerTag, &loaded.DownstreamBaseURL, &loaded.DownstreamAPIToken,
 		&loaded.DownstreamAccountID, &loaded.DownstreamInboxID,
-		&loaded.CreatedAt, &loaded.UpdatedAt, &loaded.WebhookHMACSecret)
+		&loaded.CreatedAt, &loaded.UpdatedAt,
+		&loaded.WebhookHMACSecret, &loaded.PayloadTemplate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

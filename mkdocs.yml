@@ -134,6 +134,7 @@ nav:
       - Group admin: integrations/group-admin.md
       - History import: integrations/history-import.md
       - "Backdate receta (created_at)": integrations/backdate-recipe.md
+      - "Payload transformer (Go templates)": integrations/payload-transformer.md
   - Migrations:
       - migrations/index.md
       - Desde Evolution API: migrations/from-evolution-api.md

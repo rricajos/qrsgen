@@ -130,7 +130,15 @@ func (r *Registry) For(ctx context.Context, instance string) DownstreamAPI {
 		// Tenant no configurado para este owner_tag → fallback global.
 		return r.fallback
 	}
-	client := New(cfg.DownstreamBaseURL, cfg.DownstreamAPIToken, cfg.DownstreamAccountID, r.tenantOpts...)
+	// v0.65.0: añadimos WithPayloadTemplate per-tenant si el tenant lo
+	// configura. Copia defensiva: For() puede correr concurrente para
+	// varios tenants, append-on-shared-slice escribiría sobre el
+	// underlying array de r.tenantOpts si la capacity lo permite.
+	opts := append([]Option(nil), r.tenantOpts...)
+	if cfg.PayloadTemplate != "" {
+		opts = append(opts, WithPayloadTemplate(cfg.PayloadTemplate))
+	}
+	client := New(cfg.DownstreamBaseURL, cfg.DownstreamAPIToken, cfg.DownstreamAccountID, opts...)
 	r.mu.Lock()
 	r.clients[ownerTag] = client
 	r.mu.Unlock()

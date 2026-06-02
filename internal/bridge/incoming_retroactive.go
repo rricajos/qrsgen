@@ -104,7 +104,7 @@ func (i *Incoming) applyRetroactiveUpdates(
 	jid types.JID,
 	key, newName, newPrefix string,
 	entries []trackedMsg,
-	ds *downstream.Client,
+	ds downstream.DownstreamAPI,
 ) {
 	defer i.retroactiveWG.Done()
 

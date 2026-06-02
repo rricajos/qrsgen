@@ -660,7 +660,7 @@ func (i *Incoming) HandlePictureChange(ctx context.Context, instance string, jid
 //
 // Llamarlo tanto al crear contacto nuevo COMO al encontrar contacto
 // existente — el tracker se encarga de la lógica de "cuándo".
-func (i *Incoming) maybeAvatarSync(ds *downstream.Client, r wameow.WAResolver, contactID int, jid types.JID, instance string) {
+func (i *Incoming) maybeAvatarSync(ds downstream.DownstreamAPI, r wameow.WAResolver, contactID int, jid types.JID, instance string) {
 	if !i.avatarSync || r == nil || ds == nil {
 		return
 	}
@@ -680,7 +680,7 @@ func (i *Incoming) maybeAvatarSync(ds *downstream.Client, r wameow.WAResolver, c
 //
 // Errores se loguean como warning; el tracker ya marcó el timestamp
 // en ShouldCheck para no retry inmediato.
-func (i *Incoming) syncAvatar(ds *downstream.Client, r wameow.WAResolver, contactID int, jid types.JID, instance string) {
+func (i *Incoming) syncAvatar(ds downstream.DownstreamAPI, r wameow.WAResolver, contactID int, jid types.JID, instance string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1199,7 +1199,7 @@ func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs re
 
 // findContactByIdentifier intenta primero por phone (si lo tenemos) y luego por
 // el identifier exacto. Necesario porque /contacts/search no busca por identifier.
-func findContactByIdentifier(ctx context.Context, ds *downstream.Client, identifier, phone string) (*downstream.Contact, error) {
+func findContactByIdentifier(ctx context.Context, ds downstream.DownstreamAPI, identifier, phone string) (*downstream.Contact, error) {
 	if phone != "" {
 		c, err := ds.FindContactByPhone(ctx, phone)
 		if err != nil {

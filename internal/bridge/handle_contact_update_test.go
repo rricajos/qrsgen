@@ -22,7 +22,10 @@ type fakeRouter struct {
 	client *downstream.Client
 }
 
-func (f *fakeRouter) For(_ context.Context, _ string) *downstream.Client {
+func (f *fakeRouter) For(_ context.Context, _ string) downstream.DownstreamAPI {
+	if f.client == nil {
+		return nil
+	}
 	return f.client
 }
 func (f *fakeRouter) OwnerTagFor(_ context.Context, _ string) string { return "" }

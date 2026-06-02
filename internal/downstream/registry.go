@@ -12,11 +12,16 @@ import (
 )
 
 // Router es la interfaz mínima que bridge.{Incoming,Outgoing} usan para
-// obtener el `*Client` adecuado para una instancia. Tanto `*Client`
-// (single-downstream) como `*Registry` (multi-downstream) la
+// obtener el adapter downstream adecuado para una instancia. Tanto
+// `*Client` (single-downstream) como `*Registry` (multi-downstream) la
 // implementan, así que el callsite no necesita saber cuál es.
+//
+// v0.65.0: `For` devuelve `DownstreamAPI` (interfaz) en lugar de
+// `*Client` (concreto). El cambio es BC para todo callsite que use el
+// retorno como variable (Go infiere el tipo automáticamente); los
+// adapters futuros se enchufan sin tocar este Router.
 type Router interface {
-	For(ctx context.Context, instance string) *Client
+	For(ctx context.Context, instance string) DownstreamAPI
 	// OwnerTagFor devuelve el owner_tag asociado a esta instancia, o ""
 	// si no tiene tenant configurado (single-downstream, instance sin
 	// owner_tag, o tenant aún no mapeado). Cacheado con TTL en Registry.
@@ -24,9 +29,9 @@ type Router interface {
 }
 
 // For implementación trivial para single-downstream: el cliente se
-// devuelve a sí mismo. Permite que código que ya tenía un `*Client`
-// directo siga funcionando sin cambios al adoptar la interface Router.
-func (c *Client) For(_ context.Context, _ string) *Client { return c }
+// devuelve a sí mismo. Cumple DownstreamAPI (var _ DownstreamAPI en
+// api.go), por eso podemos devolverlo como interfaz directamente.
+func (c *Client) For(_ context.Context, _ string) DownstreamAPI { return c }
 
 // OwnerTagFor single-downstream: devuelve "" siempre. No hay tenants
 // configurados, todo va al cliente global.
@@ -97,9 +102,11 @@ func NewRegistry(pool *pgxpool.Pool, tenants *tenant.Resolver, fallback *Client,
 	}
 }
 
-// For devuelve el client downstream adecuado para una instancia. Nunca
+// For devuelve el adapter downstream adecuado para una instancia. Nunca
 // devuelve nil — siempre cae al fallback si no encuentra tenant.
-func (r *Registry) For(ctx context.Context, instance string) *Client {
+// v0.65.0: retorna DownstreamAPI (interfaz) — el concreto sigue siendo
+// *Client por defecto.
+func (r *Registry) For(ctx context.Context, instance string) DownstreamAPI {
 	if r == nil {
 		return nil
 	}

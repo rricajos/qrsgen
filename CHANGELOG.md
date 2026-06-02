@@ -4,6 +4,94 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-06-02
+
+Refactor pre-v1.0.0 que abre qrsgen a downstreams distintos de Chatwoot
+api_channel y permite fan-out de lifecycle events. Tres fases
+backward-compatible — operadores con solo las envs `DOWNSTREAM_*`
+clásicas siguen funcionando idénticamente. La interfaz `DownstreamAPI`
+queda lista para adapters Zendesk/Freshdesk/n8n/custom en versiones
+futuras sin breaking changes.
+
+### Added
+
+**Fase 1 — Flexibilidad de transporte:**
+
+- `DOWNSTREAM_AUTH_HEADER_NAME` (default `api_access_token`) y
+  `DOWNSTREAM_AUTH_SCHEME` (default `raw`; alts `Bearer`, `Basic`):
+  configurables el nombre del header y el formato del valor de auth.
+  Habilita Zendesk/Slack/Freshdesk/Twilio (Bearer/Basic).
+- `DOWNSTREAM_API_PATH_PREFIX` (default `/api/v1/accounts/{account_id}`):
+  override del prefijo de rutas HTTP. Placeholder `{account_id}` se
+  substituye. Vacío → paths absolutos.
+- `DOWNSTREAM_TYPE` (default `chatwoot`): reservado para futuros
+  adapters; hoy solo `chatwoot` operativo.
+- Functional options pattern en `downstream.New`: `WithAuthHeader`,
+  `WithAuthScheme`, `WithAPIPathPrefix`, `WithHTTPClient`,
+  `WithPayloadTemplate`.
+
+**Fase 1 — Lifecycle fan-out:**
+
+- Nueva columna JSONB `events_webhook_subscribers` en `bridge_instance`
+  con shape `[{url, events?[]}]`. Cada subscriber filtra qué eventos
+  recibe (events vacío = wildcard). Fallback al legacy
+  `events_webhook_url` si la columna es NULL/empty.
+- Endpoints POST/PATCH `/api/instances` aceptan
+  `events_webhook_subscribers` como opcional.
+- `emitLifecycleWebhook` fan-out: cada subscriber recibe el payload
+  con su propio retry budget.
+
+**Fase 2 — Interfaz `DownstreamAPI`:**
+
+- Nuevo archivo `internal/downstream/api.go` con interfaz pública
+  listando los 14 métodos que el bridge espera de un downstream.
+  Compile-time assertion garantiza que `*Client` cumple. Adapters
+  futuros (Zendesk, Freshdesk, n8n, generic) pueden enchufarse en
+  su lugar.
+- `Router.For` ahora devuelve `DownstreamAPI` (interfaz) en lugar
+  de `*Client` (concreto). 100% BC en runtime (Go structural typing).
+- 4 funciones del bridge cambian parámetro a interfaz (`maybeAvatarSync`,
+  `syncAvatar`, `findContactByIdentifier`, `applyRetroactiveUpdates`).
+
+**Fase 3 — Payload transformer per-tenant:**
+
+- Nueva columna `payload_template TEXT NULL` en `bridge_tenant` que
+  acepta un Go `text/template`. Se aplica al body JSON de POST
+  messages antes del envío. Habilita downstreams con shape distinto
+  (n8n directo, Zendesk, Slack, custom SaaS) sin escribir adapter.
+- Variables del template: `.Content`, `.MessageType`, `.SourceID`,
+  `.ConversationID`, `.CreatedAtUnix`, `.InReplyTo`.
+- Fallback graceful: parse fail → warning log + Client opera default;
+  execute o JSON invalid → warning per-msg + fallback Chatwoot shape.
+- Solo afecta `PostMessage` (text). Attachments y demás endpoints
+  siguen shape Chatwoot.
+- Doc: `docs/integrations/payload-transformer.md` con 4 ejemplos
+  (n8n, Zendesk, Slack, custom SaaS).
+
+### Migration
+
+- 100% backward-compatible: deployments existentes sin las nuevas
+  envs/columnas funcionan idénticamente a v0.64.7.
+- `internal/bridge/handle_contact_update_test.go` `fakeRouter.For`
+  ahora devuelve `downstream.DownstreamAPI` (cambio en tests).
+- Si el integration repo construye `*downstream.Client` directamente
+  (no aplica a OMNIA — solo usa qrsgen vía HTTP), las firmas de las
+  funciones internas del bridge cambian. Externamente nada cambia.
+
+### Tests
+
+- 10 nuevos en `internal/downstream/client_options_test.go` (auth +
+  paths).
+- 11 nuevos en `internal/manager/subscribers_test.go` (matches +
+  resolveSubscribers).
+- 2 nuevos en `internal/downstream/api_test.go` (fake adapter +
+  Router devuelve interfaz).
+- 8 nuevos en `internal/downstream/payload_template_test.go`
+  (Chatwoot/Zendesk shapes, CreatedAtUnix, fallback paths).
+- 12/12 paquetes verdes.
+
+
+
 <!--
 Roadmap hacia v1.0.0 — status tras v0.64.0:
 

@@ -28,6 +28,36 @@ type Config struct {
 	DownstreamAccountID int    `env:"DOWNSTREAM_ACCOUNT_ID" envDefault:"1"`
 	DownstreamInboxID   int    `env:"DOWNSTREAM_INBOX_ID,required"`
 
+	// DownstreamAuthHeaderName nombre del header HTTP donde se manda el
+	// token de auth al downstream. Default "api_access_token" (Chatwoot
+	// api_channel). Set a "Authorization" para downstreams REST estándar
+	// (Bearer/Basic). Desde v0.65.0.
+	DownstreamAuthHeaderName string `env:"DOWNSTREAM_AUTH_HEADER_NAME" envDefault:"api_access_token"`
+
+	// DownstreamAuthScheme controla el formato del valor enviado en el
+	// header de auth. "raw" (default): token literal — comportamiento
+	// pre-v0.65.0, equivalente a Chatwoot. "Bearer": antepone "Bearer "
+	// (RFC 6750, válido para Zendesk/Slack/Freshdesk). "Basic": antepone
+	// "Basic " (el token debe ya estar codificado base64(user:pass)).
+	// Cualquier otro valor se usa literal + espacio + token. Desde v0.65.0.
+	DownstreamAuthScheme string `env:"DOWNSTREAM_AUTH_SCHEME" envDefault:"raw"`
+
+	// DownstreamAPIPathPrefix prefijo que qrsgen aplica antes de cada
+	// path al construir URLs al downstream. El placeholder {account_id}
+	// se reemplaza por DOWNSTREAM_ACCOUNT_ID. Default
+	// "/api/v1/accounts/{account_id}" reproduce Chatwoot. Para
+	// downstreams sin multi-tenant o con otra shape, override aquí.
+	// Pasar "" desactiva el prefijo (paths absolutos desde baseURL).
+	// Desde v0.65.0.
+	DownstreamAPIPathPrefix string `env:"DOWNSTREAM_API_PATH_PREFIX" envDefault:"/api/v1/accounts/{account_id}"`
+
+	// DownstreamType reserva el tipo lógico de downstream para futuros
+	// adapters específicos (Zendesk, Freshdesk, etc.). Hoy solo
+	// "chatwoot" (default) es operativo — los demás se ignoran y se
+	// usa el adapter chatwoot. Reservado en v0.65.0 para no romper
+	// contrato cuando se añadan adapters reales (v0.66.0+ o v1.1.x).
+	DownstreamType string `env:"DOWNSTREAM_TYPE" envDefault:"chatwoot"`
+
 	InstanceName      string `env:"INSTANCE_NAME,required"`
 	InstancePhoneHint string `env:"INSTANCE_PHONE_HINT"`
 

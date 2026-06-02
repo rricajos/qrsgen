@@ -56,6 +56,13 @@ type Registry struct {
 	tenants  *tenant.Resolver
 	fallback *Client
 
+	// tenantOpts se aplican a cada Client construido on-demand para un
+	// tenant. Permite que las opts globales (auth header/scheme/path
+	// prefix configurados vía env DOWNSTREAM_*) se propaguen a todos los
+	// tenants. Hoy v0.65.0 no hay per-tenant override de estos campos —
+	// si lo necesitas, abre issue.
+	tenantOpts []Option
+
 	mu      sync.RWMutex
 	clients map[string]*Client // owner_tag → Client
 
@@ -76,11 +83,14 @@ type instanceTagEntry struct {
 // NewRegistry crea el registry con fallback y resolver de tenants.
 // instanceTagTTL=30s es razonable: las instancias raramente cambian de
 // owner_tag, y un retraso de 30s en propagar cambios es aceptable.
-func NewRegistry(pool *pgxpool.Pool, tenants *tenant.Resolver, fallback *Client) *Registry {
+// `tenantOpts` se aplican a cada Client construido on-demand para un
+// tenant (típicamente las mismas opts que el fallback recibió).
+func NewRegistry(pool *pgxpool.Pool, tenants *tenant.Resolver, fallback *Client, tenantOpts ...Option) *Registry {
 	return &Registry{
 		pool:           pool,
 		tenants:        tenants,
 		fallback:       fallback,
+		tenantOpts:     tenantOpts,
 		clients:        map[string]*Client{},
 		instanceTag:    map[string]instanceTagEntry{},
 		instanceTagTTL: 30 * time.Second,
@@ -113,7 +123,7 @@ func (r *Registry) For(ctx context.Context, instance string) *Client {
 		// Tenant no configurado para este owner_tag → fallback global.
 		return r.fallback
 	}
-	client := New(cfg.DownstreamBaseURL, cfg.DownstreamAPIToken, cfg.DownstreamAccountID)
+	client := New(cfg.DownstreamBaseURL, cfg.DownstreamAPIToken, cfg.DownstreamAccountID, r.tenantOpts...)
 	r.mu.Lock()
 	r.clients[ownerTag] = client
 	r.mu.Unlock()

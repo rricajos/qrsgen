@@ -303,6 +303,11 @@ func (m *Manager) EnsureSchema(ctx context.Context) error {
 		// migrations v0.23 — owner_tag opcional para que el integrador correlacione
 		// instancias con su modelo de tenants (string libre, qrsgen no lo interpreta).
 		`ALTER TABLE bridge_instance ADD COLUMN IF NOT EXISTS owner_tag TEXT`,
+		// migrations v0.65.0 — events_webhook_subscribers: JSONB con array de
+		// {url, events?[]} para fan-out de lifecycle a múltiples destinos.
+		// Cada subscriber puede filtrar qué eventos recibe (events vacío = todos).
+		// Si NULL/empty, fallback a events_webhook_url (legacy single-subscriber).
+		`ALTER TABLE bridge_instance ADD COLUMN IF NOT EXISTS events_webhook_subscribers JSONB`,
 	}
 	for _, s := range stmts {
 		if _, err := m.pool.Exec(ctx, s); err != nil {
@@ -353,13 +358,46 @@ func (m *Manager) inBootstrapWindow() bool {
 	return !m.bootstrapWindowUntil.IsZero() && time.Now().Before(m.bootstrapWindowUntil)
 }
 
+// WebhookSubscriber representa un destinatario de lifecycle webhooks.
+// `Events` lista los eventos que ese subscriber quiere recibir (paired,
+// connected, disconnected, logged_out, qr_generated, etc.). Si está
+// vacío, recibe TODOS los eventos. v0.65.0.
+type WebhookSubscriber struct {
+	URL    string   `json:"url"`
+	Events []string `json:"events,omitempty"`
+}
+
+// matches indica si este subscriber está suscrito a `event`. Empty
+// Events = wildcard (recibe todo).
+func (s WebhookSubscriber) matches(event string) bool {
+	if len(s.Events) == 0 {
+		return true
+	}
+	for _, e := range s.Events {
+		if e == event {
+			return true
+		}
+	}
+	return false
+}
+
 // CreateOpts permite personalizar la creación de una instancia.
 type CreateOpts struct {
 	// EventsWebhookURL: si no es vacío, qrsgen POSTea un payload a esta URL
 	// en cada transición lifecycle (paired/connected/disconnected/logged_out).
 	// Si es nil → se mantiene el valor previo en DB (no se sobrescribe).
 	// Si es "" explícito → no se notifica (se borra el valor previo).
+	//
+	// Legacy single-subscriber. Para fan-out a múltiples destinos con filter
+	// de eventos por destino, usar EventsWebhookSubscribers (v0.65.0+).
+	// Si ambos están set, EventsWebhookSubscribers gana — el legacy se
+	// mantiene en DB pero no se usa.
 	EventsWebhookURL *string
+	// EventsWebhookSubscribers: lista de destinos para fan-out de lifecycle.
+	// Cada uno puede filtrar por eventos. Si nil → mantiene valor previo.
+	// Si pointer a slice vacío → borra (vuelve al modo legacy single-URL).
+	// v0.65.0.
+	EventsWebhookSubscribers *[]WebhookSubscriber
 	// InboxID: id del inbox del downstream al que pertenece esta instancia.
 	// Si nil → se mantiene el valor previo en DB.
 	// Si 0 explícito → se borra el valor previo.
@@ -392,6 +430,20 @@ func (m *Manager) CreateWithOpts(ctx context.Context, name string, opts CreateOp
 	if opts.EventsWebhookURL != nil {
 		if _, err := m.pool.Exec(ctx, `UPDATE bridge_instance SET events_webhook_url=$2 WHERE name=$1`, name, *opts.EventsWebhookURL); err != nil {
 			return nil, fmt.Errorf("set events_webhook_url: %w", err)
+		}
+	}
+	if opts.EventsWebhookSubscribers != nil {
+		var blob any
+		if len(*opts.EventsWebhookSubscribers) > 0 {
+			b, err := json.Marshal(*opts.EventsWebhookSubscribers)
+			if err != nil {
+				return nil, fmt.Errorf("marshal subscribers: %w", err)
+			}
+			blob = string(b)
+		}
+		// NULL si pointer-to-empty-slice (borra); JSONB string si tiene elementos.
+		if _, err := m.pool.Exec(ctx, `UPDATE bridge_instance SET events_webhook_subscribers=$2::jsonb WHERE name=$1`, name, blob); err != nil {
+			return nil, fmt.Errorf("set events_webhook_subscribers: %w", err)
 		}
 	}
 	if opts.InboxID != nil {
@@ -729,12 +781,39 @@ func (m *Manager) emitLifecycleWebhook(name string, ev wameow.LifecycleEvent, ji
 		}
 	}()
 
-	// Lookup events_webhook_url
-	var url string
-	if err := m.pool.QueryRow(context.Background(), `SELECT COALESCE(events_webhook_url, '') FROM bridge_instance WHERE name=$1`, name).Scan(&url); err != nil {
+	// v0.65.0: fan-out a subscribers JSONB si hay; si no, fallback al
+	// events_webhook_url legacy (single subscriber).
+	var legacyURL string
+	var subsBlob []byte
+	if err := m.pool.QueryRow(context.Background(),
+		`SELECT COALESCE(events_webhook_url, ''), COALESCE(events_webhook_subscribers, '[]'::jsonb)::text
+		 FROM bridge_instance WHERE name=$1`, name,
+	).Scan(&legacyURL, &subsBlob); err != nil {
 		return
 	}
-	if url == "" {
+	subscribers, err := resolveSubscribers(subsBlob, legacyURL)
+	if err != nil {
+		m.logger.Warn("invalid events_webhook_subscribers JSON, falling back to legacy URL",
+			"name", name, "err", err)
+		subscribers = nil
+		if legacyURL != "" {
+			subscribers = []WebhookSubscriber{{URL: legacyURL}}
+		}
+	}
+	if len(subscribers) == 0 {
+		return
+	}
+
+	// Filtrar subscribers que matchean este evento. Si después del filtro
+	// no queda ninguno, salir antes del grace period (no hay nadie a quien
+	// notificar).
+	matching := make([]WebhookSubscriber, 0, len(subscribers))
+	for _, s := range subscribers {
+		if s.URL != "" && s.matches(string(ev)) {
+			matching = append(matching, s)
+		}
+	}
+	if len(matching) == 0 {
 		return
 	}
 
@@ -770,11 +849,36 @@ func (m *Manager) emitLifecycleWebhook(name string, ev wameow.LifecycleEvent, ji
 		payload["version"] = m.version
 	}
 	body, _ := json.Marshal(payload)
-	m.postWebhookWithRetry(name, string(ev), url, body)
+	// Fan-out: cada subscriber recibe el mismo payload independientemente.
+	// El reintento + métrica se hace por destino (cada uno con su propio
+	// retry budget).
+	for _, s := range matching {
+		m.postWebhookWithRetry(name, string(ev), s.URL, body)
+	}
 	metrics.LifecycleEvents.WithLabelValues(name, string(ev), m.ownerTag(name)).Inc()
 	if m.usage != nil {
 		m.usage.IncLifecycle(name)
 	}
+}
+
+// resolveSubscribers decodifica los subscribers JSONB. Si el blob está
+// vacío o es `[]`, hace fallback al legacy URL como single-subscriber.
+// Devuelve error sólo si el JSON era inválido (caller decide si fallback
+// al legacy a pesar del error).
+func resolveSubscribers(subsBlob []byte, legacyURL string) ([]WebhookSubscriber, error) {
+	if len(subsBlob) > 0 && string(subsBlob) != "[]" {
+		var subs []WebhookSubscriber
+		if err := json.Unmarshal(subsBlob, &subs); err != nil {
+			return nil, fmt.Errorf("unmarshal subscribers: %w", err)
+		}
+		if len(subs) > 0 {
+			return subs, nil
+		}
+	}
+	if legacyURL != "" {
+		return []WebhookSubscriber{{URL: legacyURL}}, nil
+	}
+	return nil, nil
 }
 
 // InboxIDFor devuelve el inbox_id (downstream) asociado a la instancia, o 0 si no hay.

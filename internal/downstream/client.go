@@ -16,27 +16,111 @@ import (
 	"time"
 )
 
-// Client encapsula las llamadas HTTP al downstream (Chatwoot). Mantiene
-// la base URL, el `api_access_token` de cuenta y un http.Client con
-// timeout de 15s. Stateless aparte de la conexión TCP que reusa el
+// Client encapsula las llamadas HTTP al downstream. Mantiene la base
+// URL, el token de cuenta y un http.Client con timeout de 15s. Los
+// campos `authHeader`, `authScheme` y `apiPrefix` son configurables vía
+// Options (default: api_access_token + raw + /api/v1/accounts/{id},
+// que reproduce el shape de Chatwoot api_channel — comportamiento
+// pre-v0.65.0). Stateless aparte de la conexión TCP que reusa el
 // http.Client.
 type Client struct {
-	baseURL   string
-	token     string
-	accountID int
-	http      *http.Client
+	baseURL    string
+	token      string
+	accountID  int
+	authHeader string
+	authScheme string
+	apiPrefix  string
+	http       *http.Client
+}
+
+// Defaults para los campos configurables. Reproducen exactamente el
+// comportamiento pre-v0.65.0 (shape Chatwoot api_channel).
+const (
+	DefaultAuthHeader = "api_access_token"
+	DefaultAuthScheme = "raw"
+	DefaultAPIPrefix  = "/api/v1/accounts/{account_id}"
+)
+
+// Option configura un Client construido vía New. Permite mantener
+// New backward-compatible (3 args) mientras se exponen campos
+// avanzados como auth scheme o path prefix vía variadic opts.
+type Option func(*Client)
+
+// WithAuthHeader sobreescribe el nombre del header donde se envía el
+// token. Default "api_access_token" (Chatwoot). Combinable con
+// WithAuthScheme para downstreams tipo Zendesk (Authorization Bearer),
+// Slack (Authorization Bearer), Twilio (Authorization Basic), etc.
+func WithAuthHeader(name string) Option {
+	return func(c *Client) { c.authHeader = name }
+}
+
+// WithAuthScheme controla el prefijo del valor del header. "raw" (default)
+// envía el token literal. "Bearer" antepone "Bearer " (RFC 6750). "Basic"
+// antepone "Basic " (el token debe estar ya en formato base64(user:pass)).
+// Cualquier otro string se usa como prefijo literal + espacio + token.
+func WithAuthScheme(scheme string) Option {
+	return func(c *Client) { c.authScheme = scheme }
+}
+
+// WithAPIPathPrefix cambia el prefijo aplicado a todas las rutas. El
+// token literal {account_id} se substituye por el accountID configurado
+// al construir el Client. Default "/api/v1/accounts/{account_id}".
+// Pasar "" para no añadir prefijo (paths absolutos desde baseURL).
+func WithAPIPathPrefix(prefix string) Option {
+	return func(c *Client) { c.apiPrefix = prefix }
+}
+
+// WithHTTPClient sustituye el http.Client por defecto. Útil para tests
+// que ajustan timeouts/transports.
+func WithHTTPClient(h *http.Client) Option {
+	return func(c *Client) { c.http = h }
 }
 
 // New construye un Client con timeout HTTP por defecto. `baseURL` debe
 // incluir scheme + host (ej "https://omnia.example.com") y `token` es
-// el api_access_token de una cuenta admin del downstream.
-func New(baseURL, token string, accountID int) *Client {
-	return &Client{
-		baseURL:   baseURL,
-		token:     token,
-		accountID: accountID,
-		http:      &http.Client{Timeout: 15 * time.Second},
+// el token de auth contra el downstream. Opts adicionales (auth header,
+// scheme, path prefix) sobreescriben los defaults Chatwoot.
+func New(baseURL, token string, accountID int, opts ...Option) *Client {
+	c := &Client{
+		baseURL:    baseURL,
+		token:      token,
+		accountID:  accountID,
+		authHeader: DefaultAuthHeader,
+		authScheme: DefaultAuthScheme,
+		apiPrefix:  DefaultAPIPrefix,
+		http:       &http.Client{Timeout: 15 * time.Second},
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+// setAuth aplica el header de autenticación al request según authHeader
+// + authScheme. Centraliza la lógica para que TODAS las rutas (incluso
+// las que construyen el http.Request a mano para multipart) la apliquen
+// uniformemente.
+func (c *Client) setAuth(req *http.Request) {
+	var value string
+	switch c.authScheme {
+	case "Bearer":
+		value = "Bearer " + c.token
+	case "Basic":
+		value = "Basic " + c.token
+	case "raw", "":
+		value = c.token
+	default:
+		value = c.authScheme + " " + c.token
+	}
+	req.Header.Set(c.authHeader, value)
+}
+
+// buildURL compone la URL absoluta para un path relativo aplicando el
+// apiPrefix configurado. El placeholder {account_id} se reemplaza por
+// el accountID numérico. Garantiza un único `/` entre prefix y path.
+func (c *Client) buildURL(path string) string {
+	prefix := strings.ReplaceAll(c.apiPrefix, "{account_id}", strconv.Itoa(c.accountID))
+	return c.baseURL + prefix + path
 }
 
 // Contact es la proyección mínima de un contacto Chatwoot que qrsgen
@@ -97,12 +181,12 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 		}
 		reqBody = bytes.NewReader(b)
 	}
-	url := fmt.Sprintf("%s/api/v1/accounts/%d%s", c.baseURL, c.accountID, path)
+	url := c.buildURL(path)
 	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request: %w", err)
 	}
-	req.Header.Set("api_access_token", c.token)
+	c.setAuth(req)
 	req.Header.Set("Content-Type", "application/json")
 
 	res, err := c.http.Do(req)
@@ -299,12 +383,12 @@ func (c *Client) PostMessageWithAttachment(ctx context.Context, req PostMessageA
 		return nil, fmt.Errorf("multipart close: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d/messages", c.baseURL, c.accountID, req.ConversationID)
+	url := c.buildURL(fmt.Sprintf("/conversations/%d/messages", req.ConversationID))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &body)
 	if err != nil {
 		return nil, fmt.Errorf("new request: %w", err)
 	}
-	httpReq.Header.Set("api_access_token", c.token)
+	c.setAuth(httpReq)
 	httpReq.Header.Set("Content-Type", mw.FormDataContentType())
 
 	res, err := c.http.Do(httpReq)
@@ -546,12 +630,12 @@ func (c *Client) UploadContactAvatar(ctx context.Context, contactID int, data []
 		return fmt.Errorf("multipart close: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/api/v1/accounts/%d/contacts/%d", c.baseURL, c.accountID, contactID)
+	url := c.buildURL(fmt.Sprintf("/contacts/%d", contactID))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPut, url, &body)
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
 	}
-	httpReq.Header.Set("api_access_token", c.token)
+	c.setAuth(httpReq)
 	httpReq.Header.Set("Content-Type", mw.FormDataContentType())
 
 	res, err := c.http.Do(httpReq)
@@ -593,7 +677,7 @@ func (c *Client) DownloadBlob(ctx context.Context, rawURL string) ([]byte, strin
 	if err != nil {
 		return nil, "", fmt.Errorf("new request: %w", err)
 	}
-	req.Header.Set("api_access_token", c.token)
+	c.setAuth(req)
 	res, err := c.http.Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("do: %w", err)

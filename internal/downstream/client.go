@@ -84,6 +84,23 @@ func WithHTTPClient(h *http.Client) Option {
 	return func(c *Client) { c.http = h }
 }
 
+// ValidatePayloadTemplate parsea un Go text/template para confirmar
+// que es sintácticamente correcto. Devuelve nil si vacío (no aplicar
+// template) o si parsea OK. Devuelve error si la sintaxis es inválida —
+// útil para validar at-set-time desde la API antes de persistir un
+// template roto que se descubriría sólo al primer msg.
+//
+// Nota: no valida que el OUTPUT del template sea JSON válido (eso solo
+// se sabe en runtime con un PostMessageReq concreto). Solo confirma
+// que la sintaxis Go template parsea.
+func ValidatePayloadTemplate(tpl string) error {
+	if tpl == "" {
+		return nil
+	}
+	_, err := template.New("payload_validate").Parse(tpl)
+	return err
+}
+
 // WithPayloadTemplate parsea el template Go text/template suministrado
 // y lo asocia al Client. Cuando PostMessage se llama, el template se
 // ejecuta con el PostMessageReq como contexto y se POSTea el resultado

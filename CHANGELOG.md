@@ -4,6 +4,32 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.65.1] - 2026-06-02
+
+Polish post-v0.65.0. Validación de `payload_template` at-set-time +
+sweep de seguridad rutinario tras el refactor.
+
+### Added
+
+- `downstream.ValidatePayloadTemplate(tpl string) error`: helper que
+  pre-parsea un Go template para devolver error inmediato si la
+  sintaxis es inválida. Reusable desde cualquier lugar que persista
+  templates.
+- Validación at-set-time en API `PUT /api/tenants/:owner_tag` y
+  `PATCH /api/tenants/:owner_tag`: si el `payload_template` no parsea,
+  devuelve `400 Bad Request` con el error del parser en lugar de
+  aceptarlo y descubrir el bug cuando el primer msg llega.
+- `payload_template` añadido al body de PUT/PATCH tenants + audit log.
+
+### Verification
+
+- `govulncheck ./...` → No vulnerabilities found.
+- `gosec -severity medium ./...` → 0 issues.
+- 6 nuevos sub-tests en `TestValidatePayloadTemplate` (empty, valid
+  simple, multiple vars, unclosed action, unknown function,
+  malformed if).
+- 12/12 paquetes verdes.
+
 ## [0.65.0] - 2026-06-02
 
 Refactor pre-v1.0.0 que abre qrsgen a downstreams distintos de Chatwoot

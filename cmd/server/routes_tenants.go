@@ -56,9 +56,17 @@ func registerTenantRoutes(api *echo.Group, tenants *tenant.Resolver, dsRegistry 
 			DownstreamAccountID int    `json:"downstream_account_id"`
 			DownstreamInboxID   int    `json:"downstream_inbox_id"`
 			WebhookHMACSecret   string `json:"webhook_hmac_secret"`
+			PayloadTemplate     string `json:"payload_template"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad json"})
+		}
+		// v0.65.1: validamos el Go template at-set-time para que el operador
+		// se entere del syntax error AHORA y no cuando el primer msg llegue.
+		if err := downstream.ValidatePayloadTemplate(req.PayloadTemplate); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "payload_template invalid: " + err.Error(),
+			})
 		}
 		cfg := tenant.Config{
 			OwnerTag:            ownerTag,
@@ -67,6 +75,7 @@ func registerTenantRoutes(api *echo.Group, tenants *tenant.Resolver, dsRegistry 
 			DownstreamAccountID: req.DownstreamAccountID,
 			DownstreamInboxID:   req.DownstreamInboxID,
 			WebhookHMACSecret:   req.WebhookHMACSecret,
+			PayloadTemplate:     req.PayloadTemplate,
 		}
 		if err := tenants.Set(c.Request().Context(), cfg); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -77,6 +86,7 @@ func registerTenantRoutes(api *echo.Group, tenants *tenant.Resolver, dsRegistry 
 			"downstream_account_id":   req.DownstreamAccountID,
 			"downstream_inbox_id":     req.DownstreamInboxID,
 			"webhook_hmac_secret_set": req.WebhookHMACSecret != "",
+			"payload_template_set":    req.PayloadTemplate != "",
 		})
 		return c.JSON(http.StatusOK, map[string]string{"message": "tenant saved", "owner_tag": ownerTag})
 	})
@@ -94,10 +104,26 @@ func registerTenantRoutes(api *echo.Group, tenants *tenant.Resolver, dsRegistry 
 		for _, k := range []string{
 			"downstream_base_url", "downstream_api_token",
 			"downstream_account_id", "downstream_inbox_id",
-			"webhook_hmac_secret",
+			"webhook_hmac_secret", "payload_template",
 		} {
 			if v, ok := raw[k]; ok {
 				fields[k] = v
+			}
+		}
+		// v0.65.1: si el patch incluye payload_template, validamos sintaxis
+		// at-set-time para devolver 400 inmediato en caso de Go template
+		// inválido (en lugar de aceptarlo y descubrir el bug al primer msg).
+		if tpl, ok := fields["payload_template"]; ok {
+			tplStr, isStr := tpl.(string)
+			if !isStr {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "payload_template must be a string",
+				})
+			}
+			if err := downstream.ValidatePayloadTemplate(tplStr); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "payload_template invalid: " + err.Error(),
+				})
 			}
 		}
 		if _, err := tenants.Patch(c.Request().Context(), ownerTag, fields); err != nil {

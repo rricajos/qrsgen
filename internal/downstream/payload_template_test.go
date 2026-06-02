@@ -190,6 +190,29 @@ func TestPayloadTemplate_ParseFailure_NoOp(t *testing.T) {
 	}
 }
 
+func TestValidatePayloadTemplate(t *testing.T) {
+	cases := []struct {
+		name      string
+		tpl       string
+		expectErr bool
+	}{
+		{"empty string ok (no-op)", "", false},
+		{"valid simple template", `{"text":{{printf "%q" .Content}}}`, false},
+		{"valid with multiple vars", `{"a":{{.Content}},"b":{{.ConversationID}}}`, false},
+		{"unclosed action", `{{ .Content`, true},
+		{"unknown function", `{{ this_is_not_a_function .Content }}`, true},
+		{"malformed if", `{{if .Content}`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidatePayloadTemplate(tc.tpl)
+			if (err != nil) != tc.expectErr {
+				t.Errorf("ValidatePayloadTemplate(%q) err=%v, expectErr=%v", tc.tpl, err, tc.expectErr)
+			}
+		})
+	}
+}
+
 func TestPayloadTemplate_EmptyString_NoOp(t *testing.T) {
 	// Template vacío = no aplicar template = comportamiento default.
 	getBody, c := capturePostMessage(t, WithPayloadTemplate(""))

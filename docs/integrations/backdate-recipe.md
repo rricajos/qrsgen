@@ -15,22 +15,29 @@ etc.).
 
 ## Receta SQL (Chatwoot)
 
-Chatwoot guarda `external_created_at` en `messages.content_attributes`
-como JSON (no JSONB), así que requiere cast explícito. La query
-idempotente que aplica los backdates pendientes:
+Chatwoot guarda `messages.content_attributes` como columna `json`
+(no `jsonb`) y su modelo Ruby aplica `store :content_attributes,
+coder: JSON` — Rails serializa el Hash a **un string JSON** antes
+de persistirlo. Resultado en disco: una JSON-string dentro de una
+columna json, **no** un objeto JSON directo.
+
+Por eso un `(content_attributes::jsonb) ?` directo nunca encuentra
+claves (busca en una string, que no tiene claves). El truco es
+unwrap con `#>> '{}'` (devuelve el inner text), luego `::jsonb`
+parsea el objeto real:
 
 ```sql
 WITH stale AS (
   SELECT id
   FROM messages
-  WHERE (content_attributes::jsonb) ? 'external_created_at'
-    AND created_at > to_timestamp(((content_attributes::jsonb)->>'external_created_at')::bigint)
+  WHERE ((content_attributes #>> '{}')::jsonb) ? 'external_created_at'
+    AND created_at > to_timestamp((((content_attributes #>> '{}')::jsonb)->>'external_created_at')::bigint)
                       + make_interval(secs => 5)
   ORDER BY id DESC
   LIMIT 500
 )
 UPDATE messages m
-SET created_at = to_timestamp(((m.content_attributes::jsonb)->>'external_created_at')::bigint)
+SET created_at = to_timestamp((((m.content_attributes #>> '{}')::jsonb)->>'external_created_at')::bigint)
 FROM stale
 WHERE m.id = stale.id
 RETURNING m.id;
@@ -38,6 +45,12 @@ RETURNING m.id;
 
 Notas:
 
+- **`#>> '{}'` unwrap** (v0.65.1+): obligatorio contra Chatwoot real.
+  Sin él la query no encuentra mensajes (Rails store-coder JSON los
+  guarda string-encoded). Versiones previas de este doc usaban
+  `content_attributes::jsonb` directo — ese SQL funcionaba en tests
+  sintéticos con `jsonb_build_object` pero NO contra mensajes reales
+  insertados vía MessageBuilder.
 - **Tolerancia de 5s** (`+ make_interval(secs => 5)`): evita bucles
   infinitos cuando hay micro-jitter entre `created_at` y el
   `external_created_at` rondeado a segundos en pg.
@@ -78,13 +91,13 @@ Si tu stack no usa n8n:
 PGPASSWORD="$CHATWOOT_DB_PASSWORD" psql -h pgvector -U postgres -d chatwoot -c "
 WITH stale AS (
   SELECT id FROM messages
-  WHERE (content_attributes::jsonb) ? 'external_created_at'
-    AND created_at > to_timestamp(((content_attributes::jsonb)->>'external_created_at')::bigint)
+  WHERE ((content_attributes #>> '{}')::jsonb) ? 'external_created_at'
+    AND created_at > to_timestamp((((content_attributes #>> '{}')::jsonb)->>'external_created_at')::bigint)
                     + make_interval(secs => 5)
   ORDER BY id DESC LIMIT 500
 )
 UPDATE messages m
-SET created_at = to_timestamp(((m.content_attributes::jsonb)->>'external_created_at')::bigint)
+SET created_at = to_timestamp((((m.content_attributes #>> '{}')::jsonb)->>'external_created_at')::bigint)
 FROM stale WHERE m.id = stale.id;
 "
 ```
@@ -101,18 +114,25 @@ Inserta un row sintético con `external_created_at` de hace varios
 días y verifica que el `created_at` se actualiza:
 
 ```sql
--- Pick any msg, override external_created_at to 30 días atrás
+-- Pick any msg, override external_created_at to 30 días atrás.
+-- Importante: usamos to_json(text)::json para emular el shape
+-- string-encoded de Chatwoot real (Rails store coder: JSON sobre
+-- columna json). Si usas jsonb_build_object directo, generarás un
+-- objeto-encoded y NO reproduce el bug — la query del worker lo
+-- encontrará trivialmente y no validas el fix del #>> '{}'.
 UPDATE messages
-SET content_attributes = jsonb_build_object(
-  'external_created_at',
-  EXTRACT(EPOCH FROM NOW() - interval '30 days')::bigint
+SET content_attributes = to_json(
+  json_build_object(
+    'external_created_at',
+    EXTRACT(EPOCH FROM NOW() - interval '30 days')::bigint
+  )::text
 )::json
 WHERE id = <pick_one>;
 
 -- Espera el siguiente tick (30s si usas el workflow n8n)
 
 -- Verifica que created_at quedó alineado con external_created_at
-SELECT id, created_at, to_timestamp(((content_attributes::jsonb)->>'external_created_at')::bigint) AS ext
+SELECT id, created_at, to_timestamp((((content_attributes #>> '{}')::jsonb)->>'external_created_at')::bigint) AS ext
 FROM messages WHERE id = <pick_one>;
 ```
 

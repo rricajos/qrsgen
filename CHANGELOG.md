@@ -45,6 +45,38 @@ v1.0.0-rc.1 candidato cuando el soak de v0.64.0 supere 7 días
 limpios. v1.0.0 final tras 14 días adicionales como RC.
 -->
 
+## [0.64.7] - 2026-06-02
+
+Refactor arquitectural: el backdate worker que en v0.54.0 se
+implementó dentro de qrsgen (vía `CHATWOOT_DB_URL`) se mueve al
+repo de integración. Razón: qrsgen debe permanecer agnóstico del
+downstream — la operación `messages.created_at ← external_created_at`
+es Chatwoot-específica (Chatwoot ignora `created_at` en POST normales)
+y no tiene sentido acoplarla al bridge.
+
+### Removed
+
+- `internal/bridge/backdate.go` + `backdate_test.go` borrados.
+- Envs eliminadas: `CHATWOOT_DB_URL`, `QRSGEN_BACKDATE_INTERVAL`,
+  `QRSGEN_BACKDATE_BATCH_SIZE`, `QRSGEN_BACKDATE_TOLERANCE_SEC`.
+- Inicialización del worker en `cmd/server/main.go` desconectada
+  (~16 líneas).
+- Dependencia directa del schema de Chatwoot eliminada.
+
+### Added
+
+- `docs/integrations/backdate-recipe.md`: receta SQL idempotente
+  para que cada integrador la materialice donde prefiera (n8n,
+  cron+psql, super-admin endpoint, etc.).
+
+### Migration
+
+- **Si usabas el worker interno**: remove `CHATWOOT_DB_URL` de
+  tu deployment y monta el workflow `OMNIA_BACKDATE` del integration
+  repo (n8n) o tu equivalente. Ver `docs/integrations/backdate-recipe.md`.
+- qrsgen sigue emitiendo `external_created_at` en cada PostMessage
+  desde v0.46.0 — el contrato hacia downstream no cambia.
+
 ## [0.64.6] - 2026-06-01
 
 Polish pack final pre-RC1. Cierra el ciclo v0.64.x con seguridad,

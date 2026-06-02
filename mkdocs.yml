@@ -133,6 +133,7 @@ nav:
       - Contenido de mensajes: integrations/message-content.md
       - Group admin: integrations/group-admin.md
       - History import: integrations/history-import.md
+      - "Backdate receta (created_at)": integrations/backdate-recipe.md
   - Migrations:
       - migrations/index.md
       - Desde Evolution API: migrations/from-evolution-api.md

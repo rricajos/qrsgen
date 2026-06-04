@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // captureRequest construye un Client apuntado a un httptest.Server que
@@ -109,6 +110,34 @@ func TestClient_WithAPIPathPrefix_NoAccountIDToken(t *testing.T) {
 	_, _ = c.FindContactByPhone(context.Background(), "34611")
 	if path() != "/api/v3/contacts/search" {
 		t.Errorf("path = %q, want /api/v3/contacts/search", path())
+	}
+}
+
+func TestClient_WithHTTPTimeout(t *testing.T) {
+	// El Option debe sobreescribir el timeout default del http.Client.
+	c := New("http://example.test", "tok", 1, WithHTTPTimeout(42*time.Second))
+	if c.http.Timeout != 42*time.Second {
+		t.Errorf("http.Timeout = %v, want 42s", c.http.Timeout)
+	}
+}
+
+func TestClient_WithHTTPTimeout_Default(t *testing.T) {
+	// Sin Option → timeout default 15s (comportamiento pre-v1.1.0).
+	c := New("http://example.test", "tok", 1)
+	if c.http.Timeout != 15*time.Second {
+		t.Errorf("default http.Timeout = %v, want 15s", c.http.Timeout)
+	}
+}
+
+func TestClient_WithHTTPTimeout_OverridesWithHTTPClient(t *testing.T) {
+	// Si pasas WithHTTPClient primero y WithHTTPTimeout después, el
+	// timeout sobreescribe (orden de Options matters; documentado).
+	custom := &http.Client{Timeout: 1 * time.Second}
+	c := New("http://example.test", "tok", 1,
+		WithHTTPClient(custom),
+		WithHTTPTimeout(99*time.Second))
+	if c.http.Timeout != 99*time.Second {
+		t.Errorf("http.Timeout = %v, want 99s (last opt wins)", c.http.Timeout)
 	}
 }
 

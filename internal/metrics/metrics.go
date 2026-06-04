@@ -93,4 +93,18 @@ var (
 		Name: "qrsgen_realtime_events_total",
 		Help: "Eventos real-time procesados por el bridge (avatar/reaction/typing/receipt).",
 	}, []string{"feature", "result", "instance"})
+
+	// DownstreamTemplateFallbacks: cuenta cuántas veces el payload_template
+	// per-tenant cayó al shape Chatwoot default. Permite detectar templates
+	// rotos en producción sin tener que inspeccionar logs manualmente.
+	// reason:
+	//   "execute_failed"   → el template ejecutó error (variable inexistente, etc.)
+	//   "invalid_json"     → el output del template no era JSON sintácticamente válido
+	// PromQL útil:
+	//   rate(qrsgen_downstream_template_fallbacks_total[5m])
+	// Desde v0.65.2.
+	DownstreamTemplateFallbacks = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "qrsgen_downstream_template_fallbacks_total",
+		Help: "Veces que el payload_template cayó al shape Chatwoot default por error de execute o JSON inválido.",
+	}, []string{"reason"})
 )

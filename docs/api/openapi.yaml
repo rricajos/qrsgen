@@ -106,9 +106,41 @@ components:
       required: [name]
       properties:
         name: { type: string, example: "SAT-NEW" }
-        events_webhook_url: { type: string, nullable: true }
+        events_webhook_url:
+          type: string
+          nullable: true
+          description: |
+            Legacy single-subscriber lifecycle webhook URL. Si
+            events_webhook_subscribers está set, este campo se ignora.
+        events_webhook_subscribers:
+          type: array
+          nullable: true
+          description: |
+            v0.65.0+ Fan-out a múltiples lifecycle webhooks con filter
+            por evento. Si está set, sobreescribe events_webhook_url.
+          items:
+            $ref: '#/components/schemas/WebhookSubscriber'
         inbox_id: { type: integer, nullable: true }
         owner_tag: { type: string, nullable: true }
+
+    WebhookSubscriber:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL HTTPS donde se POSTea el payload del evento.
+          example: "https://primary.example.com/lifecycle"
+        events:
+          type: array
+          description: |
+            Lista de eventos que este subscriber recibe. Vacío u omitido
+            = recibe todos. Nombres válidos en docs/api/lifecycle-webhooks.md.
+          items:
+            type: string
+            enum: [paired, connected, disconnected, unreachable, logged_out, qr_generated, spam_blocked, backend_started, backend_restarting, reconnected, strike, ban_risk, outgoing_expired]
+          example: ["disconnected", "spam_blocked"]
 
     EditMessageReq:
       type: object

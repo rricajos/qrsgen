@@ -190,6 +190,50 @@ func TestPayloadTemplate_ParseFailure_NoOp(t *testing.T) {
 	}
 }
 
+func TestPayloadTemplate_FallbackHook_InvalidJSON(t *testing.T) {
+	// El hook debe invocarse con reason="invalid_json" cuando el template
+	// ejecuta OK pero el output no es JSON parseable.
+	tpl := `{"content": {{printf "%q" .Content}} "extra":"missing comma"}`
+	var hookReasons []string
+	hook := func(r string) { hookReasons = append(hookReasons, r) }
+	_, c := capturePostMessage(t, WithPayloadTemplate(tpl), WithTemplateFallbackHook(hook))
+	_, _ = c.PostMessage(context.Background(), PostMessageReq{
+		ConversationID: 1, Content: "x", MessageType: "outgoing",
+	})
+	if len(hookReasons) != 1 || hookReasons[0] != "invalid_json" {
+		t.Errorf("hookReasons = %v, want [invalid_json]", hookReasons)
+	}
+}
+
+func TestPayloadTemplate_FallbackHook_ExecuteFailed(t *testing.T) {
+	// El hook debe invocarse con reason="execute_failed" cuando el template
+	// Execute() falla (e.g. variable inexistente).
+	tpl := `{"content":{{.NoSuchField}}}`
+	var hookReasons []string
+	hook := func(r string) { hookReasons = append(hookReasons, r) }
+	_, c := capturePostMessage(t, WithPayloadTemplate(tpl), WithTemplateFallbackHook(hook))
+	_, _ = c.PostMessage(context.Background(), PostMessageReq{
+		ConversationID: 1, Content: "x", MessageType: "outgoing",
+	})
+	if len(hookReasons) != 1 || hookReasons[0] != "execute_failed" {
+		t.Errorf("hookReasons = %v, want [execute_failed]", hookReasons)
+	}
+}
+
+func TestPayloadTemplate_FallbackHook_NotCalledOnSuccess(t *testing.T) {
+	// El hook NO debe invocarse cuando el template funciona OK.
+	tpl := `{"content":{{printf "%q" .Content}}}`
+	var hookReasons []string
+	hook := func(r string) { hookReasons = append(hookReasons, r) }
+	_, c := capturePostMessage(t, WithPayloadTemplate(tpl), WithTemplateFallbackHook(hook))
+	_, _ = c.PostMessage(context.Background(), PostMessageReq{
+		ConversationID: 1, Content: "ok", MessageType: "outgoing",
+	})
+	if len(hookReasons) != 0 {
+		t.Errorf("hookReasons = %v, expected no calls", hookReasons)
+	}
+}
+
 func TestValidatePayloadTemplate(t *testing.T) {
 	cases := []struct {
 		name      string

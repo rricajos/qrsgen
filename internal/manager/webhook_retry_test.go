@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func newTestManager(t *testing.T) *Manager {
@@ -15,6 +16,41 @@ func newTestManager(t *testing.T) *Manager {
 	// instanciamos manualmente lo necesario.
 	return &Manager{
 		logger: slog.New(slog.DiscardHandler),
+	}
+}
+
+func TestSetLifecycleWebhookTimeout_Default(t *testing.T) {
+	// Sin SetLifecycleWebhookTimeout, el postWebhookOnce usa 10s default.
+	// Sanity check: el getter retorna 0 (no configurado), señal a
+	// postWebhookOnce de usar default.
+	m := newTestManager(t)
+	if m.lifecycleWebhookTimeout != 0 {
+		t.Errorf("unset lifecycleWebhookTimeout = %v, want 0 (default branch)", m.lifecycleWebhookTimeout)
+	}
+}
+
+func TestSetLifecycleWebhookTimeout_Override(t *testing.T) {
+	m := newTestManager(t)
+	m.SetLifecycleWebhookTimeout(45 * time.Second)
+	if m.lifecycleWebhookTimeout != 45*time.Second {
+		t.Errorf("lifecycleWebhookTimeout = %v, want 45s", m.lifecycleWebhookTimeout)
+	}
+}
+
+func TestPostWebhookOnce_RespectsCustomTimeout(t *testing.T) {
+	// Server que tarda 200ms en responder. Con timeout 50ms el cliente
+	// debe abortar antes con error de timeout. Valida que el timeout
+	// custom realmente se aplica (no es solo cosmético en el field).
+	m := newTestManager(t)
+	m.SetLifecycleWebhookTimeout(50 * time.Millisecond)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	err := m.postWebhookOnce(srv.URL, []byte(`{}`))
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
 	}
 }
 

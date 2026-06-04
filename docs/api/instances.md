@@ -11,6 +11,10 @@ Crea (o reusa, idempotente) una instancia.
 {
   "name": "whatsapp-main",
   "events_webhook_url": "https://workflows.example.com/qrsgen-events",
+  "events_webhook_subscribers": [
+    {"url": "https://primary.example.com/lifecycle"},
+    {"url": "https://observability.example.com/qrsgen", "events": ["disconnected", "spam_blocked"]}
+  ],
   "inbox_id": 90,
   "owner_tag": "tenant-acme"
 }
@@ -19,9 +23,20 @@ Crea (o reusa, idempotente) una instancia.
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
 | `name` | string | ✓ | Identificador único de la instancia. Aparece en todas las URLs. Usa nombres descriptivos (`whatsapp-main`, `whatsapp-sales`). |
-| `events_webhook_url` | string | – | URL donde qrsgen POSTea lifecycle events (ver [Lifecycle webhooks](lifecycle-webhooks.md)). |
+| `events_webhook_url` | string | – | URL donde qrsgen POSTea lifecycle events. **Modo legacy** (single subscriber). Si `events_webhook_subscribers` está set, este campo se mantiene en DB pero NO se usa para fan-out. Ver [Lifecycle webhooks](lifecycle-webhooks.md). |
+| `events_webhook_subscribers` | array | – | **v0.65.0+** Fan-out a múltiples destinos con filter de eventos por suscriptor. Si está set, sobreescribe el modo legacy. Cada item tiene shape `WebhookSubscriber` (ver tabla abajo). |
 | `inbox_id` | int | – | ID arbitrario para routing downstream. qrsgen lo propaga en el payload de incoming msgs. |
 | `owner_tag` | string | – | String libre para correlación tenant ↔ instancia. Aparece en `/api/usage/summary`. |
+
+**Shape `WebhookSubscriber`** (items de `events_webhook_subscribers`):
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `url` | string | ✓ | URL HTTPS donde qrsgen POSTea el payload del evento (mismo shape que `events_webhook_url`). |
+| `events` | array<string> | – | Lista de nombres de eventos que este suscriptor recibe. Si está vacío u omitido, recibe **todos** los eventos. Nombres válidos: ver [Lifecycle webhooks](lifecycle-webhooks.md) (`paired`, `connected`, `disconnected`, `unreachable`, `logged_out`, `qr_generated`, `spam_blocked`, `backend_started`, etc.). |
+
+Cada suscriptor recibe el evento independientemente con su propio
+retry budget — un suscriptor lento no bloquea a los demás.
 
 **Response 200:**
 ```json
@@ -101,6 +116,10 @@ Actualiza configuración existente. Campos `null`/omitidos no se tocan.
 ```json
 {
   "events_webhook_url": "https://nueva-url",
+  "events_webhook_subscribers": [
+    {"url": "https://primary.example.com/lifecycle"},
+    {"url": "https://metrics.example.com/qrsgen", "events": ["disconnected"]}
+  ],
   "inbox_id": 91,
   "spamguard_enabled": true,
   "last_qr_msg_id": 12345,
@@ -110,6 +129,9 @@ Actualiza configuración existente. Campos `null`/omitidos no se tocan.
 
 Pasar `owner_tag: ""` (string vacío) **borra** el tag previo. Omitirlo
 lo deja intacto. Misma semántica para los demás campos opcionales.
+Para `events_webhook_subscribers`: pasar array vacío `[]` resetea al
+modo legacy (`events_webhook_url` solo); omitirlo conserva el array
+previo intacto.
 
 **Response 200:**
 ```json

@@ -58,6 +58,24 @@ type Config struct {
 	// contrato cuando se añadan adapters reales (v0.66.0+ o v1.1.x).
 	DownstreamType string `env:"DOWNSTREAM_TYPE" envDefault:"chatwoot"`
 
+	// DownstreamHTTPTimeoutSec controla el timeout del http.Client del
+	// downstream — aplica a TODAS las llamadas REST (PostMessage,
+	// CreateContact, FindContactByPhone, UploadContactAvatar, etc.).
+	// Default 15s reproduce el comportamiento pre-v1.1.0. Aumentar si
+	// el downstream es lento (cold start, latencia regional alta) o
+	// reducir si quieres failing-fast en producción crítica.
+	// Desde v1.1.0.
+	DownstreamHTTPTimeoutSec int `env:"QRSGEN_DOWNSTREAM_HTTP_TIMEOUT_SEC" envDefault:"15"`
+
+	// LifecycleWebhookTimeoutSec controla el timeout del http.Client
+	// usado para POSTear lifecycle events a events_webhook_url y a las
+	// URLs de events_webhook_subscribers. Default 10s reproduce
+	// comportamiento pre-v1.1.0. Aumentar si tu orquestador lifecycle
+	// (n8n con cold start, etc.) tarda en responder bajo carga — el
+	// retry kickea igual, pero menos timeouts = menos ruido en logs y
+	// menos delay entre emisión y delivery efectivo. Desde v1.1.0.
+	LifecycleWebhookTimeoutSec int `env:"QRSGEN_LIFECYCLE_WEBHOOK_TIMEOUT_SEC" envDefault:"10"`
+
 	InstanceName      string `env:"INSTANCE_NAME,required"`
 	InstancePhoneHint string `env:"INSTANCE_PHONE_HINT"`
 

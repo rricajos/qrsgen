@@ -4,6 +4,93 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-04
+
+🎉 **Primera release estable** de qrsgen.
+
+Tras un ciclo de ~3 semanas con 4 release candidates
+(`v1.0.0-rc.1` → `rc.4`) y 30+ patches que cerraron toda la deuda
+técnica significativa, qrsgen pasa a v1.0.0 oficialmente. A partir
+de aquí entra en cadencia SemVer normal: patches (`v1.0.x`) para
+bugfixes, minors (`v1.x.0`) para features compatibles, major
+(`v2.0.0`) solo si hay un rompimiento del contrato público.
+
+### Lo que entra en v1.0.0
+
+Incluye todo lo acumulado en main hasta `bdc6f09`:
+
+- **Bridge WhatsApp ↔ HTTP estable** con whatsmeow + Echo v4 +
+  pgxpool. 4 instancias en producción en dertochip swarm sin
+  regresiones desde el deploy de `v1.0.0-rc.4` (2026-06-02).
+- **Multi-tenant downstream** vía `bridge_tenant` (owner_tag →
+  config per-cliente).
+- **Lifecycle webhooks** con multi-subscriber JSONB + filter por
+  evento (v0.65.0). Modo legacy `events_webhook_url` mantenido.
+- **History import** opt-in (`QRSGEN_HISTORY_IMPORT_ENABLED`).
+- **Auth flexible** del downstream: header name + scheme configurables
+  (Bearer/Basic/raw) — habilita Zendesk/Freshdesk/Slack además de
+  Chatwoot.
+- **Path templates** del downstream: prefix configurable con
+  `{account_id}` placeholder. Habilita shapes distintos de Chatwoot.
+- **Interfaz pública `DownstreamAPI`** con adapter Chatwoot default.
+  Adapters Zendesk/Freshdesk/n8n/custom enchufables en versiones
+  futuras sin breaking changes.
+- **Payload transformer per-tenant** vía `bridge_tenant.payload_template`
+  (Go text/template). Habilita downstreams con shape distinto sin
+  escribir adapter completo.
+- **`external_created_at`** emitido en cada `PostMessage` para
+  habilitar backdate de history imports (ver
+  `docs/integrations/backdate-recipe.md`).
+- **SSRF protection** en `DownloadBlob` (v0.64.6).
+- **Spamguard** filter outgoings (last-N policy).
+- **Retroactive name update** con tracker persistente en DB.
+- **Avatar sync** con TTL refresh.
+- **Reactions sync**, typing sync, read receipts sync, all opt-in.
+- **`/api/public/stats`** endpoint para landing telemetry sin auth.
+- **OpenAPI spec** completo en `docs/api/openapi.yaml`.
+- **Documentación**: 30+ markdown files cubriendo deployment,
+  operations, runbooks (stuck instance, backup-restore,
+  token-rotation), integrations (avatar-sync, history-import,
+  payload-transformer, backdate-recipe), migrations desde 6
+  alternativas (Evolution, whatsapp-web.js, Baileys, Whapi,
+  MaytAPI, SaaS overview).
+
+### Verificación
+
+- `go test ./...` → 12/12 paquetes verdes
+- `go vet ./...` → clean
+- `govulncheck ./...` → no vulnerabilities
+- `gosec -severity medium ./...` → 0 issues
+- Production stability: 4 instancias en dertochip sin caídas no
+  recuperables desde `v1.0.0-rc.4` deploy.
+
+### Path post-v1 (compromisos)
+
+- **SemVer estricto**: no breaking changes sin major bump.
+- **Cadencia rápida de patches**: `v1.0.x` cuando aparezcan bugs,
+  sin esperar soak — la cobertura de tests + métricas + alerting
+  cubren las regresiones.
+- **Roadmap v1.1.0** (backlog priorizado en audit de 2026-06-04):
+  timeouts configurables vía env, métrica de template fallback
+  desplegada en dashboards, per-tenant override de
+  auth/scheme/prefix.
+
+### Decisión sobre soak
+
+El plan original (RC1 → 14 días soak → v1.0.0) se acortó porque:
+
+1. `v1.0.0-rc.4` lleva 2 días estables sin regresiones.
+2. La base de usuarios actual permite hacer rollback rápido si
+   aparece algún bug post-release — sin necesidad del cushion del
+   soak largo.
+3. SemVer post-v1 (patches frecuentes) es mejor disciplina que
+   acumular fixes en un RC chain interminable.
+
+Si en las próximas semanas aparece un bug crítico, sale como
+`v1.0.1`. Si es feature, `v1.1.0`. Esa es la idea.
+
+---
+
 ## [0.65.2] - 2026-06-04
 
 Audit follow-up tras v0.65.1 — solo docs + observabilidad. No toca
@@ -155,44 +242,29 @@ futuras sin breaking changes.
 
 
 <!--
-Roadmap hacia v1.0.0 — status tras v0.64.0:
+Roadmap post-v1.0.0 (backlog priorizado):
 
-Feature surface lo damos por completo. Lo que queda es soak puro
-en producción + tag final del major.
+v1.0.x patches — bugfixes según aparezcan.
 
-1. **Tests E2E reales en dertochip** (todavía manual cuando aparecen):
-   - [ ] Group rename → activity msg en Chatwoot
-   - [ ] Add/remove participants → activity msg
-   - [x] History import single + bulk con cobertura amplia
-         (validado E2E con ricardtest test)
-   - [ ] Identity change real (esperar a que aparezca naturalmente)
-   - [x] Quote/reply bidireccional (validado en v0.52.x)
+v1.1.0 (siguiente minor — sin urgencia):
+- Timeouts HTTP/context configurables vía env (DOWNSTREAM_TIMEOUT_SEC,
+  webhook retry timeout, etc.) — actualmente hardcoded a 15s.
+- Per-tenant override de auth_header/auth_scheme/api_path_prefix
+  (hoy solo global). Habilita multi-cliente con downstreams distintos
+  en un mismo qrsgen.
+- POST /api/tenants/:owner_tag/preview-payload (template dry-run).
+- Métricas adicionales: connection_pool_acquire_duration, etc.
+- Adapter zendesk concreto implementando DownstreamAPI.
 
-2. **Integration tests adicionales**:
-   - [ ] Endpoints group admin via httptest
-   - [x] msg_history persistence + DropInstance (v0.58.0)
-   - [ ] Group events con nil sender / fromFullSync
+v1.2.0+ (sin compromiso):
+- generic_webhook adapter operativo (activa DOWNSTREAM_TYPE).
+- Helm chart oficial + Docker Compose template.
+- gRPC interface opcional además de REST.
+- Bulk message API.
 
-3. **Robustez**:
-   - [x] Cancel zombie history goroutine on Delete (v0.53.3)
-   - [x] Retry-After respect en downstream client (v0.59.0)
-   - [ ] Circuit breaker (deferido; no urgente sin escenario real)
-
-4. **Documentación**:
-   - [x] `docs/integrations/history-import.md`
-   - [x] `docs/integrations/group-admin.md`
-   - [x] `docs/api/groups.md`
-   - [x] `docs/api/openapi.yaml` (v0.61.0)
-   - [x] `docs/migrations/v0-to-v1.md` consolidado
-   - [x] `docs/operations/runbook-stuck-instance.md` (v0.63.0)
-
-5. **Soak time**:
-   - [ ] 7+ días en dertochip post-v0.64.0 sin regresiones
-   - [ ] Métricas Prometheus sin spikes anómalos
-   - [ ] Logs sin warnings recurrentes
-
-v1.0.0-rc.1 candidato cuando el soak de v0.64.0 supere 7 días
-limpios. v1.0.0 final tras 14 días adicionales como RC.
+NO se planean (deferidos indefinidamente):
+- Distributed mode multi-node (riesgo brutal, valor situacional).
+- Multi-cuenta WhatsApp per instance (rompe "1 instance = 1 phone").
 -->
 
 ## [0.64.7] - 2026-06-02

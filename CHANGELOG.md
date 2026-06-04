@@ -4,6 +4,42 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [0.65.2] - 2026-06-04
+
+Audit follow-up tras v0.65.1 — solo docs + observabilidad. No toca
+hot paths. v1.0.0-rc.4 sigue válido en producción; este patch es
+non-functional pero mejora completeness y monitoring.
+
+### Added
+
+- **API docs**: documentado `events_webhook_subscribers` en
+  `docs/api/instances.md` (POST + PATCH `/api/instances`) con shape
+  `WebhookSubscriber` (url + events opcionales) y semantics de fan-out.
+  El campo existía en código desde v0.65.0 pero no estaba en docs —
+  integradores no lo conocían.
+- **OpenAPI spec**: `WebhookSubscriber` schema añadido en
+  `docs/api/openapi.yaml`. `CreateInstanceReq` incluye el array
+  opcional. Lista de eventos válidos en el enum.
+- **Métrica nueva**: `qrsgen_downstream_template_fallbacks_total{reason}`
+  cuenta cuántas veces el `payload_template` per-tenant cayó al shape
+  Chatwoot default. Labels: `reason="execute_failed"` (Execute devolvió
+  error) o `reason="invalid_json"` (output no parseable). PromQL útil:
+  `rate(qrsgen_downstream_template_fallbacks_total[5m])`. Permite
+  detectar templates rotos sin parsear logs.
+- **Nuevo Option** `WithTemplateFallbackHook(fn func(reason string))`
+  en `internal/downstream/client.go`. Callback invocado sincrónicamente
+  desde `PostMessage` cuando un template configurado falla. Mantiene
+  el package downstream desacoplado de metrics — la métrica se cablea
+  desde `cmd/server/main.go`.
+
+### Tests
+
+- 3 nuevos sub-tests en `payload_template_test.go`:
+  `TestPayloadTemplate_FallbackHook_InvalidJSON`,
+  `TestPayloadTemplate_FallbackHook_ExecuteFailed`,
+  `TestPayloadTemplate_FallbackHook_NotCalledOnSuccess`.
+- 12/12 paquetes verdes.
+
 ## [0.65.1] - 2026-06-02
 
 Polish post-v0.65.0. Validación de `payload_template` at-set-time +

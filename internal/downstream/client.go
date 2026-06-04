@@ -39,6 +39,12 @@ type Client struct {
 	// Chatwoot-shape. Aplicar template falla → fallback default +
 	// warning log. v0.65.0.
 	payloadTpl *template.Template
+
+	// tplFallbackHook se invoca cuando payloadTpl está set pero falla
+	// (execute error o output JSON inválido) y caemos al default.
+	// Permite cablear métricas/alerting sin acoplar a metrics package.
+	// nil → no se invoca. v0.65.2.
+	tplFallbackHook func(reason string)
 }
 
 // Defaults para los campos configurables. Reproducen exactamente el
@@ -82,6 +88,23 @@ func WithAPIPathPrefix(prefix string) Option {
 // que ajustan timeouts/transports.
 func WithHTTPClient(h *http.Client) Option {
 	return func(c *Client) { c.http = h }
+}
+
+// WithTemplateFallbackHook registra un callback que se invoca cuando un
+// `payload_template` configurado cae al shape default Chatwoot (por
+// error de execute o JSON inválido del output). Útil para que el operador
+// cablee métricas/alerting sin acoplar el package downstream al package
+// metrics. v0.65.2.
+//
+// reason values:
+//   - "execute_failed": template.Execute devolvió error (variable
+//     inexistente, función inválida, etc.).
+//   - "invalid_json":   el output del template no era JSON parseable.
+//
+// El hook se llama sincrónicamente desde PostMessage — debe ser barato
+// (un counter increment). Si nil, no se invoca nada (default).
+func WithTemplateFallbackHook(fn func(reason string)) Option {
+	return func(c *Client) { c.tplFallbackHook = fn }
 }
 
 // ValidatePayloadTemplate parsea un Go text/template para confirmar
@@ -401,8 +424,14 @@ func (c *Client) PostMessage(ctx context.Context, req PostMessageReq) (*PostMess
 				return &resp, nil
 			}
 			slog.Warn("downstream: payload_template produced invalid JSON — using default shape")
+			if c.tplFallbackHook != nil {
+				c.tplFallbackHook("invalid_json")
+			}
 		} else {
 			slog.Warn("downstream: payload_template execute failed — using default shape", "err", err)
+			if c.tplFallbackHook != nil {
+				c.tplFallbackHook("execute_failed")
+			}
 		}
 	}
 

@@ -120,6 +120,13 @@ func main() {
 		downstream.WithAuthHeader(cfg.DownstreamAuthHeaderName),
 		downstream.WithAuthScheme(cfg.DownstreamAuthScheme),
 		downstream.WithAPIPathPrefix(cfg.DownstreamAPIPathPrefix),
+		// v0.65.2: cablear el counter Prometheus de template fallbacks.
+		// Si el payload_template per-tenant falla (execute o JSON inválido),
+		// incrementamos el counter etiquetado por razón. Permite alertar
+		// sin tener que parsear logs.
+		downstream.WithTemplateFallbackHook(func(reason string) {
+			metrics.DownstreamTemplateFallbacks.WithLabelValues(reason).Inc()
+		}),
 	}
 	cw := downstream.New(cfg.DownstreamBaseURL, cfg.DownstreamAPIToken, cfg.DownstreamAccountID, dsOpts...)
 	dedup := bridge.NewDeduper(pool, cfg.InstanceName, cfg.DedupWindowMs, cfg.DedupEnabled)

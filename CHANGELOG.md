@@ -4,6 +4,35 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-04
+
+Security patch. Bump del toolchain Go 1.25.10 → 1.25.11 para cerrar
+dos vulnerabilidades stdlib **callable** desde qrsgen (no eran
+solo "en deps no-llamables").
+
+### Security
+
+- **GO-2026-5037** (crypto/x509): Inefficient candidate hostname
+  parsing. Callable vía `x509.Certificate.Verify` desde
+  `cmd/server/main.go:74` y `manager.BulkCreate`. Severity: bajo
+  (DoS por overhead, no exploit directo).
+- **GO-2026-5039** (net/textproto): Arbitrary inputs included in
+  errors without escaping. Callable vía
+  `downstream.Client.DownloadBlob` → `ReadMIMEHeader`. Severity:
+  bajo (info disclosure en error messages que no se exponen al
+  usuario final).
+
+Ambas detectadas por `govulncheck` tras el deploy de v1.1.0. El
+fail del check `govulncheck` en CI de `main` también queda
+resuelto con este bump.
+
+### Verification
+
+- `govulncheck ./...` → **No vulnerabilities found**.
+- 12/12 paquetes tests verdes.
+- `gosec -severity medium` → 0 issues.
+- Sin cambios funcionales — solo toolchain bump.
+
 ## [1.1.0] - 2026-06-04
 
 Primer minor post-v1. **HTTP timeouts configurables vía env** — resuelve

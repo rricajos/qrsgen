@@ -105,6 +105,12 @@ type Manager struct {
 	// main). Se incluye en cada payload lifecycle para que el orquestador
 	// pueda mostrar "QRsGEN vX.X.X" en sus mensajes. Si vacío, no se añade.
 	version string
+
+	// lifecycleWebhookTimeout controla el timeout del http.Client usado
+	// en postWebhookOnce para POSTear lifecycle events. Default 10s.
+	// Configurable vía SetLifecycleWebhookTimeout / env
+	// QRSGEN_LIFECYCLE_WEBHOOK_TIMEOUT_SEC. v1.1.0.
+	lifecycleWebhookTimeout time.Duration
 }
 
 // SetPictureHandler registra el callback que se inyecta en cada Conn
@@ -210,6 +216,16 @@ func (m *Manager) SetIdentityChangeHandler(h wameow.IdentityChangeHandler) {
 // SetVersion attaches the running qrsgen version to lifecycle event payloads.
 // Pass "" to omit. Default is empty (events go out without the field).
 func (m *Manager) SetVersion(v string) { m.version = v }
+
+// SetLifecycleWebhookTimeout configura el timeout del http.Client usado
+// para postear lifecycle events (postWebhookOnce). Si d <= 0, se aplica
+// el default (10s). Llamar desde main.go con el valor de la env
+// QRSGEN_LIFECYCLE_WEBHOOK_TIMEOUT_SEC. Desde v1.1.0.
+func (m *Manager) SetLifecycleWebhookTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lifecycleWebhookTimeout = d
+}
 
 // UsageRecorder es la interfaz mínima que el manager usa para incrementar
 // contadores de lifecycle events. Inyectable vía SetUsage; nil → no-op.
@@ -1059,7 +1075,16 @@ func (m *Manager) postWebhookOnce(url string, body []byte) error {
 		return fmt.Errorf("build req: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 10 * time.Second}
+	// v1.1.0: timeout configurable vía SetLifecycleWebhookTimeout / env
+	// QRSGEN_LIFECYCLE_WEBHOOK_TIMEOUT_SEC. Default 10s reproduce
+	// comportamiento pre-v1.1.0.
+	timeout := 10 * time.Second
+	m.mu.RLock()
+	if m.lifecycleWebhookTimeout > 0 {
+		timeout = m.lifecycleWebhookTimeout
+	}
+	m.mu.RUnlock()
+	client := &http.Client{Timeout: timeout}
 	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("do: %w", err)

@@ -90,6 +90,20 @@ func WithHTTPClient(h *http.Client) Option {
 	return func(c *Client) { c.http = h }
 }
 
+// WithHTTPTimeout sobreescribe el timeout del http.Client default
+// (15s pre-v1.1.0). No-op si previamente se pasó WithHTTPClient con
+// un client custom — en ese caso el operador controla su propio
+// timeout. Para downstreams lentos (cold start, latencia regional)
+// subir; para failing-fast en producción crítica bajar.
+// Desde v1.1.0.
+func WithHTTPTimeout(d time.Duration) Option {
+	return func(c *Client) {
+		if c.http != nil {
+			c.http.Timeout = d
+		}
+	}
+}
+
 // WithTemplateFallbackHook registra un callback que se invoca cuando un
 // `payload_template` configurado cae al shape default Chatwoot (por
 // error de execute o JSON inválido del output). Útil para que el operador

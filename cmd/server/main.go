@@ -120,6 +120,9 @@ func main() {
 		downstream.WithAuthHeader(cfg.DownstreamAuthHeaderName),
 		downstream.WithAuthScheme(cfg.DownstreamAuthScheme),
 		downstream.WithAPIPathPrefix(cfg.DownstreamAPIPathPrefix),
+		// v1.1.0: HTTP timeout configurable vía env QRSGEN_DOWNSTREAM_HTTP_TIMEOUT_SEC.
+		// Default 15s reproduce comportamiento pre-v1.1.0.
+		downstream.WithHTTPTimeout(time.Duration(cfg.DownstreamHTTPTimeoutSec) * time.Second),
 		// v0.65.2: cablear el counter Prometheus de template fallbacks.
 		// Si el payload_template per-tenant falla (execute o JSON inválido),
 		// incrementamos el counter etiquetado por razón. Permite alertar
@@ -258,6 +261,9 @@ func main() {
 	mgr.SetAudit(auditLog)
 	mgr.SetOwnerTagResolver(dsRegistry)
 	mgr.SetVersion(version)
+	// v1.1.0: timeout configurable del lifecycle webhook (POSTs a
+	// events_webhook_url y subscribers). Default 10s reproducido.
+	mgr.SetLifecycleWebhookTimeout(time.Duration(cfg.LifecycleWebhookTimeoutSec) * time.Second)
 	// v0.31.2: real-time avatar refresh. Cuando whatsmeow emite Picture
 	// (cambio de foto), forzar el re-sync del contact correspondiente.
 	mgr.SetPictureHandler(func(ctx context.Context, instance string, jid types.JID, pictureID string, removed bool, r wameow.WAResolver) {

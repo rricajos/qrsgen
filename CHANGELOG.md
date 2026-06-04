@@ -4,6 +4,59 @@ Todos los cambios notables se documentan aquí. Sigue [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-04
+
+Primer minor post-v1. **HTTP timeouts configurables vía env** — resuelve
+el audit ALTA #2 detectado pre-v1, confirmado relevante al ver WARN
+`lifecycle webhook retry — context deadline exceeded` en el deploy de
+v1.0.0 contra un n8n cliente con latencia variable.
+
+### Added
+
+- `QRSGEN_DOWNSTREAM_HTTP_TIMEOUT_SEC` (default 15): timeout del
+  http.Client del downstream genérico. Aplica a TODAS las llamadas
+  REST (PostMessage, CreateContact, FindContactByPhone,
+  UploadContactAvatar, etc.).
+- `QRSGEN_LIFECYCLE_WEBHOOK_TIMEOUT_SEC` (default 10): timeout
+  específico para POSTs a `events_webhook_url` y URLs de
+  `events_webhook_subscribers`. Permite tunear sin afectar el otro
+  http.Client. Aumentar si tu orquestador (n8n cold start,
+  webhook chain con varios hops) tarda en responder.
+- `downstream.WithHTTPTimeout(d time.Duration)` Option en el package
+  `downstream` — pareja del existing `WithHTTPClient`, pero más
+  ergonómico para el caso común (solo cambia el timeout, conserva
+  defaults del transport).
+- `(*manager.Manager).SetLifecycleWebhookTimeout(d time.Duration)`
+  setter en el patrón existente de Manager (consistent con
+  `SetVersion`, `SetUsage`, etc.).
+
+### Backward-compat
+
+100% BC: deployments sin las nuevas envs reproducen comportamiento
+idéntico a v1.0.0 (defaults 15s y 10s respectivamente).
+
+### Tests
+
+- 3 nuevos en `client_options_test.go` (default + override +
+  combinación con `WithHTTPClient`).
+- 3 nuevos en `webhook_retry_test.go` (default + setter +
+  comportamiento real con server slow + timeout corto).
+- 12/12 paquetes verdes.
+- gosec -severity medium → 0 issues.
+
+### Verification empírica del problema resuelto
+
+El WARN observado el 2026-06-04 al deployar v1.0.0:
+
+```
+"lifecycle webhook retry scheduled","event":"backend_restarting",
+"last_err":"Client.Timeout exceeded while awaiting headers"
+```
+
+ya no es inevitable post-v1.1.0. Operadores pueden subir
+`QRSGEN_LIFECYCLE_WEBHOOK_TIMEOUT_SEC` (e.g. 30s) cuando el
+orquestador es lento, en lugar de aceptar el retry y ruido en logs.
+
 ## [1.0.0] - 2026-06-04
 
 🎉 **Primera release estable** de qrsgen.

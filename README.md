@@ -94,32 +94,31 @@ HTTP estándar.
 
 ## Estado del proyecto
 
-En producción con 4+ instancias activas. Tag actual: **v0.64.x**
-(feature-complete pre-v1.0.0). El
-[CHANGELOG](CHANGELOG.md) documenta cada release.
+🎉 **v1.0.0 — primera release estable** (2026-06-04). En producción
+con 4+ instancias activas en dertochip swarm. SemVer estricto a
+partir de aquí. El [CHANGELOG](CHANGELOG.md) documenta cada release.
 
-**Features destacadas del ciclo v0.5x / v0.6x**:
+**Highlights del milestone v1.0.0:**
 
-- **LID mention resolution** con cascada pushname → saved → phone →
-  redacted phone → raw (v0.53.0/1).
-- **Reactions as quote-reply** vía `content_attributes.in_reply_to`
-  (v0.53.2).
-- **Backdate worker** que corrige `messages.created_at` en Chatwoot
-  desde `external_created_at`, resolviendo el problema de imports
-  históricos con timestamp "now" (v0.54.0).
-- **On-demand history import con `days` param** acota la ventana
-  per-request sin tocar config global (v0.54.4).
-- **Edit message support** vía `whatsmeow.BuildEdit` (v0.60.0,
-  endpoint `POST /api/instances/:name/messages/:waid/edit`).
-- **`/api/version`** con SHA + build date inyectados por ldflags
-  (v0.55.0). Útil para deploy verification.
-- **OpenAPI 3.0 spec** en `docs/api/openapi.yaml` (v0.61.0).
-- **`Retry-After` respect** con `RateLimitError` tipado para 429s
-  del downstream (v0.59.0).
+- **Downstream agnóstico**: auth header/scheme configurable
+  (Bearer/Basic/raw), API path prefix configurable, interfaz pública
+  `DownstreamAPI` con adapter Chatwoot default. Habilita Zendesk,
+  Freshdesk, n8n directo, etc. sin breaking changes futuros.
+- **Multi-subscriber lifecycle webhooks** (JSONB fan-out con filter
+  por evento per subscriber).
+- **Payload transformer per-tenant** vía Go `text/template` —
+  reescribe el body JSON sin necesidad de adapter custom.
+- **History import** opt-in con `external_created_at` propagado para
+  backdate en downstream.
+- **LID mention resolution**, reactions-as-reply, edit messages,
+  read receipts sync, avatar sync con TTL, retroactive name update,
+  spamguard, SSRF protection en blob download.
+- **OpenAPI 3.0 spec** completo, ~30 docs cubriendo deployment,
+  operations, integrations, migrations desde 6 alternativas.
 
-Roadmap hacia v1.0.0: 7+ días de soak en v0.64.x → `v1.0.0-rc.1`
-→ 14+ días RC → `v1.0.0` final. Ver el `Unreleased` section del
-[CHANGELOG](CHANGELOG.md#unreleased) para el status completo.
+Cadencia post-v1: patches `v1.0.x` para bugfixes (sin esperar soak —
+rollback rápido habilitado), minors `v1.x.0` para features
+compatibles. Ver [CHANGELOG](CHANGELOG.md) para el roadmap v1.1.x.
 
 ## Documentación
 

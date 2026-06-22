@@ -899,21 +899,32 @@ func (i *Incoming) Handle(ctx context.Context, instance string, msg *events.Mess
 				contactName = subj
 			}
 		} else {
-			contactName = r.ContactName(otherJID)
-			// Si chat es LID, intenta también el PN para sacar el nombre (a veces
-			// el contact store está poblado solo en una de las dos formas).
-			if contactName == "" && otherJID.Server == types.HiddenUserServer {
-				if pn, ok := r.PNForLID(otherJID); ok {
-					contactName = r.ContactName(pn)
+			// v1.x: solo tomamos el nombre del contact store si el contacto está
+			// GUARDADO en la agenda del dueño (FullName/FirstName). El push name
+			// NO cuenta como saved — ese se formatea como "+num ~push" en displayName.
+			savedJID := otherJID
+			saved := r.IsContactSaved(savedJID)
+			if !saved && otherJID.Server == types.HiddenUserServer {
+				if pn, ok := r.PNForLID(otherJID); ok && r.IsContactSaved(pn) {
+					saved, savedJID = true, pn
 				}
+			}
+			if saved {
+				contactName = r.ContactName(savedJID)
 			}
 		}
 	}
-	if contactName == "" && !fromMe && !isGroup {
-		// Sin group subject conocido caemos a "" (sync usa pickName con phone/LID).
-		// Solo aplicamos push name a 1-on-1 — en grupo el push name es del
-		// participante, no del grupo, y daría título incorrecto a la conv.
-		contactName = msg.Info.PushName
+	// v1.x naming: para 1-on-1 construimos el display name:
+	//   - nombre de agenda (si lo hay) gana siempre
+	//   - si no, "+<e164> ~<pushName>" (o "+<e164>" sin push name)
+	// El push name se refresca dinámicamente en sync() para contactos
+	// existentes con nombre placeholder. Grupos no se tocan (nombre = subject).
+	if !isGroup {
+		push := ""
+		if !fromMe {
+			push = msg.Info.PushName
+		}
+		contactName = displayName(contactName, push, rs)
 	}
 
 	// rawBody preserva el body sin prefix para guardarlo en msgHistory
@@ -1100,6 +1111,18 @@ func (i *Incoming) sync(ctx context.Context, instance string, inboxID int, rs re
 		contact, err = ds.CreateContact(ctx, req)
 		if err != nil {
 			return fmt.Errorf("create contact: %w", err)
+		}
+	} else if contactName != "" && contactName != contact.Name && isPlaceholderContactName(contact.Name, rs.phone) {
+		// v1.x: refresco dinámico del nombre. Solo si el nombre actual es
+		// placeholder (vacío, "WhatsApp <num>", "+<e164>" o "+<e164> ~...");
+		// nunca pisamos un nombre de agenda/custom. Best-effort.
+		if err := ds.UpdateContactName(ctx, contact.ID, contactName); err != nil {
+			i.logger.Warn("contact name refresh failed",
+				"instance", instance, "contactID", contact.ID, "err", err)
+		} else {
+			i.logger.Info("contact name refreshed",
+				"instance", instance, "contactID", contact.ID,
+				"oldName", contact.Name, "newName", contactName)
 		}
 	}
 	// Avatar sync — aplica tanto al contacto recién creado como al
@@ -1825,6 +1848,38 @@ func pickName(resolvedName string, rs resolvedSender) string {
 		return "WhatsApp LID " + lidShort(rs.lidJID)
 	}
 	return rs.primaryJID
+}
+
+// displayName computa el nombre del contacto downstream según el spec:
+//   - nombre de agenda (si se conoce) gana siempre
+//   - si no y hay teléfono: "+<e164> ~<pushName>" (o "+<e164>" sin push)
+//   - si no hay teléfono (LID-only): el push name, o "" (pickName decide)
+func displayName(agendaName, pushName string, rs resolvedSender) string {
+	if agendaName != "" {
+		return agendaName
+	}
+	if rs.phone != "" {
+		base := "+" + rs.phone
+		if pushName != "" {
+			return base + " ~" + pushName
+		}
+		return base
+	}
+	return pushName
+}
+
+// isPlaceholderContactName indica si un nombre downstream es "placeholder"
+// (generado por nosotros/Chatwoot) y por tanto seguro de sobrescribir con un
+// display name más fresco. Un nombre de agenda/custom NUNCA es placeholder.
+func isPlaceholderContactName(name, phone string) bool {
+	if name == "" {
+		return true
+	}
+	if phone == "" {
+		return false
+	}
+	e164 := "+" + phone
+	return name == "WhatsApp "+phone || name == e164 || strings.HasPrefix(name, e164+" ~")
 }
 
 func lidShort(lidJID string) string {
